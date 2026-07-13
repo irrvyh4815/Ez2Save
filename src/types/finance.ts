@@ -126,6 +126,7 @@ export interface Deposit extends BaseEntity {
   estimatedMaturityAmountCents: number;
   includeInAvailableCash: boolean;
   note?: string;
+  isActive: boolean;
 }
 
 export interface Budget extends BaseEntity {
