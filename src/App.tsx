@@ -21,7 +21,7 @@ import {
   Upload,
   WalletCards
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type React from "react";
 import {
   calculateDeposit,
@@ -31,19 +31,20 @@ import {
   type LoanCalculationInput
 } from "./lib/financialCalculations";
 import { currentTaipeiMonth, formatDate, formatMoney, formatPercent, parseMoneyToCents } from "./lib/format";
-import {
-  mockAccounts,
-  mockBudgets,
-  mockCreditCards,
-  mockDeposits,
-  mockLoans,
-  mockReminders,
-  mockTransactions
-} from "./lib/mockData";
 import { parseTransactionsCsv } from "./lib/csv";
 import { combineValidations, validateAnnualRate, validateDateRange, validatePositiveAmount } from "./lib/validation";
 import { isSupabaseConfigured } from "./services/supabaseClient";
 import { mockAiFinancialHealth, requestAiFinancialHealth } from "./services/aiFinancialHealth";
+import {
+  createFinancialAccount,
+  createTransactionWithCategory,
+  deleteTransaction,
+  emptyFinanceData,
+  loadFinanceData,
+  normalizeCategoryName,
+  sendSignInLink,
+  signOut
+} from "./services/financeRepository";
 import type {
   AccountType,
   AiFinancialReport,
@@ -107,22 +108,58 @@ const transactionTypeLabels: Record<Transaction["type"], string> = {
 };
 
 const today = "2026-07-13";
+const localUserId = "local-user";
 
 export default function App() {
   const [page, setPage] = useState<Page>("dashboard");
   const [month, setMonth] = useState(currentTaipeiMonth());
   const [darkMode, setDarkMode] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
-  const [accounts, setAccounts] = useState(mockAccounts);
-  const [transactions, setTransactions] = useState(mockTransactions);
-  const [creditCards, setCreditCards] = useState(mockCreditCards);
-  const [loans, setLoans] = useState(mockLoans);
-  const [deposits, setDeposits] = useState(mockDeposits);
-  const [budgets, setBudgets] = useState(mockBudgets);
-  const [reminders, setReminders] = useState(mockReminders);
+  const [accounts, setAccounts] = useState(emptyFinanceData.accounts);
+  const [transactions, setTransactions] = useState(emptyFinanceData.transactions);
+  const [creditCards, setCreditCards] = useState(emptyFinanceData.creditCards);
+  const [loans, setLoans] = useState(emptyFinanceData.loans);
+  const [deposits, setDeposits] = useState(emptyFinanceData.deposits);
+  const [budgets, setBudgets] = useState(emptyFinanceData.budgets);
+  const [reminders, setReminders] = useState(emptyFinanceData.reminders);
+  const [rememberedCategories, setRememberedCategories] = useState<string[]>([]);
+  const [dataLoading, setDataLoading] = useState(true);
+  const [dataNotice, setDataNotice] = useState("");
+  const [sessionEmail, setSessionEmail] = useState<string | null>(null);
   const [csvPreview, setCsvPreview] = useState<ReturnType<typeof parseTransactionsCsv>>([]);
   const [aiReport, setAiReport] = useState<AiFinancialReport | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
+
+  useEffect(() => {
+    void refreshFinanceData();
+  }, []);
+
+  async function refreshFinanceData() {
+    setDataLoading(true);
+    try {
+      const result = await loadFinanceData();
+      setAccounts(result.data.accounts);
+      setTransactions(result.data.transactions);
+      setCreditCards(result.data.creditCards);
+      setLoans(result.data.loans);
+      setDeposits(result.data.deposits);
+      setBudgets(result.data.budgets);
+      setReminders(result.data.reminders);
+      setRememberedCategories(result.data.categories);
+      setSessionEmail(result.session?.user.email ?? null);
+      setDataNotice(
+        !isSupabaseConfigured
+          ? "尚未設定 Supabase 環境變數，已停用範例資料並顯示空資料。"
+          : result.session
+            ? ""
+            : "尚未登入 Supabase，請到設定頁寄送登入連結後讀取你的已儲存資料。"
+      );
+    } catch (error) {
+      setDataNotice(error instanceof Error ? error.message : "資料讀取失敗");
+    } finally {
+      setDataLoading(false);
+    }
+  }
 
   const recentNecessaryAverage = useMemo(() => {
     const months = ["2026-05", "2026-06", "2026-07"];
@@ -176,14 +213,14 @@ export default function App() {
     window.setTimeout(() => setToast(null), 2800);
   }
 
-  function addAccount(formData: FormData) {
+  async function addAccount(formData: FormData) {
     const balanceCents = parseMoneyToCents(String(formData.get("balance") ?? ""));
     const validation = combineValidations(validatePositiveAmount(balanceCents, "目前餘額"));
     if (!validation.valid) return notify("error", validation.errors[0]);
     const now = new Date().toISOString();
     const account: FinancialAccount = {
       id: crypto.randomUUID(),
-      userId: "demo-user",
+      userId: localUserId,
       name: String(formData.get("name")),
       type: String(formData.get("type")) as AccountType,
       institution: String(formData.get("institution") ?? ""),
@@ -195,11 +232,16 @@ export default function App() {
       createdAt: now,
       updatedAt: now
     };
-    setAccounts((current) => [account, ...current]);
-    notify("success", "帳戶已新增");
+    try {
+      const saved = await createFinancialAccount(account);
+      setAccounts((current) => [saved, ...current]);
+      notify("success", isSupabaseConfigured ? "帳戶已儲存到 Supabase" : "帳戶已新增");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "帳戶儲存失敗");
+    }
   }
 
-  function addTransaction(formData: FormData) {
+  async function addTransaction(formData: FormData) {
     const amountCents = parseMoneyToCents(String(formData.get("amount") ?? ""));
     const date = String(formData.get("date") ?? "");
     const validation = combineValidations(validatePositiveAmount(amountCents), validateDateRange(date));
@@ -208,11 +250,11 @@ export default function App() {
     const type = String(formData.get("type")) as Transaction["type"];
     const transaction: Transaction = {
       id: crypto.randomUUID(),
-      userId: "demo-user",
+      userId: localUserId,
       date,
       type,
       amountCents,
-      category: String(formData.get("category") || "未分類"),
+      category: normalizeCategoryName(String(formData.get("category") || "未分類")),
       subcategory: String(formData.get("subcategory") ?? ""),
       accountId: String(formData.get("accountId") ?? ""),
       creditCardId: String(formData.get("creditCardId") ?? "") || undefined,
@@ -225,7 +267,15 @@ export default function App() {
       createdAt: now,
       updatedAt: now
     };
-    setTransactions((current) => [transaction, ...current]);
+    try {
+      const saved = await createTransactionWithCategory(transaction);
+      setTransactions((current) => [saved, ...current]);
+      setRememberedCategories((current) => [...new Set([saved.category, ...current])].sort((a, b) => a.localeCompare(b, "zh-Hant")));
+      notify("success", isSupabaseConfigured ? "交易與分類記憶已儲存" : "交易已新增");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "交易儲存失敗");
+      return;
+    }
     if (type === "credit_card_purchase" && transaction.creditCardId) {
       setCreditCards((current) =>
         current.map((card) =>
@@ -247,13 +297,17 @@ export default function App() {
         )
       );
     }
-    notify("success", "交易已新增");
   }
 
-  function softDeleteTransaction(id: string) {
+  async function softDeleteTransaction(id: string) {
     if (!window.confirm("確定要刪除此交易？此操作需要二次確認。")) return;
-    setTransactions((current) => current.filter((transaction) => transaction.id !== id));
-    notify("success", "交易已刪除");
+    try {
+      await deleteTransaction(id);
+      setTransactions((current) => current.filter((transaction) => transaction.id !== id));
+      notify("success", "交易已刪除");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "交易刪除失敗");
+    }
   }
 
   async function handleCsvUpload(file: File | null) {
@@ -263,19 +317,28 @@ export default function App() {
     setCsvPreview(parseTransactionsCsv(text, 500));
   }
 
-  function importCsvRows() {
+  async function importCsvRows() {
     const validRows = csvPreview.filter((row) => row.transaction && row.errors.length === 0);
     const now = new Date().toISOString();
     const imported: Transaction[] = validRows.map((row) => ({
       ...(row.transaction as Omit<Transaction, "id" | "userId" | "createdAt" | "updatedAt">),
       id: crypto.randomUUID(),
-      userId: "demo-user",
+      userId: localUserId,
       createdAt: now,
       updatedAt: now
     }));
-    setTransactions((current) => [...imported, ...current]);
-    setCsvPreview([]);
-    notify("success", `已匯入 ${imported.length} 筆交易`);
+    try {
+      const saved: Transaction[] = [];
+      for (const transaction of imported) {
+        saved.push(await createTransactionWithCategory(transaction));
+      }
+      setTransactions((current) => [...saved, ...current]);
+      setRememberedCategories((current) => [...new Set([...saved.map((transaction) => transaction.category), ...current])].sort((a, b) => a.localeCompare(b, "zh-Hant")));
+      setCsvPreview([]);
+      notify("success", `已匯入 ${saved.length} 筆交易並更新分類記憶`);
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "CSV 匯入失敗");
+    }
   }
 
   async function generateAiReport() {
@@ -349,6 +412,11 @@ export default function App() {
                 categoryBreakdown={categoryBreakdown}
                 monthlyTrend={monthlyTrend}
                 reminders={reminders}
+                accounts={accounts}
+                creditCards={creditCards}
+                loans={loans}
+                dataLoading={dataLoading}
+                dataNotice={dataNotice}
               />
             )}
             {page === "transactions" && (
@@ -361,6 +429,7 @@ export default function App() {
                 onCsvUpload={handleCsvUpload}
                 csvPreview={csvPreview}
                 onImportCsv={importCsvRows}
+                rememberedCategories={rememberedCategories}
               />
             )}
             {page === "accounts" && <AccountsPage accounts={accounts} onAdd={addAccount} />}
@@ -378,6 +447,8 @@ export default function App() {
                 creditCards={creditCards}
                 monthlyTrend={monthlyTrend}
                 categoryBreakdown={categoryBreakdown}
+                accounts={accounts}
+                dashboard={dashboard}
               />
             )}
             {page === "ai" && (
@@ -389,7 +460,32 @@ export default function App() {
                 categoryBreakdown={categoryBreakdown}
               />
             )}
-            {page === "settings" && <SettingsPage darkMode={darkMode} isSupabaseConfigured={isSupabaseConfigured} />}
+            {page === "settings" && (
+              <SettingsPage
+                darkMode={darkMode}
+                isSupabaseConfigured={isSupabaseConfigured}
+                sessionEmail={sessionEmail}
+                dataNotice={dataNotice}
+                onRefresh={refreshFinanceData}
+                onSendSignInLink={async (email) => {
+                  try {
+                    await sendSignInLink(email);
+                    notify("success", "登入連結已寄出，請到信箱完成登入");
+                  } catch (error) {
+                    notify("error", error instanceof Error ? error.message : "登入連結寄送失敗");
+                  }
+                }}
+                onSignOut={async () => {
+                  try {
+                    await signOut();
+                    await refreshFinanceData();
+                    notify("success", "已登出");
+                  } catch (error) {
+                    notify("error", error instanceof Error ? error.message : "登出失敗");
+                  }
+                }}
+              />
+            )}
           </div>
         </main>
       </div>
@@ -478,12 +574,22 @@ function DashboardPage({
   dashboard,
   categoryBreakdown,
   monthlyTrend,
-  reminders
+  reminders,
+  accounts,
+  creditCards,
+  loans,
+  dataLoading,
+  dataNotice
 }: {
   dashboard: ReturnType<typeof summarizeDashboard>;
   categoryBreakdown: { category: string; amountCents: number }[];
   monthlyTrend: { month: string; incomeCents: number; expenseCents: number }[];
   reminders: FinancialReminder[];
+  accounts: FinancialAccount[];
+  creditCards: CreditCard[];
+  loans: Loan[];
+  dataLoading: boolean;
+  dataNotice: string;
 }) {
   const stats = [
     ["目前總資產", dashboard.totalAssetsCents],
@@ -500,10 +606,36 @@ function DashboardPage({
 
   return (
     <div className="space-y-4">
+      {dataLoading && <InlineNotice tone="neutral" message="正在讀取 Supabase 已儲存資料..." />}
+      {!dataLoading && dataNotice && <InlineNotice tone="warning" message={dataNotice} />}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {stats.map(([label, value]) => (
           <StatCard key={label} label={label} value={formatMoney(value)} />
         ))}
+      </div>
+      <div className="grid gap-4 lg:grid-cols-3">
+        <section className="panel lg:col-span-2">
+          <h2 className="text-lg font-semibold">全部帳戶餘額分布</h2>
+          <AccountBalanceChart accounts={accounts} />
+        </section>
+        <section className="panel">
+          <h2 className="text-lg font-semibold">總帳結構</h2>
+          <LedgerDonut dashboard={dashboard} />
+        </section>
+      </div>
+      <div className="grid gap-4 lg:grid-cols-3">
+        <section className="panel">
+          <h2 className="text-lg font-semibold">資產帳戶類型</h2>
+          <AccountTypeChart accounts={accounts} />
+        </section>
+        <section className="panel">
+          <h2 className="text-lg font-semibold">可動用現金比例</h2>
+          <CashAvailabilityChart accounts={accounts} />
+        </section>
+        <section className="panel">
+          <h2 className="text-lg font-semibold">負債來源</h2>
+          <LiabilityChart creditCards={creditCards} loans={loans} />
+        </section>
       </div>
       <div className="grid gap-4 lg:grid-cols-3">
         <section className="panel lg:col-span-2">
@@ -608,6 +740,131 @@ function CategoryBars({ data }: { data: { category: string; amountCents: number 
   );
 }
 
+function InlineNotice({ message, tone }: { message: string; tone: "neutral" | "warning" }) {
+  return (
+    <div
+      className={`rounded-md border p-3 text-sm ${
+        tone === "warning"
+          ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
+          : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300"
+      }`}
+    >
+      {message}
+    </div>
+  );
+}
+
+function AccountBalanceChart({ accounts }: { accounts: FinancialAccount[] }) {
+  const active = accounts.filter((account) => account.isActive);
+  const max = Math.max(...active.map((account) => account.balanceCents), 1);
+  if (active.length === 0) return <EmptyState label="尚無帳戶資料，新增帳戶後會顯示總帳分布" />;
+  return (
+    <div className="mt-4 space-y-3">
+      {active.map((account) => (
+        <div key={account.id}>
+          <div className="mb-1 flex justify-between gap-3 text-sm">
+            <span className="truncate">{account.name}</span>
+            <span className="shrink-0 font-semibold">{formatMoney(account.balanceCents)}</span>
+          </div>
+          <div className="h-3 rounded-full bg-slate-200 dark:bg-slate-800">
+            <div className="h-3 rounded-full bg-brand-600" style={{ width: `${Math.max(4, (account.balanceCents / max) * 100)}%` }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LedgerDonut({ dashboard }: { dashboard: ReturnType<typeof summarizeDashboard> }) {
+  const assets = Math.max(0, dashboard.totalAssetsCents);
+  const liabilities = Math.max(0, dashboard.totalLiabilitiesCents);
+  const total = Math.max(assets + liabilities, 1);
+  const liabilityDeg = (liabilities / total) * 360;
+  return (
+    <div className="mt-4 flex items-center gap-5">
+      <div
+        className="h-32 w-32 shrink-0 rounded-full"
+        style={{
+          background: `conic-gradient(#0284c7 0deg ${liabilityDeg}deg, #059669 ${liabilityDeg}deg 360deg)`
+        }}
+        aria-label="資產負債比例圖"
+      />
+      <div className="space-y-3 text-sm">
+        <Legend color="bg-brand-600" label="資產" value={formatMoney(assets)} />
+        <Legend color="bg-sky-600" label="負債" value={formatMoney(liabilities)} />
+        <p className="text-slate-500">淨資產 {formatMoney(dashboard.netWorthCents)}</p>
+      </div>
+    </div>
+  );
+}
+
+function AccountTypeChart({ accounts }: { accounts: FinancialAccount[] }) {
+  const grouped = accounts.reduce<Map<string, number>>((map, account) => {
+    map.set(accountTypeLabels[account.type], (map.get(accountTypeLabels[account.type]) ?? 0) + account.balanceCents);
+    return map;
+  }, new Map());
+  return <MiniBars data={[...grouped.entries()].map(([label, amountCents]) => ({ label, amountCents }))} emptyLabel="尚無帳戶類型資料" />;
+}
+
+function CashAvailabilityChart({ accounts }: { accounts: FinancialAccount[] }) {
+  const available = accounts.filter((account) => account.includeInAvailableCash).reduce((sum, account) => sum + account.balanceCents, 0);
+  const locked = accounts.filter((account) => !account.includeInAvailableCash).reduce((sum, account) => sum + account.balanceCents, 0);
+  return (
+    <MiniBars
+      data={[
+        { label: "可動用", amountCents: available },
+        { label: "暫不可動用", amountCents: locked }
+      ]}
+      emptyLabel="尚無可動用現金資料"
+    />
+  );
+}
+
+function LiabilityChart({ creditCards, loans }: { creditCards: CreditCard[]; loans: Loan[] }) {
+  const cardDebt = creditCards.reduce((sum, card) => sum + card.currentStatementAmountCents + card.unbilledAmountCents + card.installmentBalanceCents, 0);
+  const loanDebt = loans.reduce((sum, loan) => sum + loan.remainingPrincipalCents, 0);
+  return (
+    <MiniBars
+      data={[
+        { label: "信用卡", amountCents: cardDebt },
+        { label: "貸款", amountCents: loanDebt }
+      ]}
+      emptyLabel="尚無負債資料"
+    />
+  );
+}
+
+function MiniBars({ data, emptyLabel }: { data: { label: string; amountCents: number }[]; emptyLabel: string }) {
+  const filtered = data.filter((item) => item.amountCents > 0);
+  const total = filtered.reduce((sum, item) => sum + item.amountCents, 0);
+  if (filtered.length === 0) return <EmptyState label={emptyLabel} />;
+  return (
+    <div className="mt-4 space-y-3">
+      {filtered.map((item) => (
+        <div key={item.label}>
+          <div className="mb-1 flex justify-between gap-3 text-sm">
+            <span>{item.label}</span>
+            <span>{formatMoney(item.amountCents)}</span>
+          </div>
+          <div className="h-2 rounded-full bg-slate-200 dark:bg-slate-800">
+            <div className="h-2 rounded-full bg-sky-600" style={{ width: `${Math.max(4, (item.amountCents / Math.max(total, 1)) * 100)}%` }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Legend({ color, label, value }: { color: string; label: string; value: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className={`h-3 w-3 rounded ${color}`} />
+      <span className="min-w-10 text-slate-500">{label}</span>
+      <span className="font-semibold">{value}</span>
+    </div>
+  );
+}
+
 function TransactionsPage({
   accounts,
   creditCards,
@@ -616,7 +873,8 @@ function TransactionsPage({
   onDelete,
   onCsvUpload,
   csvPreview,
-  onImportCsv
+  onImportCsv,
+  rememberedCategories
 }: {
   accounts: FinancialAccount[];
   creditCards: CreditCard[];
@@ -626,6 +884,7 @@ function TransactionsPage({
   onCsvUpload: (file: File | null) => void;
   csvPreview: ReturnType<typeof parseTransactionsCsv>;
   onImportCsv: () => void;
+  rememberedCategories: string[];
 }) {
   return (
     <div className="grid gap-4 xl:grid-cols-[380px_1fr]">
@@ -639,7 +898,23 @@ function TransactionsPage({
             </select>
           </Field>
           <Field label="金額"><input className="input" name="amount" inputMode="decimal" placeholder="例如 1,200" required /></Field>
-          <Field label="分類"><input className="input" name="category" placeholder="餐飲、薪資、交通" required /></Field>
+          <Field label="分類">
+            <input className="input" name="category" list="remembered-categories" placeholder="餐飲、薪資、交通" required />
+            <datalist id="remembered-categories">
+              {rememberedCategories.map((category) => (
+                <option key={category} value={category} />
+              ))}
+            </datalist>
+          </Field>
+          {rememberedCategories.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {rememberedCategories.slice(0, 8).map((category) => (
+                <span key={category} className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+                  {category}
+                </span>
+              ))}
+            </div>
+          )}
           <Field label="子分類"><input className="input" name="subcategory" placeholder="可留空" /></Field>
           <Field label="支付帳戶">
             <select className="input" name="accountId">{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select>
@@ -789,7 +1064,7 @@ function CardsPage({
     setCards((current) => [
       {
         id: crypto.randomUUID(),
-        userId: "demo-user",
+        userId: localUserId,
         name: String(formData.get("name")),
         issuer: String(formData.get("issuer")),
         last4: String(formData.get("last4")).slice(-4),
@@ -892,7 +1167,7 @@ function LoansPage({
     setLoans((current) => [
       {
         id: crypto.randomUUID(),
-        userId: "demo-user",
+        userId: localUserId,
         name: String(formData.get("name")),
         type: "personal",
         institution: String(formData.get("institution") ?? ""),
@@ -1005,7 +1280,7 @@ function DepositsPage({
     setDeposits((current) => [
       {
         id: crypto.randomUUID(),
-        userId: "demo-user",
+        userId: localUserId,
         name: String(formData.get("name")),
         institution: String(formData.get("institution") ?? ""),
         principalCents: principal,
@@ -1102,7 +1377,7 @@ function BudgetsPage({
     setBudgets((current) => [
       {
         id: crypto.randomUUID(),
-        userId: "demo-user",
+        userId: localUserId,
         month,
         totalBudgetCents: amount,
         category: String(formData.get("category") || "全部"),
@@ -1172,7 +1447,7 @@ function RemindersPage({
     setReminders((current) => [
       {
         id: crypto.randomUUID(),
-        userId: "demo-user",
+        userId: localUserId,
         name: String(formData.get("name")),
         amountCents: amount,
         frequency: String(formData.get("frequency")) as FinancialReminder["frequency"],
@@ -1226,13 +1501,17 @@ function ReportsPage({
   loans,
   creditCards,
   monthlyTrend,
-  categoryBreakdown
+  categoryBreakdown,
+  accounts,
+  dashboard
 }: {
   transactions: Transaction[];
   loans: Loan[];
   creditCards: CreditCard[];
   monthlyTrend: { month: string; incomeCents: number; expenseCents: number }[];
   categoryBreakdown: { category: string; amountCents: number }[];
+  accounts: FinancialAccount[];
+  dashboard: ReturnType<typeof summarizeDashboard>;
 }) {
   function downloadCsv() {
     const headers = ["日期", "類型", "金額", "分類", "商家", "備註"];
@@ -1264,6 +1543,10 @@ function ReportsPage({
         <button className="btn-primary" onClick={downloadCsv}><Download size={16} />匯出 CSV</button>
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
+        <section className="panel"><h3 className="font-semibold">全部帳戶總帳分布</h3><AccountBalanceChart accounts={accounts} /></section>
+        <section className="panel"><h3 className="font-semibold">總資產與總負債比例</h3><LedgerDonut dashboard={dashboard} /></section>
+        <section className="panel"><h3 className="font-semibold">帳戶類型資產</h3><AccountTypeChart accounts={accounts} /></section>
+        <section className="panel"><h3 className="font-semibold">可動用與暫不可動用資金</h3><CashAvailabilityChart accounts={accounts} /></section>
         <section className="panel"><h3 className="font-semibold">月收支與現金流趨勢</h3><TrendChart data={monthlyTrend} /></section>
         <section className="panel"><h3 className="font-semibold">支出分類報表</h3><CategoryBars data={categoryBreakdown} /></section>
         <section className="panel"><h3 className="font-semibold">貸款餘額報表</h3>{loans.map((loan) => <Progress key={loan.id} label={loan.name} value={loan.remainingPrincipalCents / loan.originalPrincipalCents} helper={formatMoney(loan.remainingPrincipalCents)} />)}</section>
@@ -1325,7 +1608,23 @@ function AiPage({
   );
 }
 
-function SettingsPage({ darkMode, isSupabaseConfigured }: { darkMode: boolean; isSupabaseConfigured: boolean }) {
+function SettingsPage({
+  darkMode,
+  isSupabaseConfigured,
+  sessionEmail,
+  dataNotice,
+  onRefresh,
+  onSendSignInLink,
+  onSignOut
+}: {
+  darkMode: boolean;
+  isSupabaseConfigured: boolean;
+  sessionEmail: string | null;
+  dataNotice: string;
+  onRefresh: () => void;
+  onSendSignInLink: (email: string) => Promise<void>;
+  onSignOut: () => Promise<void>;
+}) {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <section className="panel">
@@ -1341,10 +1640,23 @@ function SettingsPage({ darkMode, isSupabaseConfigured }: { darkMode: boolean; i
       <section className="panel">
         <h2 className="text-lg font-semibold">連線與資安</h2>
         <div className="mt-4 space-y-3 text-sm">
-          <Info label="Supabase" value={isSupabaseConfigured ? "已設定前端 anon key" : "未設定，使用 mock mode"} />
+          <Info label="Supabase" value={isSupabaseConfigured ? "已設定前端 anon key" : "未設定，請先設定 Vercel 環境變數"} />
+          <Info label="登入狀態" value={sessionEmail ?? "尚未登入"} />
           <Info label="AI" value="預設 mock mode；API Key 僅允許後端環境變數" />
           <Info label="敏感資料" value="不儲存完整卡號、CVV、網銀密碼；財務資料不寫入 localStorage" />
           <Info label="CSV 限制" value="512KB、500 筆、先預覽再匯入" />
+        </div>
+      </section>
+      <section className="panel lg:col-span-2">
+        <h2 className="text-lg font-semibold">Supabase 資料連線</h2>
+        {dataNotice && <div className="mt-3"><InlineNotice tone="warning" message={dataNotice} /></div>}
+        <form className="mt-4 flex flex-col gap-3 sm:flex-row" onSubmit={handleFormSubmit((formData) => void onSendSignInLink(String(formData.get("email") ?? "")))}>
+          <input className="input mt-0" name="email" type="email" placeholder="輸入 Supabase Auth email" required disabled={!isSupabaseConfigured} />
+          <button className="btn-primary shrink-0" type="submit" disabled={!isSupabaseConfigured}>寄送登入連結</button>
+        </form>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button className="btn-secondary" onClick={onRefresh}>重新讀取 Supabase 資料</button>
+          <button className="btn-danger" onClick={() => void onSignOut()} disabled={!sessionEmail}>登出</button>
         </div>
       </section>
     </div>
