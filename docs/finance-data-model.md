@@ -52,3 +52,19 @@ auth.uid() = user_id
 - 搜尋需 debounce，並使用 server-side filtering。
 - 非必要不開啟 Realtime。
 - 敏感財務資料不存入 localStorage。
+
+## Credit Card Installment Debt
+
+`credit_card_installments` stores each installment plan as a debt item, including:
+
+- `total_amount_cents`
+- `annual_rate`
+- `periods`
+- `paid_periods`
+- `monthly_payment_cents`
+- `paid_amount_cents`
+- `remaining_amount_cents`
+- `next_due_date`
+- `status`
+
+Apply `supabase/migrations/202607130002_credit_card_installment_debt_details.sql` before deploying the installment debt UI.

@@ -4,6 +4,7 @@ import type {
   AccountType,
   Budget,
   CreditCard,
+  CreditCardInstallment,
   Deposit,
   FinancialAccount,
   FinancialReminder,
@@ -15,6 +16,7 @@ export interface FinanceData {
   accounts: FinancialAccount[];
   transactions: Transaction[];
   creditCards: CreditCard[];
+  creditCardInstallments: CreditCardInstallment[];
   loans: Loan[];
   deposits: Deposit[];
   budgets: Budget[];
@@ -31,6 +33,7 @@ export const emptyFinanceData: FinanceData = {
   accounts: [],
   transactions: [],
   creditCards: [],
+  creditCardInstallments: [],
   loans: [],
   deposits: [],
   budgets: [],
@@ -72,6 +75,7 @@ export async function loadFinanceData(): Promise<LoadFinanceResult> {
     accounts,
     transactions,
     creditCards,
+    creditCardInstallments,
     loans,
     deposits,
     budgets,
@@ -97,6 +101,12 @@ export async function loadFinanceData(): Promise<LoadFinanceResult> {
       .eq("user_id", userId)
       .is("deleted_at", null)
       .order("created_at", { ascending: false }),
+    supabase
+      .from("credit_card_installments")
+      .select("id,user_id,credit_card_id,transaction_id,merchant,total_amount_cents,annual_rate,periods,paid_periods,monthly_payment_cents,paid_amount_cents,remaining_amount_cents,started_on,next_due_date,status,note,created_at,updated_at")
+      .eq("user_id", userId)
+      .is("deleted_at", null)
+      .order("next_due_date", { ascending: true }),
     supabase
       .from("loans")
       .select("id,user_id,name,loan_type,institution,original_principal_cents,remaining_principal_cents,annual_rate,term_months,paid_periods,monthly_payment_day,start_date,expected_payoff_date,repayment_method,payment_per_period_cents,prepayment_penalty_note,note,status,created_at,updated_at")
@@ -130,7 +140,7 @@ export async function loadFinanceData(): Promise<LoadFinanceResult> {
       .order("name", { ascending: true })
   ]);
 
-  const responses = [accounts, transactions, creditCards, loans, deposits, budgets, reminders, categories];
+  const responses = [accounts, transactions, creditCards, creditCardInstallments, loans, deposits, budgets, reminders, categories];
   const failed = responses.find((response) => response.error);
   if (failed?.error) throw new Error("Supabase 資料讀取失敗，請確認 migration 與 RLS 設定");
 
@@ -140,6 +150,7 @@ export async function loadFinanceData(): Promise<LoadFinanceResult> {
       accounts: (accounts.data ?? []).map(mapAccount),
       transactions: (transactions.data ?? []).map(mapTransaction),
       creditCards: (creditCards.data ?? []).map(mapCreditCard),
+      creditCardInstallments: (creditCardInstallments.data ?? []).map(mapCreditCardInstallment),
       loans: (loans.data ?? []).map(mapLoan),
       deposits: (deposits.data ?? []).map(mapDeposit),
       budgets: (budgets.data ?? []).map(mapBudget),
@@ -224,6 +235,36 @@ export async function createTransactionWithCategory(transaction: Transaction): P
   return mapTransaction(data);
 }
 
+export async function createCreditCardInstallment(installment: CreditCardInstallment): Promise<CreditCardInstallment> {
+  if (!supabase) return installment;
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !sessionData.session) throw new Error("請先登入再新增分期");
+  const userId = sessionData.session.user.id;
+  const { data, error } = await supabase
+    .from("credit_card_installments")
+    .insert({
+      user_id: userId,
+      credit_card_id: installment.creditCardId,
+      transaction_id: installment.transactionId || null,
+      merchant: installment.merchant || null,
+      total_amount_cents: installment.totalAmountCents,
+      annual_rate: installment.annualRate,
+      periods: installment.periods,
+      paid_periods: installment.paidPeriods,
+      monthly_payment_cents: installment.monthlyPaymentCents,
+      paid_amount_cents: installment.paidAmountCents,
+      remaining_amount_cents: installment.remainingAmountCents,
+      started_on: installment.startedOn,
+      next_due_date: installment.nextDueDate || null,
+      status: installment.status,
+      note: installment.note || null
+    })
+    .select("id,user_id,credit_card_id,transaction_id,merchant,total_amount_cents,annual_rate,periods,paid_periods,monthly_payment_cents,paid_amount_cents,remaining_amount_cents,started_on,next_due_date,status,note,created_at,updated_at")
+    .single();
+  if (error) throw new Error("信用卡分期儲存失敗");
+  return mapCreditCardInstallment(data);
+}
+
 export async function deleteTransaction(id: string): Promise<void> {
   if (!supabase) return;
   const { error } = await supabase
@@ -298,6 +339,32 @@ function mapCreditCard(row: Record<string, unknown>): CreditCard {
     note: nullableString(row.note),
     isActive: Boolean(row.is_active),
     recommendedUtilizationRate: Number(row.recommended_utilization_rate ?? 0.3),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
+  };
+}
+
+function mapCreditCardInstallment(row: Record<string, unknown>): CreditCardInstallment {
+  const totalAmountCents = toNumber(row.total_amount_cents);
+  const paidAmountCents = toNumber(row.paid_amount_cents);
+  const remainingAmountCents = toNumber(row.remaining_amount_cents) || Math.max(0, totalAmountCents - paidAmountCents);
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    creditCardId: String(row.credit_card_id),
+    transactionId: nullableString(row.transaction_id),
+    merchant: nullableString(row.merchant),
+    totalAmountCents,
+    annualRate: Number(row.annual_rate ?? 0),
+    periods: toNumber(row.periods),
+    paidPeriods: toNumber(row.paid_periods),
+    monthlyPaymentCents: toNumber(row.monthly_payment_cents),
+    paidAmountCents,
+    remainingAmountCents,
+    startedOn: String(row.started_on),
+    nextDueDate: nullableString(row.next_due_date),
+    status: String(row.status ?? "active") as CreditCardInstallment["status"],
+    note: nullableString(row.note),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)
   };

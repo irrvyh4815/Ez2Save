@@ -81,6 +81,7 @@ function minimizeInput(input: unknown, maxItems: number): Record<string, unknown
     categoryBreakdown: Array.isArray(source.categoryBreakdown) ? source.categoryBreakdown.slice(0, maxItems) : [],
     loans: Array.isArray(source.loans) ? source.loans.slice(0, maxItems) : [],
     creditCards: Array.isArray(source.creditCards) ? source.creditCards.slice(0, maxItems) : [],
+    creditCardInstallments: source.creditCardInstallments,
     fixedExpenseCents: source.fixedExpenseCents
   };
 }

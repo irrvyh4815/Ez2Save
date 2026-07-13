@@ -91,6 +91,23 @@ export interface CreditCard extends BaseEntity {
   recommendedUtilizationRate: number;
 }
 
+export interface CreditCardInstallment extends BaseEntity {
+  creditCardId: string;
+  transactionId?: string;
+  merchant?: string;
+  totalAmountCents: number;
+  annualRate: number;
+  periods: number;
+  paidPeriods: number;
+  monthlyPaymentCents: number;
+  paidAmountCents: number;
+  remainingAmountCents: number;
+  startedOn: string;
+  nextDueDate?: string;
+  status: "active" | "paid_off" | "paused";
+  note?: string;
+}
+
 export interface Loan extends BaseEntity {
   name: string;
   type: LoanType;

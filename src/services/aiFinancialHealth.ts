@@ -5,6 +5,12 @@ export interface AiFinancialHealthInput {
   categoryBreakdown: { category: string; amountCents: number }[];
   loans: Pick<Loan, "name" | "remainingPrincipalCents" | "annualRate" | "paymentPerPeriodCents">[];
   creditCards: Pick<CreditCard, "name" | "creditLimitCents" | "unbilledAmountCents" | "currentStatementAmountCents">[];
+  creditCardInstallments?: {
+    totalRemainingCents: number;
+    monthlyDueCents: number;
+    weightedAverageAnnualRate: number;
+    activeCount: number;
+  };
   fixedExpenseCents: number;
   month: string;
 }

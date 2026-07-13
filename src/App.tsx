@@ -37,6 +37,7 @@ import { isSupabaseConfigured } from "./services/supabaseClient";
 import { mockAiFinancialHealth, requestAiFinancialHealth } from "./services/aiFinancialHealth";
 import {
   createFinancialAccount,
+  createCreditCardInstallment,
   createTransactionWithCategory,
   deleteTransaction,
   emptyFinanceData,
@@ -50,6 +51,7 @@ import type {
   AiFinancialReport,
   Budget,
   CreditCard,
+  CreditCardInstallment,
   Deposit,
   FinancialAccount,
   FinancialReminder,
@@ -118,6 +120,7 @@ export default function App() {
   const [accounts, setAccounts] = useState(emptyFinanceData.accounts);
   const [transactions, setTransactions] = useState(emptyFinanceData.transactions);
   const [creditCards, setCreditCards] = useState(emptyFinanceData.creditCards);
+  const [creditCardInstallments, setCreditCardInstallments] = useState(emptyFinanceData.creditCardInstallments);
   const [loans, setLoans] = useState(emptyFinanceData.loans);
   const [deposits, setDeposits] = useState(emptyFinanceData.deposits);
   const [budgets, setBudgets] = useState(emptyFinanceData.budgets);
@@ -141,6 +144,7 @@ export default function App() {
       setAccounts(result.data.accounts);
       setTransactions(result.data.transactions);
       setCreditCards(result.data.creditCards);
+      setCreditCardInstallments(result.data.creditCardInstallments);
       setLoans(result.data.loans);
       setDeposits(result.data.deposits);
       setBudgets(result.data.budgets);
@@ -170,17 +174,26 @@ export default function App() {
     return Math.round(total / Math.max(months.length, 1));
   }, [transactions]);
 
+  const creditCardsForSummary = useMemo(
+    () =>
+      creditCards.map((card) => ({
+        ...card,
+        installmentBalanceCents: getCardInstallmentDebt(card.id, creditCardInstallments, card.installmentBalanceCents)
+      })),
+    [creditCardInstallments, creditCards]
+  );
+
   const dashboard = useMemo(
     () =>
       summarizeDashboard({
         accounts,
-        creditCards,
+        creditCards: creditCardsForSummary,
         loans,
         transactions,
         month,
         averageNecessaryExpenseCents: recentNecessaryAverage
       }),
-    [accounts, creditCards, loans, month, recentNecessaryAverage, transactions]
+    [accounts, creditCardsForSummary, loans, month, recentNecessaryAverage, transactions]
   );
 
   const categoryBreakdown = useMemo(() => {
@@ -357,6 +370,7 @@ export default function App() {
         unbilledAmountCents,
         currentStatementAmountCents
       })),
+      creditCardInstallments: summarizeInstallmentDebt(creditCardInstallments),
       fixedExpenseCents: transactions.filter((transaction) => transaction.isRecurring).reduce((sum, transaction) => sum + transaction.amountCents, 0),
       month
     };
@@ -414,6 +428,7 @@ export default function App() {
                 reminders={reminders}
                 accounts={accounts}
                 creditCards={creditCards}
+                creditCardInstallments={creditCardInstallments}
                 loans={loans}
                 dataLoading={dataLoading}
                 dataNotice={dataNotice}
@@ -433,7 +448,16 @@ export default function App() {
               />
             )}
             {page === "accounts" && <AccountsPage accounts={accounts} onAdd={addAccount} />}
-            {page === "cards" && <CardsPage cards={creditCards} accounts={accounts} setCards={setCreditCards} notify={notify} />}
+            {page === "cards" && (
+              <CardsPage
+                cards={creditCards}
+                accounts={accounts}
+                installments={creditCardInstallments}
+                setCards={setCreditCards}
+                setInstallments={setCreditCardInstallments}
+                notify={notify}
+              />
+            )}
             {page === "loans" && <LoansPage loans={loans} setLoans={setLoans} notify={notify} />}
             {page === "deposits" && <DepositsPage deposits={deposits} setDeposits={setDeposits} notify={notify} />}
             {page === "budgets" && (
@@ -445,6 +469,7 @@ export default function App() {
                 transactions={transactions}
                 loans={loans}
                 creditCards={creditCards}
+                creditCardInstallments={creditCardInstallments}
                 monthlyTrend={monthlyTrend}
                 categoryBreakdown={categoryBreakdown}
                 accounts={accounts}
@@ -577,6 +602,7 @@ function DashboardPage({
   reminders,
   accounts,
   creditCards,
+  creditCardInstallments,
   loans,
   dataLoading,
   dataNotice
@@ -587,6 +613,7 @@ function DashboardPage({
   reminders: FinancialReminder[];
   accounts: FinancialAccount[];
   creditCards: CreditCard[];
+  creditCardInstallments: CreditCardInstallment[];
   loans: Loan[];
   dataLoading: boolean;
   dataNotice: string;
@@ -634,7 +661,7 @@ function DashboardPage({
         </section>
         <section className="panel">
           <h2 className="text-lg font-semibold">負債來源</h2>
-          <LiabilityChart creditCards={creditCards} loans={loans} />
+          <LiabilityChart creditCards={creditCards} installments={creditCardInstallments} loans={loans} />
         </section>
       </div>
       <div className="grid gap-4 lg:grid-cols-3">
@@ -820,17 +847,94 @@ function CashAvailabilityChart({ accounts }: { accounts: FinancialAccount[] }) {
   );
 }
 
-function LiabilityChart({ creditCards, loans }: { creditCards: CreditCard[]; loans: Loan[] }) {
-  const cardDebt = creditCards.reduce((sum, card) => sum + card.currentStatementAmountCents + card.unbilledAmountCents + card.installmentBalanceCents, 0);
+function LiabilityChart({ creditCards, installments, loans }: { creditCards: CreditCard[]; installments: CreditCardInstallment[]; loans: Loan[] }) {
+  const cardDebt = creditCards.reduce((sum, card) => sum + card.currentStatementAmountCents + card.unbilledAmountCents, 0);
+  const installmentDebt = getInstallmentDebtCents(creditCards, installments);
   const loanDebt = loans.reduce((sum, loan) => sum + loan.remainingPrincipalCents, 0);
   return (
     <MiniBars
       data={[
-        { label: "信用卡", amountCents: cardDebt },
+        { label: "信用卡帳款", amountCents: cardDebt },
+        { label: "信用卡分期", amountCents: installmentDebt },
         { label: "貸款", amountCents: loanDebt }
       ]}
       emptyLabel="尚無負債資料"
     />
+  );
+}
+
+function getInstallmentDebtCents(cards: CreditCard[], installments: CreditCardInstallment[]): number {
+  const activeInstallments = installments.filter((installment) => installment.status === "active");
+  if (activeInstallments.length > 0) {
+    return activeInstallments.reduce((sum, installment) => sum + installment.remainingAmountCents, 0);
+  }
+  return cards.reduce((sum, card) => sum + card.installmentBalanceCents, 0);
+}
+
+function getInstallmentMonthlyDueCents(installments: CreditCardInstallment[]): number {
+  return installments
+    .filter((installment) => installment.status === "active")
+    .reduce((sum, installment) => sum + installment.monthlyPaymentCents, 0);
+}
+
+function getCardInstallmentDebt(cardId: string, installments: CreditCardInstallment[], fallbackCents: number): number {
+  const cardInstallments = installments.filter((installment) => installment.creditCardId === cardId && installment.status === "active");
+  if (cardInstallments.length > 0) {
+    return cardInstallments.reduce((sum, installment) => sum + installment.remainingAmountCents, 0);
+  }
+  return fallbackCents;
+}
+
+function summarizeInstallmentDebt(installments: CreditCardInstallment[]) {
+  const active = installments.filter((installment) => installment.status === "active");
+  const totalRemainingCents = active.reduce((sum, installment) => sum + installment.remainingAmountCents, 0);
+  const monthlyDueCents = getInstallmentMonthlyDueCents(active);
+  const weightedRateSum = active.reduce((sum, installment) => sum + installment.remainingAmountCents * installment.annualRate, 0);
+  return {
+    totalRemainingCents,
+    monthlyDueCents,
+    weightedAverageAnnualRate: totalRemainingCents > 0 ? weightedRateSum / totalRemainingCents : 0,
+    activeCount: active.length
+  };
+}
+
+function InstallmentDebtTable({ cards, installments }: { cards: CreditCard[]; installments: CreditCardInstallment[] }) {
+  const active = installments.filter((installment) => installment.status === "active");
+  if (active.length === 0) return <EmptyState label="尚無信用卡分期負債資料" />;
+  const cardName = (cardId: string) => cards.find((card) => card.id === cardId)?.name ?? "信用卡";
+  return (
+    <div className="mt-4 overflow-x-auto">
+      <table className="w-full min-w-[860px] text-sm">
+        <thead>
+          <tr className="text-left text-slate-500">
+            <th>卡片</th>
+            <th>項目</th>
+            <th>總額</th>
+            <th>年利率</th>
+            <th>已還</th>
+            <th>剩餘</th>
+            <th>期數</th>
+            <th>每月應繳</th>
+            <th>下次應繳</th>
+          </tr>
+        </thead>
+        <tbody>
+          {active.map((installment) => (
+            <tr key={installment.id} className="border-t border-slate-200 dark:border-slate-800">
+              <td className="py-3">{cardName(installment.creditCardId)}</td>
+              <td>{installment.merchant || "-"}</td>
+              <td>{formatMoney(installment.totalAmountCents)}</td>
+              <td>{formatPercent(installment.annualRate)}</td>
+              <td>{formatMoney(installment.paidAmountCents)}</td>
+              <td className="font-semibold">{formatMoney(installment.remainingAmountCents)}</td>
+              <td>{installment.paidPeriods}/{installment.periods}</td>
+              <td>{formatMoney(installment.monthlyPaymentCents)}</td>
+              <td>{installment.nextDueDate ? formatDate(installment.nextDueDate) : "-"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -1048,12 +1152,16 @@ function AccountsPage({ accounts, onAdd }: { accounts: FinancialAccount[]; onAdd
 function CardsPage({
   cards,
   accounts,
+  installments,
   setCards,
+  setInstallments,
   notify
 }: {
   cards: CreditCard[];
   accounts: FinancialAccount[];
+  installments: CreditCardInstallment[];
   setCards: React.Dispatch<React.SetStateAction<CreditCard[]>>;
+  setInstallments: React.Dispatch<React.SetStateAction<CreditCardInstallment[]>>;
   notify: (type: ToastType, message: string) => void;
 }) {
   function addCard(formData: FormData) {
@@ -1089,8 +1197,57 @@ function CardsPage({
     notify("success", "信用卡已新增");
   }
 
+  async function addInstallment(formData: FormData) {
+    const totalAmountCents = parseMoneyToCents(String(formData.get("totalAmount") ?? ""));
+    const paidAmountCents = parseMoneyToCents(String(formData.get("paidAmount") ?? "0"));
+    const annualRate = Number(formData.get("annualRate")) / 100;
+    const periods = Math.max(1, Number(formData.get("periods")));
+    const paidPeriods = Math.min(periods, Math.max(0, Number(formData.get("paidPeriods"))));
+    const monthlyPaymentInput = parseMoneyToCents(String(formData.get("monthlyPayment") ?? ""));
+    const validation = combineValidations(validatePositiveAmount(totalAmountCents, "分期總額"), validateAnnualRate(annualRate));
+    if (!validation.valid) return notify("error", validation.errors[0]);
+    const now = new Date().toISOString();
+    const remainingAmountCents = Math.max(0, totalAmountCents - paidAmountCents);
+    const installment: CreditCardInstallment = {
+      id: crypto.randomUUID(),
+      userId: localUserId,
+      creditCardId: String(formData.get("creditCardId")),
+      merchant: String(formData.get("merchant") ?? ""),
+      totalAmountCents,
+      annualRate,
+      periods,
+      paidPeriods,
+      monthlyPaymentCents: monthlyPaymentInput > 0 ? monthlyPaymentInput : Math.ceil(remainingAmountCents / Math.max(1, periods - paidPeriods)),
+      paidAmountCents,
+      remainingAmountCents,
+      startedOn: String(formData.get("startedOn")),
+      nextDueDate: String(formData.get("nextDueDate") || "") || undefined,
+      status: remainingAmountCents === 0 ? "paid_off" : "active",
+      note: String(formData.get("note") ?? ""),
+      createdAt: now,
+      updatedAt: now
+    };
+    try {
+      const saved = await createCreditCardInstallment(installment);
+      setInstallments((current) => [saved, ...current]);
+      notify("success", "信用卡分期已加入負債整理");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "信用卡分期儲存失敗");
+    }
+  }
+
+  const installmentDebt = getInstallmentDebtCents(cards, installments);
+  const installmentMonthlyDue = getInstallmentMonthlyDueCents(installments);
+  const totalCardStatementDebt = cards.reduce((sum, card) => sum + card.currentStatementAmountCents + card.unbilledAmountCents, 0);
+
   return (
-    <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
+    <div className="space-y-4">
+      <section className="grid gap-3 md:grid-cols-3">
+        <StatCard label="信用卡帳款" value={formatMoney(totalCardStatementDebt)} />
+        <StatCard label="分期剩餘負債" value={formatMoney(installmentDebt)} />
+        <StatCard label="分期每月應繳" value={formatMoney(installmentMonthlyDue)} />
+      </section>
+      <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
       <section className="panel">
         <h2 className="text-lg font-semibold">新增信用卡</h2>
         <form className="mt-4 space-y-3" onSubmit={handleFormSubmit(addCard)}>
@@ -1110,7 +1267,8 @@ function CardsPage({
       </section>
       <section className="grid gap-3 md:grid-cols-2">
         {cards.map((card) => {
-          const used = card.unbilledAmountCents + card.currentStatementAmountCents + card.installmentBalanceCents;
+          const cardInstallmentDebt = getCardInstallmentDebt(card.id, installments, card.installmentBalanceCents);
+          const used = card.unbilledAmountCents + card.currentStatementAmountCents + cardInstallmentDebt;
           const utilization = used / Math.max(card.creditLimitCents, 1);
           return (
             <div key={card.id} className="panel">
@@ -1121,6 +1279,7 @@ function CardsPage({
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                 <Info label="本期帳單" value={formatMoney(card.currentStatementAmountCents)} />
                 <Info label="下期未出帳" value={formatMoney(card.unbilledAmountCents)} />
+                <Info label="分期剩餘" value={formatMoney(cardInstallmentDebt)} />
                 <Info label="剩餘額度" value={formatMoney(Math.max(0, card.creditLimitCents - used))} />
                 <Info label="最低應繳" value={formatMoney(card.minimumPaymentCents)} />
               </div>
@@ -1132,6 +1291,38 @@ function CardsPage({
           );
         })}
       </section>
+      </div>
+      <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
+        <section className="panel">
+          <h2 className="text-lg font-semibold">新增分期款項</h2>
+          <form className="mt-4 space-y-3" onSubmit={handleFormSubmit(addInstallment)}>
+            <Field label="信用卡">
+              <select className="input" name="creditCardId" required>
+                {cards.map((card) => <option key={card.id} value={card.id}>{card.name}（{card.last4}）</option>)}
+              </select>
+            </Field>
+            <Field label="商家或項目"><input className="input" name="merchant" placeholder="例如 手機、家電、旅遊" /></Field>
+            <Field label="分期總額"><input className="input" name="totalAmount" inputMode="decimal" required /></Field>
+            <Field label="年利率 %"><input className="input" name="annualRate" inputMode="decimal" defaultValue="0" /></Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="總期數"><input className="input" name="periods" type="number" min={1} defaultValue={12} /></Field>
+              <Field label="已還期數"><input className="input" name="paidPeriods" type="number" min={0} defaultValue={0} /></Field>
+            </div>
+            <Field label="已還款金額"><input className="input" name="paidAmount" inputMode="decimal" defaultValue="0" /></Field>
+            <Field label="每月應繳"><input className="input" name="monthlyPayment" inputMode="decimal" placeholder="可留空自動估算" /></Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="開始日"><input className="input" name="startedOn" type="date" defaultValue={today} /></Field>
+              <Field label="下次應繳日"><input className="input" name="nextDueDate" type="date" /></Field>
+            </div>
+            <Field label="備註"><textarea className="input" name="note" rows={2} /></Field>
+            <button className="btn-primary w-full" type="submit"><Plus size={16} />新增分期</button>
+          </form>
+        </section>
+        <section className="panel">
+          <h2 className="text-lg font-semibold">分期負債整理</h2>
+          <InstallmentDebtTable cards={cards} installments={installments} />
+        </section>
+      </div>
     </div>
   );
 }
@@ -1500,6 +1691,7 @@ function ReportsPage({
   transactions,
   loans,
   creditCards,
+  creditCardInstallments,
   monthlyTrend,
   categoryBreakdown,
   accounts,
@@ -1508,6 +1700,7 @@ function ReportsPage({
   transactions: Transaction[];
   loans: Loan[];
   creditCards: CreditCard[];
+  creditCardInstallments: CreditCardInstallment[];
   monthlyTrend: { month: string; incomeCents: number; expenseCents: number }[];
   categoryBreakdown: { category: string; amountCents: number }[];
   accounts: FinancialAccount[];
@@ -1550,7 +1743,8 @@ function ReportsPage({
         <section className="panel"><h3 className="font-semibold">月收支與現金流趨勢</h3><TrendChart data={monthlyTrend} /></section>
         <section className="panel"><h3 className="font-semibold">支出分類報表</h3><CategoryBars data={categoryBreakdown} /></section>
         <section className="panel"><h3 className="font-semibold">貸款餘額報表</h3>{loans.map((loan) => <Progress key={loan.id} label={loan.name} value={loan.remainingPrincipalCents / loan.originalPrincipalCents} helper={formatMoney(loan.remainingPrincipalCents)} />)}</section>
-        <section className="panel"><h3 className="font-semibold">信用卡使用報表</h3>{creditCards.map((card) => <Progress key={card.id} label={card.name} value={(card.currentStatementAmountCents + card.unbilledAmountCents) / Math.max(card.creditLimitCents, 1)} />)}</section>
+        <section className="panel"><h3 className="font-semibold">信用卡使用報表</h3>{creditCards.map((card) => <Progress key={card.id} label={card.name} value={(card.currentStatementAmountCents + card.unbilledAmountCents + getCardInstallmentDebt(card.id, creditCardInstallments, card.installmentBalanceCents)) / Math.max(card.creditLimitCents, 1)} />)}</section>
+        <section className="panel"><h3 className="font-semibold">分期負債明細</h3><InstallmentDebtTable cards={creditCards} installments={creditCardInstallments} /></section>
       </div>
     </div>
   );
