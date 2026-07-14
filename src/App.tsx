@@ -800,7 +800,7 @@ function PageExperience({
   const intro = pageIntros[page];
   return (
     <section
-      className="overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:p-5"
+      className="tech-grid overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:p-5"
       style={{
         backgroundImage: `linear-gradient(115deg, ${intro.tint} 0%, rgba(255,255,255,0.96) 44%, rgba(255,255,255,0.98) 100%)`
       }}
@@ -902,9 +902,10 @@ function AuthPage({
   }
 
   return (
-    <main className="min-h-screen bg-[#f6f8fb] text-slate-950 dark:bg-slate-950 dark:text-slate-50">
+    <main className="tech-grid min-h-screen bg-[#f6f8fb] text-slate-950 dark:bg-slate-950 dark:text-slate-50">
       <section className="mx-auto grid min-h-screen w-full max-w-7xl gap-8 px-4 py-6 sm:px-6 lg:grid-cols-[1.08fr_0.92fr] lg:items-center lg:px-8">
         <div className="relative overflow-hidden rounded-lg border border-slate-200 bg-white p-5 shadow-lg dark:border-slate-800 dark:bg-slate-900 sm:p-8">
+          <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-emerald-500 via-sky-500 to-amber-400" />
           <div className="flex items-center justify-between gap-3">
             <Brand />
             <span className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-100">
@@ -912,8 +913,11 @@ function AuthPage({
             </span>
           </div>
           <div className="mt-10 max-w-3xl">
-            <p className="text-sm font-semibold text-brand-700 dark:text-brand-100">Ez2SaveMore 個人財務中樞</p>
-            <h1 className="mt-3 text-4xl font-bold tracking-normal text-slate-950 dark:text-slate-50 sm:text-5xl">
+            <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+              Personal finance OS
+            </div>
+            <h1 className="mt-4 text-4xl font-bold tracking-normal text-slate-950 dark:text-slate-50 sm:text-5xl">
               把你的總帳，整理成可以行動的財務決策。
             </h1>
             <p className="mt-5 max-w-2xl text-base leading-7 text-slate-600 dark:text-slate-300">
@@ -933,7 +937,10 @@ function AuthPage({
                 <p className="text-xs font-medium text-emerald-300">Live finance workspace</p>
                 <p className="mt-1 text-lg font-semibold">本月財務指揮台</p>
               </div>
-              <span className="rounded-md bg-white/10 px-3 py-1 text-xs text-slate-200">已連接 Supabase</span>
+              <div className="flex items-center gap-2 rounded-md bg-white/10 px-3 py-1 text-xs text-slate-200">
+                <span className="h-2 w-2 rounded-full bg-emerald-300" />
+                已連接 Supabase
+              </div>
             </div>
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
               <div className="rounded-md bg-white/10 p-3">
@@ -969,7 +976,8 @@ function AuthPage({
           </div>
         </div>
 
-        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-lg dark:border-slate-800 dark:bg-slate-900 sm:p-8">
+        <div className="relative rounded-lg border border-slate-200 bg-white p-5 shadow-lg dark:border-slate-800 dark:bg-slate-900 sm:p-8">
+          <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-emerald-400 to-transparent" />
           <div>
             <p className="text-sm font-semibold text-brand-700 dark:text-brand-100">開始使用</p>
             <h2 className="mt-2 text-2xl font-bold tracking-normal">登入你的財務工作台</h2>
@@ -2828,7 +2836,7 @@ function SettingsPage({
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="block">
+    <label className="block rounded-lg border border-slate-200/80 bg-white/70 p-3 shadow-subtle transition focus-within:border-emerald-300 focus-within:bg-white focus-within:shadow-md dark:border-slate-800 dark:bg-slate-950/60 dark:focus-within:border-emerald-800 dark:focus-within:bg-slate-950">
       <span className="label">{label}</span>
       {children}
     </label>
