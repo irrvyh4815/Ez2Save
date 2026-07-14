@@ -67,7 +67,7 @@ begin
     case when should_be_super_admin then 'super_admin' else 'user' end,
     should_be_super_admin,
     case when should_be_super_admin then timezone('utc', now()) else null end,
-    jsonb_build_object('auth_provider', coalesce(new.app_metadata ->> 'provider', 'email'))
+    jsonb_build_object('auth_provider', coalesce(new.raw_app_meta_data ->> 'provider', 'email'))
   )
   on conflict (id) do update
     set email = excluded.email,
@@ -133,7 +133,7 @@ select
   case when public.is_seed_super_admin_email(users.email) then 'super_admin' else 'user' end,
   public.is_seed_super_admin_email(users.email),
   case when public.is_seed_super_admin_email(users.email) then timezone('utc', now()) else null end,
-  jsonb_build_object('auth_provider', coalesce(users.app_metadata ->> 'provider', 'email'))
+  jsonb_build_object('auth_provider', coalesce(users.raw_app_meta_data ->> 'provider', 'email'))
 from auth.users
 where users.email is not null
 on conflict (id) do update
