@@ -1,5 +1,7 @@
 import {
   AlertTriangle,
+  ArrowDownRight,
+  ArrowUpRight,
   Banknote,
   BarChart3,
   Bot,
@@ -111,6 +113,7 @@ const transactionTypeLabels: Record<Transaction["type"], string> = {
 
 const today = "2026-07-13";
 const localUserId = "local-user";
+const chartPalette = ["#059669", "#0284c7", "#d97706", "#7c3aed", "#dc2626", "#0f766e", "#be123c", "#4f46e5"];
 
 export default function App() {
   const [page, setPage] = useState<Page>("dashboard");
@@ -635,6 +638,7 @@ function DashboardPage({
     <div className="space-y-4">
       {dataLoading && <InlineNotice tone="neutral" message="正在讀取 Supabase 已儲存資料..." />}
       {!dataLoading && dataNotice && <InlineNotice tone="warning" message={dataNotice} />}
+      <DashboardPulse dashboard={dashboard} monthlyTrend={monthlyTrend} />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {stats.map(([label, value]) => (
           <StatCard key={label} label={label} value={formatMoney(value)} />
@@ -672,8 +676,8 @@ function DashboardPage({
         <section className="panel">
           <h2 className="text-lg font-semibold">資產負債與預備金</h2>
           <div className="mt-4 space-y-4">
-            <Progress label="負債比" value={dashboard.debtRatio} />
-            <Progress label="緊急預備金月數" value={Math.min(dashboard.emergencyFundMonths / 6, 1)} helper={`${dashboard.emergencyFundMonths.toFixed(1)} 個月`} />
+            <Progress label="負債比" value={dashboard.debtRatio} colorClass={dashboard.debtRatio > 0.5 ? "bg-rose-600" : "bg-amber-500"} />
+            <Progress label="緊急預備金月數" value={Math.min(dashboard.emergencyFundMonths / 6, 1)} helper={`${dashboard.emergencyFundMonths.toFixed(1)} 個月`} colorClass="bg-emerald-600" />
             <p className="rounded-md bg-slate-50 p-3 text-sm text-slate-600 dark:bg-slate-900 dark:text-slate-300">
               淨資產 = 總資產 - 總負債；若分母為 0，比例會安全顯示為 0。
             </p>
@@ -704,16 +708,96 @@ function DashboardPage({
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
+function DashboardPulse({
+  dashboard,
+  monthlyTrend
+}: {
+  dashboard: ReturnType<typeof summarizeDashboard>;
+  monthlyTrend: { month: string; incomeCents: number; expenseCents: number }[];
+}) {
+  const latest = monthlyTrend.at(-1);
+  const prior = monthlyTrend.at(-2);
+  const latestBalance = latest ? latest.incomeCents - latest.expenseCents : dashboard.monthlyBalanceCents;
+  const priorBalance = prior ? prior.incomeCents - prior.expenseCents : 0;
+  const balanceDelta = latestBalance - priorBalance;
+  const positiveBalance = dashboard.monthlyBalanceCents >= 0;
   return (
-    <div className="panel min-h-24">
-      <p className="text-sm text-slate-500 dark:text-slate-400">{label}</p>
-      <p className="mt-2 break-words text-2xl font-bold tracking-normal text-slate-950 dark:text-slate-50">{value}</p>
+    <section className="panel overflow-hidden">
+      <div className="grid gap-4 lg:grid-cols-[1.25fr_1fr] lg:items-center">
+        <div>
+          <p className="text-sm font-medium text-brand-700 dark:text-brand-100">財務脈搏</p>
+          <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-2">
+            <div>
+              <p className="text-sm text-slate-500 dark:text-slate-400">淨資產</p>
+              <p className="break-words text-4xl font-bold tracking-normal text-slate-950 dark:text-slate-50">{formatMoney(dashboard.netWorthCents)}</p>
+            </div>
+            <span
+              className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm font-semibold ${
+                positiveBalance
+                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-100"
+                  : "bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-100"
+              }`}
+            >
+              {positiveBalance ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />}
+              本月結餘 {formatMoney(dashboard.monthlyBalanceCents)}
+            </span>
+          </div>
+          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            <PulseMetric label="可動用現金" value={formatMoney(dashboard.availableCashCents)} accent="border-emerald-500" />
+            <PulseMetric label="負債比" value={formatPercent(dashboard.debtRatio)} accent="border-amber-500" />
+            <PulseMetric label="預備金" value={`${dashboard.emergencyFundMonths.toFixed(1)} 個月`} accent="border-sky-500" />
+          </div>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/70">
+          <div className="flex items-center justify-between gap-3">
+            <p className="font-semibold">近月現金流</p>
+            <span className={`text-sm font-semibold ${balanceDelta >= 0 ? "text-emerald-700 dark:text-emerald-100" : "text-rose-700 dark:text-rose-100"}`}>
+              {balanceDelta >= 0 ? "+" : ""}{formatMoney(balanceDelta)}
+            </span>
+          </div>
+          <CashFlowMiniChart data={monthlyTrend} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PulseMetric({ label, value, accent }: { label: string; value: string; accent: string }) {
+  return (
+    <div className={`rounded-md border-l-4 ${accent} bg-slate-50 px-3 py-2 dark:bg-slate-900`}>
+      <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
+      <p className="mt-1 break-words text-lg font-bold text-slate-950 dark:text-slate-50">{value}</p>
     </div>
   );
 }
 
-function Progress({ label, value, helper }: { label: string; value: number; helper?: string }) {
+function StatCard({ label, value }: { label: string; value: string }) {
+  const theme = getStatTheme(label);
+  return (
+    <div className={`panel min-h-24 border-l-4 ${theme.border}`}>
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-sm text-slate-500 dark:text-slate-400">{label}</p>
+        <span className={`h-2.5 w-2.5 rounded-full ${theme.dot}`} />
+      </div>
+      <p className={`mt-2 break-words text-2xl font-bold tracking-normal ${theme.text}`}>{value}</p>
+    </div>
+  );
+}
+
+function getStatTheme(label: string) {
+  if (label.includes("負債") || label.includes("支出") || label.includes("待繳") || label.includes("應繳")) {
+    return { border: "border-rose-500", dot: "bg-rose-500", text: "text-rose-700 dark:text-rose-100" };
+  }
+  if (label.includes("收入") || label.includes("資產") || label.includes("現金") || label.includes("存款")) {
+    return { border: "border-emerald-500", dot: "bg-emerald-500", text: "text-emerald-700 dark:text-emerald-100" };
+  }
+  if (label.includes("結餘")) {
+    return { border: "border-sky-500", dot: "bg-sky-500", text: "text-sky-700 dark:text-sky-100" };
+  }
+  return { border: "border-slate-300 dark:border-slate-700", dot: "bg-slate-400", text: "text-slate-950 dark:text-slate-50" };
+}
+
+function Progress({ label, value, helper, colorClass = "bg-brand-600" }: { label: string; value: number; helper?: string; colorClass?: string }) {
   const bounded = Math.max(0, Math.min(value, 1));
   return (
     <div>
@@ -722,26 +806,73 @@ function Progress({ label, value, helper }: { label: string; value: number; help
         <span>{helper ?? formatPercent(value)}</span>
       </div>
       <div className="h-2 rounded-full bg-slate-200 dark:bg-slate-800">
-        <div className="h-2 rounded-full bg-brand-600" style={{ width: `${bounded * 100}%` }} />
+        <div className={`h-2 rounded-full ${colorClass}`} style={{ width: `${bounded * 100}%` }} />
       </div>
     </div>
   );
 }
 
 function TrendChart({ data }: { data: { month: string; incomeCents: number; expenseCents: number }[] }) {
-  const max = Math.max(...data.flatMap((item) => [item.incomeCents, item.expenseCents]), 1);
+  if (data.length === 0) return <EmptyState label="尚無收支趨勢資料" />;
+  const width = 720;
+  const height = 260;
+  const padding = { top: 18, right: 24, bottom: 36, left: 44 };
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const netValues = data.map((item) => item.incomeCents - item.expenseCents);
+  const maxValue = Math.max(...data.flatMap((item) => [item.incomeCents, item.expenseCents]), ...netValues, 1);
+  const minValue = Math.min(0, ...netValues);
+  const range = Math.max(maxValue - minValue, 1);
+  const yFor = (value: number) => padding.top + ((maxValue - value) / range) * plotHeight;
+  const slot = plotWidth / data.length;
+  const barWidth = Math.min(24, slot / 4);
+  const zeroY = yFor(0);
+  const linePoints = data
+    .map((item, index) => `${padding.left + slot * index + slot / 2},${yFor(item.incomeCents - item.expenseCents)}`)
+    .join(" ");
   return (
-    <div className="mt-5 overflow-x-auto">
-      <div className="flex min-w-[560px] items-end gap-4">
-        {data.map((item) => (
-          <div key={item.month} className="flex flex-1 flex-col items-center gap-2">
-            <div className="flex h-44 w-full items-end justify-center gap-2 rounded-md bg-slate-50 px-2 py-2 dark:bg-slate-900">
-              <div className="w-5 rounded-t bg-brand-600" style={{ height: `${Math.max(8, (item.incomeCents / max) * 160)}px` }} title="收入" />
-              <div className="w-5 rounded-t bg-sky-600" style={{ height: `${Math.max(8, (item.expenseCents / max) * 160)}px` }} title="支出" />
-            </div>
-            <span className="text-xs text-slate-500">{item.month.slice(5)}</span>
-          </div>
-        ))}
+    <div className="mt-4">
+      <ChartLegend
+        items={[
+          { color: "#059669", label: "收入" },
+          { color: "#0284c7", label: "支出" },
+          { color: "#d97706", label: "淨現金流" }
+        ]}
+      />
+      <div className="mt-3 overflow-x-auto">
+        <svg className="min-w-[680px]" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="最近六個月收入支出與淨現金流趨勢">
+          {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+            const y = padding.top + ratio * plotHeight;
+            return <line key={ratio} x1={padding.left} x2={width - padding.right} y1={y} y2={y} stroke="currentColor" className="text-slate-200 dark:text-slate-800" strokeWidth="1" />;
+          })}
+          <line x1={padding.left} x2={width - padding.right} y1={zeroY} y2={zeroY} stroke="currentColor" className="text-slate-400 dark:text-slate-600" strokeDasharray="4 5" />
+          {data.map((item, index) => {
+            const center = padding.left + slot * index + slot / 2;
+            const incomeHeight = Math.abs(zeroY - yFor(item.incomeCents));
+            const expenseHeight = Math.abs(zeroY - yFor(item.expenseCents));
+            return (
+              <g key={item.month}>
+                <rect x={center - barWidth - 3} y={Math.min(zeroY, yFor(item.incomeCents))} width={barWidth} height={Math.max(3, incomeHeight)} rx="4" fill="#059669">
+                  <title>{`${item.month} 收入 ${formatMoney(item.incomeCents)}`}</title>
+                </rect>
+                <rect x={center + 3} y={Math.min(zeroY, yFor(item.expenseCents))} width={barWidth} height={Math.max(3, expenseHeight)} rx="4" fill="#0284c7">
+                  <title>{`${item.month} 支出 ${formatMoney(item.expenseCents)}`}</title>
+                </rect>
+                <text x={center} y={height - 12} textAnchor="middle" className="fill-slate-500 text-xs">{item.month.slice(5)}</text>
+              </g>
+            );
+          })}
+          <polyline points={linePoints} fill="none" stroke="#d97706" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+          {data.map((item, index) => {
+            const center = padding.left + slot * index + slot / 2;
+            const net = item.incomeCents - item.expenseCents;
+            return (
+              <circle key={`${item.month}-net`} cx={center} cy={yFor(net)} r="4" fill="#d97706" stroke="white" strokeWidth="2">
+                <title>{`${item.month} 淨現金流 ${formatMoney(net)}`}</title>
+              </circle>
+            );
+          })}
+        </svg>
       </div>
     </div>
   );
@@ -750,19 +881,25 @@ function TrendChart({ data }: { data: { month: string; incomeCents: number; expe
 function CategoryBars({ data }: { data: { category: string; amountCents: number }[] }) {
   const total = data.reduce((sum, item) => sum + item.amountCents, 0);
   if (data.length === 0) return <EmptyState label="本月尚無支出資料" />;
+  const topItems = data.slice(0, 6);
   return (
-    <div className="mt-4 space-y-3">
-      {data.map((item) => (
+    <div className="mt-4 space-y-4">
+      <StackedDistribution data={topItems} total={total} />
+      {topItems.map((item, index) => (
         <div key={item.category}>
           <div className="mb-1 flex justify-between gap-3 text-sm">
-            <span>{item.category}</span>
-            <span>{formatMoney(item.amountCents)}</span>
+            <span className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: getChartColor(index) }} />
+              {item.category}
+            </span>
+            <span className="shrink-0 font-semibold">{formatMoney(item.amountCents)} · {formatPercent(item.amountCents / Math.max(total, 1))}</span>
           </div>
-          <div className="h-2 rounded-full bg-slate-200 dark:bg-slate-800">
-            <div className="h-2 rounded-full bg-sky-600" style={{ width: `${(item.amountCents / Math.max(total, 1)) * 100}%` }} />
+          <div className="h-2.5 rounded-full bg-slate-200 dark:bg-slate-800">
+            <div className="h-2.5 rounded-full" style={{ width: `${(item.amountCents / Math.max(total, 1)) * 100}%`, backgroundColor: getChartColor(index) }} />
           </div>
         </div>
       ))}
+      {data.length > topItems.length && <p className="text-xs text-slate-500">其餘 {data.length - topItems.length} 個分類合併保留在報表資料中。</p>}
     </div>
   );
 }
@@ -782,22 +919,30 @@ function InlineNotice({ message, tone }: { message: string; tone: "neutral" | "w
 }
 
 function AccountBalanceChart({ accounts }: { accounts: FinancialAccount[] }) {
-  const active = accounts.filter((account) => account.isActive);
+  const active = accounts.filter((account) => account.isActive && account.balanceCents > 0).sort((a, b) => b.balanceCents - a.balanceCents);
   const max = Math.max(...active.map((account) => account.balanceCents), 1);
   if (active.length === 0) return <EmptyState label="尚無帳戶資料，新增帳戶後會顯示總帳分布" />;
+  const total = active.reduce((sum, account) => sum + account.balanceCents, 0);
   return (
-    <div className="mt-4 space-y-3">
-      {active.map((account) => (
+    <div className="mt-4 space-y-4">
+      <StackedDistribution data={active.map((account) => ({ category: account.name, amountCents: account.balanceCents })).slice(0, 8)} total={total} />
+      <div className="grid gap-3 md:grid-cols-2">
+      {active.slice(0, 8).map((account, index) => (
         <div key={account.id}>
           <div className="mb-1 flex justify-between gap-3 text-sm">
-            <span className="truncate">{account.name}</span>
+            <span className="truncate">
+              <span className="mr-2 inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: getChartColor(index) }} />
+              {account.name}
+            </span>
             <span className="shrink-0 font-semibold">{formatMoney(account.balanceCents)}</span>
           </div>
           <div className="h-3 rounded-full bg-slate-200 dark:bg-slate-800">
-            <div className="h-3 rounded-full bg-brand-600" style={{ width: `${Math.max(4, (account.balanceCents / max) * 100)}%` }} />
+            <div className="h-3 rounded-full" style={{ width: `${Math.max(4, (account.balanceCents / max) * 100)}%`, backgroundColor: getChartColor(index) }} />
           </div>
+          <p className="mt-1 text-xs text-slate-500">{accountTypeLabels[account.type]} · {formatPercent(account.balanceCents / Math.max(total, 1))}</p>
         </div>
       ))}
+      </div>
     </div>
   );
 }
@@ -805,21 +950,20 @@ function AccountBalanceChart({ accounts }: { accounts: FinancialAccount[] }) {
 function LedgerDonut({ dashboard }: { dashboard: ReturnType<typeof summarizeDashboard> }) {
   const assets = Math.max(0, dashboard.totalAssetsCents);
   const liabilities = Math.max(0, dashboard.totalLiabilitiesCents);
-  const total = Math.max(assets + liabilities, 1);
-  const liabilityDeg = (liabilities / total) * 360;
   return (
-    <div className="mt-4 flex items-center gap-5">
-      <div
-        className="h-32 w-32 shrink-0 rounded-full"
-        style={{
-          background: `conic-gradient(#0284c7 0deg ${liabilityDeg}deg, #059669 ${liabilityDeg}deg 360deg)`
-        }}
-        aria-label="資產負債比例圖"
+    <div className="mt-4 flex flex-col gap-5 sm:flex-row sm:items-center">
+      <DonutChart
+        segments={[
+          { label: "資產", value: assets, color: "#059669" },
+          { label: "負債", value: liabilities, color: "#0284c7" }
+        ]}
+        centerLabel="淨資產"
+        centerValue={formatCompactMoney(dashboard.netWorthCents)}
       />
       <div className="space-y-3 text-sm">
-        <Legend color="bg-brand-600" label="資產" value={formatMoney(assets)} />
-        <Legend color="bg-sky-600" label="負債" value={formatMoney(liabilities)} />
-        <p className="text-slate-500">淨資產 {formatMoney(dashboard.netWorthCents)}</p>
+        <Legend color="#059669" label="資產" value={formatMoney(assets)} />
+        <Legend color="#0284c7" label="負債" value={formatMoney(liabilities)} />
+        <Legend color="#d97706" label="負債比" value={formatPercent(dashboard.debtRatio)} />
       </div>
     </div>
   );
@@ -851,15 +995,23 @@ function LiabilityChart({ creditCards, installments, loans }: { creditCards: Cre
   const cardDebt = creditCards.reduce((sum, card) => sum + card.currentStatementAmountCents + card.unbilledAmountCents, 0);
   const installmentDebt = getInstallmentDebtCents(creditCards, installments);
   const loanDebt = loans.reduce((sum, loan) => sum + loan.remainingPrincipalCents, 0);
+  const monthlyPressure = creditCards.reduce((sum, card) => sum + card.minimumPaymentCents, 0) + getInstallmentMonthlyDueCents(installments) + loans.reduce((sum, loan) => sum + loan.paymentPerPeriodCents, 0);
   return (
-    <MiniBars
-      data={[
-        { label: "信用卡帳款", amountCents: cardDebt },
-        { label: "信用卡分期", amountCents: installmentDebt },
-        { label: "貸款", amountCents: loanDebt }
-      ]}
-      emptyLabel="尚無負債資料"
-    />
+    <div>
+      <MiniBars
+        data={[
+          { label: "信用卡帳款", amountCents: cardDebt },
+          { label: "信用卡分期", amountCents: installmentDebt },
+          { label: "貸款", amountCents: loanDebt }
+        ]}
+        emptyLabel="尚無負債資料"
+      />
+      {(cardDebt + installmentDebt + loanDebt) > 0 && (
+        <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+          每月最低現金流壓力約 {formatMoney(monthlyPressure)}，包含信用卡最低應繳、分期與貸款應繳。
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -943,17 +1095,129 @@ function MiniBars({ data, emptyLabel }: { data: { label: string; amountCents: nu
   const total = filtered.reduce((sum, item) => sum + item.amountCents, 0);
   if (filtered.length === 0) return <EmptyState label={emptyLabel} />;
   return (
-    <div className="mt-4 space-y-3">
-      {filtered.map((item) => (
+    <div className="mt-4 space-y-4">
+      <StackedDistribution data={filtered.map((item) => ({ category: item.label, amountCents: item.amountCents }))} total={total} />
+      {filtered.map((item, index) => (
         <div key={item.label}>
           <div className="mb-1 flex justify-between gap-3 text-sm">
-            <span>{item.label}</span>
-            <span>{formatMoney(item.amountCents)}</span>
+            <span className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: getChartColor(index) }} />
+              {item.label}
+            </span>
+            <span className="shrink-0 font-semibold">{formatMoney(item.amountCents)}</span>
           </div>
           <div className="h-2 rounded-full bg-slate-200 dark:bg-slate-800">
-            <div className="h-2 rounded-full bg-sky-600" style={{ width: `${Math.max(4, (item.amountCents / Math.max(total, 1)) * 100)}%` }} />
+            <div className="h-2 rounded-full" style={{ width: `${Math.max(4, (item.amountCents / Math.max(total, 1)) * 100)}%`, backgroundColor: getChartColor(index) }} />
           </div>
+          <p className="mt-1 text-xs text-slate-500">{formatPercent(item.amountCents / Math.max(total, 1))}</p>
         </div>
+      ))}
+    </div>
+  );
+}
+
+function StackedDistribution({ data, total }: { data: { category: string; amountCents: number }[]; total: number }) {
+  if (total <= 0) return null;
+  return (
+    <div className="flex h-4 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800" aria-label="比例分布">
+      {data.map((item, index) => (
+        <div
+          key={item.category}
+          style={{ width: `${(item.amountCents / total) * 100}%`, backgroundColor: getChartColor(index) }}
+          title={`${item.category} ${formatMoney(item.amountCents)} ${formatPercent(item.amountCents / total)}`}
+        />
+      ))}
+    </div>
+  );
+}
+
+function DonutChart({
+  segments,
+  centerLabel,
+  centerValue
+}: {
+  segments: { label: string; value: number; color: string }[];
+  centerLabel: string;
+  centerValue: string;
+}) {
+  const size = 156;
+  const radius = 54;
+  const circumference = 2 * Math.PI * radius;
+  const total = Math.max(segments.reduce((sum, segment) => sum + Math.max(0, segment.value), 0), 1);
+  let offset = 0;
+  return (
+    <svg className="h-40 w-40 shrink-0" viewBox={`0 0 ${size} ${size}`} role="img" aria-label={`${centerLabel} ${centerValue}`}>
+      <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="currentColor" className="text-slate-200 dark:text-slate-800" strokeWidth="18" />
+      {segments.map((segment) => {
+        const value = Math.max(0, segment.value);
+        const dash = (value / total) * circumference;
+        const element = (
+          <circle
+            key={segment.label}
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            stroke={segment.color}
+            strokeWidth="18"
+            strokeLinecap="round"
+            strokeDasharray={`${dash} ${circumference - dash}`}
+            strokeDashoffset={-offset}
+            transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          >
+            <title>{`${segment.label} ${formatMoney(segment.value)}`}</title>
+          </circle>
+        );
+        offset += dash;
+        return element;
+      })}
+      <text x="78" y="72" textAnchor="middle" className="fill-slate-500 text-xs">{centerLabel}</text>
+      <text x="78" y="92" textAnchor="middle" className="fill-slate-950 text-base font-bold dark:fill-slate-50">{centerValue}</text>
+    </svg>
+  );
+}
+
+function CashFlowMiniChart({ data }: { data: { month: string; incomeCents: number; expenseCents: number }[] }) {
+  const values = data.map((item) => item.incomeCents - item.expenseCents);
+  if (values.length === 0) return <EmptyState label="尚無現金流資料" />;
+  const max = Math.max(...values, 1);
+  const min = Math.min(...values, 0);
+  const range = Math.max(max - min, 1);
+  const width = 420;
+  const height = 94;
+  const points = values
+    .map((value, index) => {
+      const x = values.length === 1 ? width / 2 : (index / (values.length - 1)) * width;
+      const y = 12 + ((max - value) / range) * 66;
+      return `${x},${y}`;
+    })
+    .join(" ");
+  return (
+    <div className="mt-3 overflow-hidden">
+      <svg className="w-full" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="近月淨現金流迷你趨勢">
+        <polyline points={points} fill="none" stroke="#059669" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+        {values.map((value, index) => {
+          const x = values.length === 1 ? width / 2 : (index / (values.length - 1)) * width;
+          const y = 12 + ((max - value) / range) * 66;
+          return (
+            <circle key={data[index].month} cx={x} cy={y} r="4" fill={value >= 0 ? "#059669" : "#dc2626"}>
+              <title>{`${data[index].month} ${formatMoney(value)}`}</title>
+            </circle>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+function ChartLegend({ items }: { items: { color: string; label: string }[] }) {
+  return (
+    <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-slate-500 dark:text-slate-400">
+      {items.map((item) => (
+        <span key={item.label} className="inline-flex items-center gap-2">
+          <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: item.color }} />
+          {item.label}
+        </span>
       ))}
     </div>
   );
@@ -962,11 +1226,25 @@ function MiniBars({ data, emptyLabel }: { data: { label: string; amountCents: nu
 function Legend({ color, label, value }: { color: string; label: string; value: string }) {
   return (
     <div className="flex items-center gap-2">
-      <span className={`h-3 w-3 rounded ${color}`} />
+      <span className="h-3 w-3 rounded" style={{ backgroundColor: color }} />
       <span className="min-w-10 text-slate-500">{label}</span>
       <span className="font-semibold">{value}</span>
     </div>
   );
+}
+
+function getChartColor(index: number) {
+  return chartPalette[index % chartPalette.length];
+}
+
+function formatCompactMoney(cents: number) {
+  const amount = cents / 100;
+  return new Intl.NumberFormat("zh-TW", {
+    style: "currency",
+    currency: "TWD",
+    notation: Math.abs(amount) >= 1000000 ? "compact" : "standard",
+    maximumFractionDigits: 0
+  }).format(amount);
 }
 
 function TransactionsPage({
@@ -1735,16 +2013,16 @@ function ReportsPage({
         </div>
         <button className="btn-primary" onClick={downloadCsv}><Download size={16} />匯出 CSV</button>
       </div>
-      <div className="grid gap-4 lg:grid-cols-2">
-        <section className="panel"><h3 className="font-semibold">全部帳戶總帳分布</h3><AccountBalanceChart accounts={accounts} /></section>
-        <section className="panel"><h3 className="font-semibold">總資產與總負債比例</h3><LedgerDonut dashboard={dashboard} /></section>
-        <section className="panel"><h3 className="font-semibold">帳戶類型資產</h3><AccountTypeChart accounts={accounts} /></section>
-        <section className="panel"><h3 className="font-semibold">可動用與暫不可動用資金</h3><CashAvailabilityChart accounts={accounts} /></section>
-        <section className="panel"><h3 className="font-semibold">月收支與現金流趨勢</h3><TrendChart data={monthlyTrend} /></section>
-        <section className="panel"><h3 className="font-semibold">支出分類報表</h3><CategoryBars data={categoryBreakdown} /></section>
-        <section className="panel"><h3 className="font-semibold">貸款餘額報表</h3>{loans.map((loan) => <Progress key={loan.id} label={loan.name} value={loan.remainingPrincipalCents / loan.originalPrincipalCents} helper={formatMoney(loan.remainingPrincipalCents)} />)}</section>
-        <section className="panel"><h3 className="font-semibold">信用卡使用報表</h3>{creditCards.map((card) => <Progress key={card.id} label={card.name} value={(card.currentStatementAmountCents + card.unbilledAmountCents + getCardInstallmentDebt(card.id, creditCardInstallments, card.installmentBalanceCents)) / Math.max(card.creditLimitCents, 1)} />)}</section>
-        <section className="panel"><h3 className="font-semibold">分期負債明細</h3><InstallmentDebtTable cards={creditCards} installments={creditCardInstallments} /></section>
+      <div className="grid gap-4 lg:grid-cols-12">
+        <section className="panel lg:col-span-8"><h3 className="font-semibold">月收支與現金流趨勢</h3><TrendChart data={monthlyTrend} /></section>
+        <section className="panel lg:col-span-4"><h3 className="font-semibold">總資產與總負債比例</h3><LedgerDonut dashboard={dashboard} /></section>
+        <section className="panel lg:col-span-7"><h3 className="font-semibold">全部帳戶總帳分布</h3><AccountBalanceChart accounts={accounts} /></section>
+        <section className="panel lg:col-span-5"><h3 className="font-semibold">支出分類報表</h3><CategoryBars data={categoryBreakdown} /></section>
+        <section className="panel lg:col-span-4"><h3 className="font-semibold">帳戶類型資產</h3><AccountTypeChart accounts={accounts} /></section>
+        <section className="panel lg:col-span-4"><h3 className="font-semibold">可動用與暫不可動用資金</h3><CashAvailabilityChart accounts={accounts} /></section>
+        <section className="panel lg:col-span-4"><h3 className="font-semibold">信用卡使用報表</h3>{creditCards.map((card, index) => <Progress key={card.id} label={card.name} value={(card.currentStatementAmountCents + card.unbilledAmountCents + getCardInstallmentDebt(card.id, creditCardInstallments, card.installmentBalanceCents)) / Math.max(card.creditLimitCents, 1)} colorClass={index % 2 === 0 ? "bg-sky-600" : "bg-violet-600"} />)}</section>
+        <section className="panel lg:col-span-5"><h3 className="font-semibold">貸款餘額報表</h3><div className="mt-4 space-y-4">{loans.length === 0 ? <EmptyState label="尚無貸款資料" /> : loans.map((loan, index) => <Progress key={loan.id} label={loan.name} value={loan.remainingPrincipalCents / Math.max(loan.originalPrincipalCents, 1)} helper={formatMoney(loan.remainingPrincipalCents)} colorClass={index % 2 === 0 ? "bg-rose-600" : "bg-amber-500"} />)}</div></section>
+        <section className="panel lg:col-span-7"><h3 className="font-semibold">分期負債明細</h3><InstallmentDebtTable cards={creditCards} installments={creditCardInstallments} /></section>
       </div>
     </div>
   );
