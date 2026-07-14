@@ -4,6 +4,7 @@ import {
   ArrowUpRight,
   Banknote,
   BarChart3,
+  Bell,
   Bot,
   Calculator,
   CalendarClock,
@@ -76,6 +77,15 @@ type Page =
 
 type ToastType = "success" | "error";
 type Toast = { type: ToastType; message: string } | null;
+type FinanceNotification = {
+  id: string;
+  title: string;
+  detail: string;
+  date: string;
+  amountCents?: number;
+  source: "credit_card" | "loan" | "installment" | "reminder";
+  status: "overdue" | "due_today" | "upcoming" | "scheduled";
+};
 
 const navItems: { page: Page; label: string; icon: typeof BarChart3 }[] = [
   { page: "dashboard", label: "理財總覽", icon: BarChart3 },
@@ -120,6 +130,7 @@ export default function App() {
   const [month, setMonth] = useState(currentTaipeiMonth());
   const [darkMode, setDarkMode] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
+  const [notificationOpen, setNotificationOpen] = useState(false);
   const [accounts, setAccounts] = useState(emptyFinanceData.accounts);
   const [transactions, setTransactions] = useState(emptyFinanceData.transactions);
   const [creditCards, setCreditCards] = useState(emptyFinanceData.creditCards);
@@ -221,6 +232,18 @@ export default function App() {
       };
     });
   }, [transactions]);
+
+  const financeNotifications = useMemo(
+    () =>
+      buildFinanceNotifications({
+        month,
+        reminders,
+        creditCards,
+        installments: creditCardInstallments,
+        loans
+      }),
+    [creditCardInstallments, creditCards, loans, month, reminders]
+  );
 
   const rootClass = darkMode ? "dark min-h-screen bg-slate-950" : "min-h-screen bg-slate-50";
 
@@ -414,6 +437,22 @@ export default function App() {
                   月份
                 </label>
                 <input id="month" className="input mt-0 w-36" type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
+                <div className="relative">
+                  <button
+                    className="btn-secondary relative h-10 w-10 px-0"
+                    title="通知中心"
+                    aria-label={`通知中心，共 ${financeNotifications.length} 則提醒`}
+                    onClick={() => setNotificationOpen((value) => !value)}
+                  >
+                    <Bell size={18} />
+                    {financeNotifications.length > 0 && (
+                      <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white ring-2 ring-white dark:ring-slate-950">
+                        {financeNotifications.length > 9 ? "9+" : financeNotifications.length}
+                      </span>
+                    )}
+                  </button>
+                  {notificationOpen && <NotificationPanel notifications={financeNotifications} onClose={() => setNotificationOpen(false)} />}
+                </div>
                 <button className="btn-secondary h-10 w-10 px-0" title="切換深色模式" onClick={() => setDarkMode((value) => !value)}>
                   <Moon size={18} />
                 </button>
@@ -428,7 +467,7 @@ export default function App() {
                 dashboard={dashboard}
                 categoryBreakdown={categoryBreakdown}
                 monthlyTrend={monthlyTrend}
-                reminders={reminders}
+                notifications={financeNotifications}
                 accounts={accounts}
                 creditCards={creditCards}
                 creditCardInstallments={creditCardInstallments}
@@ -598,11 +637,211 @@ function ToastBanner({ toast }: { toast: NonNullable<Toast> }) {
   );
 }
 
+function NotificationPanel({ notifications, onClose }: { notifications: FinanceNotification[]; onClose: () => void }) {
+  return (
+    <div className="absolute right-0 top-12 z-40 w-[calc(100vw-2rem)] max-w-md rounded-lg border border-slate-200 bg-white p-3 shadow-lg dark:border-slate-800 dark:bg-slate-950">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="font-semibold text-slate-950 dark:text-slate-50">通知中心</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">信用卡、貸款、分期與固定帳單提醒</p>
+        </div>
+        <button className="btn-secondary px-2 py-1" onClick={onClose}>關閉</button>
+      </div>
+      <div className="mt-3 max-h-[420px] space-y-2 overflow-y-auto">
+        {notifications.length === 0 ? (
+          <div className="rounded-md border border-slate-200 p-4 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
+            目前沒有本月提醒。
+          </div>
+        ) : (
+          notifications.map((item) => (
+            <div key={item.id} className={`rounded-md border p-3 ${getNotificationClass(item.status)}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-semibold">{item.title}</p>
+                  <p className="mt-1 text-sm opacity-90">{item.detail}</p>
+                </div>
+                <span className="shrink-0 rounded bg-white/70 px-2 py-1 text-xs font-semibold dark:bg-slate-950/50">{getNotificationStatusLabel(item.status)}</span>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs opacity-90">
+                <span>{formatDate(item.date)}</span>
+                {item.amountCents !== undefined && <span>{formatMoney(item.amountCents)}</span>}
+                <span>{getNotificationSourceLabel(item.source)}</span>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function buildFinanceNotifications({
+  month,
+  reminders,
+  creditCards,
+  installments,
+  loans
+}: {
+  month: string;
+  reminders: FinancialReminder[];
+  creditCards: CreditCard[];
+  installments: CreditCardInstallment[];
+  loans: Loan[];
+}): FinanceNotification[] {
+  const items: FinanceNotification[] = [];
+  const todayIso = getTaipeiTodayIso();
+
+  creditCards
+    .filter((card) => card.isActive)
+    .forEach((card) => {
+      const statementDate = createMonthlyDate(month, card.statementDay);
+      const dueDate = createMonthlyDate(month, card.paymentDueDay);
+      items.push({
+        id: `card-statement-${card.id}-${statementDate}`,
+        title: `${card.name} 結帳日`,
+        detail: `${card.issuer} **** ${card.last4}，本期帳款 ${formatMoney(card.currentStatementAmountCents)}，未出帳 ${formatMoney(card.unbilledAmountCents)}`,
+        date: statementDate,
+        amountCents: card.currentStatementAmountCents + card.unbilledAmountCents,
+        source: "credit_card",
+        status: getNotificationStatus(statementDate, todayIso, 5)
+      });
+      items.push({
+        id: `card-due-${card.id}-${dueDate}`,
+        title: `${card.name} 繳款截止`,
+        detail: `本期帳單 ${formatMoney(card.currentStatementAmountCents)}，最低應繳 ${formatMoney(card.minimumPaymentCents)}。最低應繳僅作提醒，不建議作為長期策略。`,
+        date: dueDate,
+        amountCents: card.currentStatementAmountCents,
+        source: "credit_card",
+        status: getNotificationStatus(dueDate, todayIso, 7)
+      });
+    });
+
+  installments
+    .filter((installment) => installment.status === "active")
+    .filter((installment) => installment.nextDueDate?.startsWith(month))
+    .forEach((installment) => {
+      const date = installment.nextDueDate as string;
+      const card = creditCards.find((candidate) => candidate.id === installment.creditCardId);
+      items.push({
+        id: `installment-${installment.id}-${date}`,
+        title: `${installment.merchant || card?.name || "信用卡"} 分期應繳`,
+        detail: `${card?.name ?? "信用卡"}，已還 ${installment.paidPeriods}/${installment.periods} 期，剩餘 ${formatMoney(installment.remainingAmountCents)}，年利率 ${formatPercent(installment.annualRate)}`,
+        date,
+        amountCents: installment.monthlyPaymentCents,
+        source: "installment",
+        status: getNotificationStatus(date, todayIso, 7)
+      });
+    });
+
+  loans
+    .filter((loan) => loan.status === "active")
+    .forEach((loan) => {
+      const date = createMonthlyDate(month, loan.monthlyPaymentDay);
+      items.push({
+        id: `loan-${loan.id}-${date}`,
+        title: `${loan.name} 貸款還款`,
+        detail: `${loan.institution || "貸款"}，剩餘本金 ${formatMoney(loan.remainingPrincipalCents)}，已繳 ${loan.paidPeriods}/${loan.termMonths} 期`,
+        date,
+        amountCents: loan.paymentPerPeriodCents,
+        source: "loan",
+        status: getNotificationStatus(date, todayIso, 7)
+      });
+    });
+
+  reminders
+    .filter((reminder) => reminder.status !== "done")
+    .forEach((reminder) => {
+      const date = createMonthlyDate(month, reminder.debitDay);
+      if (reminder.startDate > date) return;
+      if (reminder.endDate && reminder.endDate < date) return;
+      items.push({
+        id: `reminder-${reminder.id}-${date}`,
+        title: reminder.name,
+        detail: `${reminder.frequency} 固定帳單${reminder.autoCreateTransaction ? "，可自動建立交易" : ""}`,
+        date,
+        amountCents: reminder.amountCents,
+        source: "reminder",
+        status: getNotificationStatus(date, todayIso, reminder.remindDaysBefore)
+      });
+    });
+
+  const statusWeight: Record<FinanceNotification["status"], number> = {
+    overdue: 0,
+    due_today: 1,
+    upcoming: 2,
+    scheduled: 3
+  };
+  return items.sort((a, b) => statusWeight[a.status] - statusWeight[b.status] || a.date.localeCompare(b.date));
+}
+
+function createMonthlyDate(month: string, day: number) {
+  const [yearValue, monthValue] = month.split("-").map(Number);
+  const safeDay = Math.max(1, Math.min(day || 1, new Date(yearValue, monthValue, 0).getDate()));
+  return `${yearValue}-${String(monthValue).padStart(2, "0")}-${String(safeDay).padStart(2, "0")}`;
+}
+
+function getTaipeiTodayIso(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value ?? "2026";
+  const month = parts.find((part) => part.type === "month")?.value ?? "01";
+  const day = parts.find((part) => part.type === "day")?.value ?? "01";
+  return `${year}-${month}-${day}`;
+}
+
+function getNotificationStatus(date: string, todayIso: string, remindDaysBefore: number): FinanceNotification["status"] {
+  const diff = getDaysBetween(todayIso, date);
+  if (diff < 0) return "overdue";
+  if (diff === 0) return "due_today";
+  if (diff <= Math.max(0, remindDaysBefore)) return "upcoming";
+  return "scheduled";
+}
+
+function getDaysBetween(fromIso: string, toIso: string) {
+  const from = new Date(`${fromIso}T00:00:00+08:00`).getTime();
+  const to = new Date(`${toIso}T00:00:00+08:00`).getTime();
+  return Math.round((to - from) / 86_400_000);
+}
+
+function getNotificationStatusLabel(status: FinanceNotification["status"]) {
+  const labels: Record<FinanceNotification["status"], string> = {
+    overdue: "已逾期",
+    due_today: "今日到期",
+    upcoming: "即將到期",
+    scheduled: "已排程"
+  };
+  return labels[status];
+}
+
+function getNotificationSourceLabel(source: FinanceNotification["source"]) {
+  const labels: Record<FinanceNotification["source"], string> = {
+    credit_card: "信用卡",
+    loan: "貸款",
+    installment: "分期",
+    reminder: "固定帳單"
+  };
+  return labels[source];
+}
+
+function getNotificationClass(status: FinanceNotification["status"]) {
+  const classes: Record<FinanceNotification["status"], string> = {
+    overdue: "border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-100",
+    due_today: "border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-100",
+    upcoming: "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100",
+    scheduled: "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
+  };
+  return classes[status];
+}
+
 function DashboardPage({
   dashboard,
   categoryBreakdown,
   monthlyTrend,
-  reminders,
+  notifications,
   accounts,
   creditCards,
   creditCardInstallments,
@@ -613,7 +852,7 @@ function DashboardPage({
   dashboard: ReturnType<typeof summarizeDashboard>;
   categoryBreakdown: { category: string; amountCents: number }[];
   monthlyTrend: { month: string; incomeCents: number; expenseCents: number }[];
-  reminders: FinancialReminder[];
+  notifications: FinanceNotification[];
   accounts: FinancialAccount[];
   creditCards: CreditCard[];
   creditCardInstallments: CreditCardInstallment[];
@@ -692,13 +931,14 @@ function DashboardPage({
         <section className="panel">
           <h2 className="text-lg font-semibold">最近即將到期項目</h2>
           <div className="mt-3 space-y-3">
-            {reminders.map((reminder) => (
-              <div key={reminder.id} className="rounded-md border border-slate-200 p-3 dark:border-slate-800">
+            {notifications.length === 0 && <EmptyState label="本月尚無信用卡、貸款或帳單提醒" />}
+            {notifications.slice(0, 5).map((item) => (
+              <div key={item.id} className={`rounded-md border p-3 ${getNotificationClass(item.status)}`}>
                 <div className="flex items-center justify-between gap-2">
-                  <p className="font-medium">{reminder.name}</p>
-                  <span className="text-xs text-brand-700 dark:text-brand-100">{reminder.status}</span>
+                  <p className="font-medium">{item.title}</p>
+                  <span className="text-xs font-semibold">{getNotificationStatusLabel(item.status)}</span>
                 </div>
-                <p className="mt-1 text-sm text-slate-500">{formatMoney(reminder.amountCents)} · 每月 {reminder.debitDay} 日</p>
+                <p className="mt-1 text-sm opacity-90">{formatDate(item.date)} · {item.amountCents !== undefined ? formatMoney(item.amountCents) : getNotificationSourceLabel(item.source)}</p>
               </div>
             ))}
           </div>
