@@ -77,6 +77,7 @@ type Page =
   | "cards"
   | "loans"
   | "deposits"
+  | "calculators"
   | "budgets"
   | "reminders"
   | "reports"
@@ -95,19 +96,31 @@ type FinanceNotification = {
   status: "overdue" | "due_today" | "upcoming" | "scheduled";
 };
 
-const navItems: { page: Page; label: string; icon: typeof BarChart3 }[] = [
-  { page: "dashboard", label: "理財總覽", icon: BarChart3 },
-  { page: "transactions", label: "收支紀錄", icon: ReceiptText },
-  { page: "accounts", label: "帳戶", icon: WalletCards },
-  { page: "cards", label: "信用卡", icon: CreditCardIcon },
-  { page: "loans", label: "貸款", icon: Landmark },
-  { page: "deposits", label: "存款", icon: PiggyBank },
-  { page: "budgets", label: "預算", icon: Banknote },
-  { page: "reminders", label: "固定帳單", icon: CalendarClock },
-  { page: "reports", label: "報表", icon: LineChart },
-  { page: "ai", label: "AI 健檢", icon: Bot },
-  { page: "settings", label: "設定", icon: Settings }
+const navGroups: { title: "理財" | "投資"; items: { page: Page; label: string; icon: typeof BarChart3 }[] }[] = [
+  {
+    title: "理財",
+    items: [
+      { page: "dashboard", label: "理財總覽", icon: BarChart3 },
+      { page: "transactions", label: "收支紀錄", icon: ReceiptText },
+      { page: "accounts", label: "帳戶", icon: WalletCards },
+      { page: "cards", label: "信用卡", icon: CreditCardIcon },
+      { page: "loans", label: "貸款", icon: Landmark },
+      { page: "budgets", label: "預算", icon: Banknote },
+      { page: "reminders", label: "固定帳單", icon: CalendarClock },
+      { page: "reports", label: "報表", icon: LineChart },
+      { page: "settings", label: "設定", icon: Settings }
+    ]
+  },
+  {
+    title: "投資",
+    items: [
+      { page: "deposits", label: "存款", icon: PiggyBank },
+      { page: "calculators", label: "計算機", icon: Calculator },
+      { page: "ai", label: "AI 健檢", icon: Bot }
+    ]
+  }
 ];
+const navItems = navGroups.flatMap((group) => group.items);
 
 const pageIntros: Record<Page, { eyebrow: string; title: string; description: string; accent: string; tint: string }> = {
   dashboard: {
@@ -151,6 +164,13 @@ const pageIntros: Record<Page, { eyebrow: string; title: string; description: st
     description: "整理活存、定存與定期儲蓄，讓資金配置更有節奏。",
     accent: "#16a34a",
     tint: "#f0fdf4"
+  },
+  calculators: {
+    eyebrow: "Scenario lab",
+    title: "把常用試算集中在計算機",
+    description: "貸款、存款、淨資產、負債比與預備金月數都能快速試算，先模擬，再行動。",
+    accent: "#0891b2",
+    tint: "#ecfeff"
   },
   budgets: {
     eyebrow: "Spending rhythm",
@@ -572,9 +592,16 @@ export default function App() {
               <div className="mt-2"><Badge>{getRoleLabel(currentProfile)}</Badge></div>
             </div>
           )}
-          <nav className="mt-6 space-y-1">
-            {navItems.map((item) => (
-              <NavButton key={item.page} item={item} active={page === item.page} onClick={() => setPage(item.page)} />
+          <nav className="mt-6 space-y-5">
+            {navGroups.map((group) => (
+              <div key={group.title}>
+                <p className="mb-2 px-2 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">{group.title}</p>
+                <div className="space-y-1">
+                  {group.items.map((item) => (
+                    <NavButton key={item.page} item={item} active={page === item.page} onClick={() => setPage(item.page)} />
+                  ))}
+                </div>
+              </div>
             ))}
           </nav>
         </aside>
@@ -657,6 +684,7 @@ export default function App() {
             )}
             {page === "loans" && <LoansPage loans={loans} setLoans={setLoans} notify={notify} />}
             {page === "deposits" && <DepositsPage deposits={deposits} setDeposits={setDeposits} notify={notify} />}
+            {page === "calculators" && <CalculatorsPage />}
             {page === "budgets" && (
               <BudgetsPage budgets={budgets} transactions={transactions} month={month} setBudgets={setBudgets} notify={notify} />
             )}
@@ -727,9 +755,16 @@ export default function App() {
           <summary className="flex cursor-pointer list-none items-center justify-center gap-1 py-1 text-xs text-slate-500">
             更多 <ChevronDown size={14} />
           </summary>
-          <div className="grid grid-cols-5 gap-1">
-            {navItems.slice(6).map((item) => (
-              <MobileNavButton key={item.page} item={item} active={page === item.page} onClick={() => setPage(item.page)} />
+          <div className="space-y-2">
+            {navGroups.map((group) => (
+              <div key={group.title}>
+                <p className="px-1 pb-1 text-[10px] font-bold tracking-[0.16em] text-slate-400">{group.title}</p>
+                <div className="grid grid-cols-5 gap-1">
+                  {group.items.filter((item) => !navItems.slice(0, 6).some((primary) => primary.page === item.page)).map((item) => (
+                    <MobileNavButton key={item.page} item={item} active={page === item.page} onClick={() => setPage(item.page)} />
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         </details>
@@ -2466,6 +2501,146 @@ function DepositsPage({
       </section>
     </div>
   );
+}
+
+function CalculatorsPage() {
+  const [loanInput, setLoanInput] = useState<LoanCalculationInput>({
+    principalCents: 800_000_00,
+    annualRate: 0.0288,
+    termMonths: 84,
+    method: "equal_payment",
+    extraMonthlyPaymentCents: 0,
+    oneTimePrepaymentCents: 0,
+    oneTimePrepaymentMonth: 1
+  });
+  const [depositInput, setDepositInput] = useState<DepositCalculationInput>({
+    principalCents: 200_000_00,
+    annualRate: 0.018,
+    months: 24,
+    interestType: "compound",
+    monthlyContributionCents: 5_000_00,
+    taxRate: 0
+  });
+  const [totalAssetsCents, setTotalAssetsCents] = useState(1_200_000_00);
+  const [totalLiabilitiesCents, setTotalLiabilitiesCents] = useState(360_000_00);
+  const [availableCashCents, setAvailableCashCents] = useState(180_000_00);
+  const [necessaryExpenseCents, setNecessaryExpenseCents] = useState(45_000_00);
+  const [investmentPrincipalCents, setInvestmentPrincipalCents] = useState(100_000_00);
+  const [monthlyInvestmentCents, setMonthlyInvestmentCents] = useState(8_000_00);
+  const [investmentAnnualRate, setInvestmentAnnualRate] = useState(0.05);
+  const [investmentYears, setInvestmentYears] = useState(10);
+
+  const loanResult = calculateLoan(loanInput);
+  const depositResult = calculateDeposit(depositInput);
+  const netWorthCents = totalAssetsCents - totalLiabilitiesCents;
+  const debtRatio = totalAssetsCents > 0 ? totalLiabilitiesCents / totalAssetsCents : 0;
+  const emergencyMonths = necessaryExpenseCents > 0 ? availableCashCents / necessaryExpenseCents : 0;
+  const investmentFutureValueCents = calculateInvestmentFutureValueCents({
+    principalCents: investmentPrincipalCents,
+    monthlyContributionCents: monthlyInvestmentCents,
+    annualRate: investmentAnnualRate,
+    years: investmentYears
+  });
+  const investmentContributionCents = investmentPrincipalCents + monthlyInvestmentCents * investmentYears * 12;
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-2">
+      <section className="panel">
+        <div className="flex items-center gap-2"><Calculator size={18} /><h2 className="text-lg font-semibold">貸款試算</h2></div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <CalcInput label="貸款本金" value={loanInput.principalCents / 100} onChange={(value) => setLoanInput((current) => ({ ...current, principalCents: Math.round(value * 100) }))} />
+          <CalcInput label="年利率 %" value={loanInput.annualRate * 100} onChange={(value) => setLoanInput((current) => ({ ...current, annualRate: value / 100 }))} />
+          <CalcInput label="期數（月）" value={loanInput.termMonths} onChange={(value) => setLoanInput((current) => ({ ...current, termMonths: Math.max(1, Math.round(value)) }))} />
+          <CalcInput label="每月加還" value={(loanInput.extraMonthlyPaymentCents ?? 0) / 100} onChange={(value) => setLoanInput((current) => ({ ...current, extraMonthlyPaymentCents: Math.round(value * 100) }))} />
+          <CalcInput label="一次提前還款" value={(loanInput.oneTimePrepaymentCents ?? 0) / 100} onChange={(value) => setLoanInput((current) => ({ ...current, oneTimePrepaymentCents: Math.round(value * 100) }))} />
+          <Field label="還款方式">
+            <select className="input" value={loanInput.method} onChange={(event) => setLoanInput((current) => ({ ...current, method: event.target.value as LoanCalculationInput["method"] }))}>
+              <option value="equal_payment">本息平均攤還</option>
+              <option value="equal_principal">本金平均攤還</option>
+              <option value="fixed_payment">固定金額還款</option>
+            </select>
+          </Field>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <Info label="每月應繳" value={formatMoney(loanResult.monthlyPaymentCents)} />
+          <Info label="總利息" value={formatMoney(loanResult.totalInterestCents)} />
+          <Info label="節省利息" value={formatMoney(loanResult.interestSavedCents)} />
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="flex items-center gap-2"><PiggyBank size={18} /><h2 className="text-lg font-semibold">存款試算</h2></div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <CalcInput label="本金" value={depositInput.principalCents / 100} onChange={(value) => setDepositInput((current) => ({ ...current, principalCents: Math.round(value * 100) }))} />
+          <CalcInput label="年利率 %" value={depositInput.annualRate * 100} onChange={(value) => setDepositInput((current) => ({ ...current, annualRate: value / 100 }))} />
+          <CalcInput label="期間（月）" value={depositInput.months} onChange={(value) => setDepositInput((current) => ({ ...current, months: Math.max(1, Math.round(value)) }))} />
+          <CalcInput label="每月追加" value={(depositInput.monthlyContributionCents ?? 0) / 100} onChange={(value) => setDepositInput((current) => ({ ...current, monthlyContributionCents: Math.round(value * 100) }))} />
+          <CalcInput label="扣除率 %" value={(depositInput.taxRate ?? 0) * 100} onChange={(value) => setDepositInput((current) => ({ ...current, taxRate: value / 100 }))} />
+          <Field label="計息方式">
+            <select className="input" value={depositInput.interestType} onChange={(event) => setDepositInput((current) => ({ ...current, interestType: event.target.value as Deposit["interestType"] }))}>
+              <option value="simple">單利</option>
+              <option value="compound">複利</option>
+            </select>
+          </Field>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <Info label="預估總利息" value={formatMoney(depositResult.totalInterestCents)} />
+          <Info label="到期金額" value={formatMoney(depositResult.maturityAmountCents)} />
+          <Info label="年化報酬率" value={formatPercent(depositResult.annualizedReturn)} />
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="flex items-center gap-2"><WalletCards size={18} /><h2 className="text-lg font-semibold">資產負債與預備金</h2></div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <CalcInput label="總資產" value={totalAssetsCents / 100} onChange={(value) => setTotalAssetsCents(Math.round(value * 100))} />
+          <CalcInput label="總負債" value={totalLiabilitiesCents / 100} onChange={(value) => setTotalLiabilitiesCents(Math.round(value * 100))} />
+          <CalcInput label="可動用現金" value={availableCashCents / 100} onChange={(value) => setAvailableCashCents(Math.round(value * 100))} />
+          <CalcInput label="每月必要支出" value={necessaryExpenseCents / 100} onChange={(value) => setNecessaryExpenseCents(Math.round(value * 100))} />
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <Info label="淨資產" value={formatMoney(netWorthCents)} />
+          <Info label="負債比" value={formatPercent(debtRatio)} />
+          <Info label="預備金月數" value={`${emergencyMonths.toFixed(1)} 個月`} />
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="flex items-center gap-2"><LineChart size={18} /><h2 className="text-lg font-semibold">投資定期定額</h2></div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <CalcInput label="初始投入" value={investmentPrincipalCents / 100} onChange={(value) => setInvestmentPrincipalCents(Math.round(value * 100))} />
+          <CalcInput label="每月投入" value={monthlyInvestmentCents / 100} onChange={(value) => setMonthlyInvestmentCents(Math.round(value * 100))} />
+          <CalcInput label="年化報酬率 %" value={investmentAnnualRate * 100} onChange={(value) => setInvestmentAnnualRate(value / 100)} />
+          <CalcInput label="投資年數" value={investmentYears} onChange={(value) => setInvestmentYears(Math.max(1, Math.round(value)))} />
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <Info label="投入本金" value={formatMoney(investmentContributionCents)} />
+          <Info label="預估期末價值" value={formatMoney(investmentFutureValueCents)} />
+          <Info label="預估成長" value={formatMoney(investmentFutureValueCents - investmentContributionCents)} />
+        </div>
+        <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-400">此試算僅為複利模型估算，不代表任何投資報酬保證。</p>
+      </section>
+    </div>
+  );
+}
+
+function calculateInvestmentFutureValueCents({
+  principalCents,
+  monthlyContributionCents,
+  annualRate,
+  years
+}: {
+  principalCents: number;
+  monthlyContributionCents: number;
+  annualRate: number;
+  years: number;
+}) {
+  const months = Math.max(1, Math.round(years * 12));
+  const monthlyRate = annualRate / 12;
+  if (monthlyRate === 0) return principalCents + monthlyContributionCents * months;
+  const principalValue = principalCents * (1 + monthlyRate) ** months;
+  const contributionValue = monthlyContributionCents * (((1 + monthlyRate) ** months - 1) / monthlyRate);
+  return Math.round(principalValue + contributionValue);
 }
 
 function BudgetsPage({
