@@ -44,6 +44,24 @@ auth.uid() = user_id
 
 使用者只能讀寫自己的資料。前端查詢條件只能作為效能最佳化，不能作為權限邊界。
 
+## Auth Profiles And Roles
+
+`profiles` stores account identity and authorization metadata:
+
+- `email`
+- `display_name`
+- `role`: `user`, `admin`, `super_admin`
+- `is_super_admin`
+- `admin_granted_at`
+- `admin_granted_by`
+
+Apply `supabase/migrations/202607140003_auth_profiles_admin.sql` to enable:
+
+- automatic profile creation from `auth.users`
+- protected role fields so normal users cannot promote themselves
+- seed super admin assignment for `irrvyh4815@gmail.com`
+- super admin profile read/update policies
+
 ## Query Strategy
 
 - Dashboard 優先使用彙總表或 `get_monthly_summary()`。

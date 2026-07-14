@@ -51,6 +51,8 @@ import {
   loadFinanceData,
   normalizeCategoryName,
   sendSignInLink,
+  signInWithPassword,
+  signUpWithPassword,
   signOut
 } from "./services/financeRepository";
 import type {
@@ -63,7 +65,8 @@ import type {
   FinancialAccount,
   FinancialReminder,
   Loan,
-  Transaction
+  Transaction,
+  UserProfile
 } from "./types/finance";
 
 type Page =
@@ -149,6 +152,7 @@ export default function App() {
   const [supabaseCheck, setSupabaseCheck] = useState<Awaited<ReturnType<typeof checkSupabaseConnection>> | null>(null);
   const [supabaseChecking, setSupabaseChecking] = useState(false);
   const [sessionEmail, setSessionEmail] = useState<string | null>(null);
+  const [currentProfile, setCurrentProfile] = useState<UserProfile | null>(null);
   const [csvPreview, setCsvPreview] = useState<ReturnType<typeof parseTransactionsCsv>>([]);
   const [aiReport, setAiReport] = useState<AiFinancialReport | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -170,6 +174,7 @@ export default function App() {
       setBudgets(result.data.budgets);
       setReminders(result.data.reminders);
       setRememberedCategories(result.data.categories);
+      setCurrentProfile(result.profile);
       setSessionEmail(result.session?.user.email ?? null);
       setDataNotice(
         !isSupabaseConfigured
@@ -180,9 +185,31 @@ export default function App() {
       );
     } catch (error) {
       setDataNotice(error instanceof Error ? error.message : "資料讀取失敗");
+      setCurrentProfile(null);
     } finally {
       setDataLoading(false);
     }
+  }
+
+  async function handlePasswordSignIn(email: string, password: string) {
+    await signInWithPassword(email, password);
+    await refreshFinanceData();
+    notify("success", "登入成功");
+  }
+
+  async function handlePasswordSignUp(email: string, password: string, displayName: string) {
+    const result = await signUpWithPassword(email, password, displayName);
+    if (result.needsEmailConfirmation) {
+      notify("success", "註冊完成，請到信箱點擊認證連結後再登入");
+      return;
+    }
+    await refreshFinanceData();
+    notify("success", "註冊並登入成功");
+  }
+
+  async function handleMagicLink(email: string) {
+    await sendSignInLink(email);
+    notify("success", "認證登入連結已寄出，請到信箱完成登入");
   }
 
   async function runSupabaseConnectionCheck() {
@@ -439,11 +466,31 @@ export default function App() {
     }
   }
 
+  if (isSupabaseConfigured && !dataLoading && !sessionEmail) {
+    return (
+      <div className={rootClass}>
+        <AuthPage
+          dataNotice={dataNotice}
+          onSignIn={handlePasswordSignIn}
+          onSignUp={handlePasswordSignUp}
+          onMagicLink={handleMagicLink}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className={rootClass}>
       <div className="flex min-h-screen">
         <aside className="hidden w-64 shrink-0 border-r border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950 lg:block">
           <Brand />
+          {currentProfile && (
+            <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-800 dark:bg-slate-900">
+              <p className="truncate font-semibold text-slate-950 dark:text-slate-50">{currentProfile.displayName || currentProfile.email}</p>
+              <p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">{currentProfile.email}</p>
+              <Badge>{getRoleLabel(currentProfile)}</Badge>
+            </div>
+          )}
           <nav className="mt-6 space-y-1">
             {navItems.map((item) => (
               <NavButton key={item.page} item={item} active={page === item.page} onClick={() => setPage(item.page)} />
@@ -559,6 +606,7 @@ export default function App() {
                 darkMode={darkMode}
                 isSupabaseConfigured={isSupabaseConfigured}
                 sessionEmail={sessionEmail}
+                profile={currentProfile}
                 dataNotice={dataNotice}
                 supabaseCheck={supabaseCheck}
                 supabaseChecking={supabaseChecking}
@@ -664,6 +712,111 @@ function ToastBanner({ toast }: { toast: NonNullable<Toast> }) {
       {toast.type === "success" ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
       {toast.message}
     </div>
+  );
+}
+
+function AuthPage({
+  dataNotice,
+  onSignIn,
+  onSignUp,
+  onMagicLink
+}: {
+  dataNotice: string;
+  onSignIn: (email: string, password: string) => Promise<void>;
+  onSignUp: (email: string, password: string, displayName: string) => Promise<void>;
+  onMagicLink: (email: string) => Promise<void>;
+}) {
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
+
+  async function submitAuth(formData: FormData) {
+    const email = String(formData.get("email") ?? "").trim();
+    const password = String(formData.get("password") ?? "");
+    const displayName = String(formData.get("displayName") ?? "").trim();
+    if (password.length < 8) {
+      setMessage("密碼至少需要 8 碼。");
+      return;
+    }
+    setLoading(true);
+    setMessage("");
+    try {
+      if (mode === "signup") {
+        await onSignUp(email, password, displayName || email.split("@")[0] || "使用者");
+        setMessage("如果你的專案啟用 Email confirmation，請到信箱完成認證後再登入。");
+      } else {
+        await onSignIn(email, password);
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "認證失敗");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function submitMagicLink(formData: FormData) {
+    const email = String(formData.get("magicEmail") ?? "").trim();
+    setLoading(true);
+    setMessage("");
+    try {
+      await onMagicLink(email);
+      setMessage("認證信件已寄出，請至信箱點擊連結。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "認證信寄送失敗");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <main className="flex min-h-screen items-center justify-center p-4">
+      <section className="w-full max-w-5xl overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-950">
+        <div className="grid lg:grid-cols-[0.9fr_1.1fr]">
+          <div className="border-b border-slate-200 bg-slate-50 p-6 dark:border-slate-800 dark:bg-slate-900 lg:border-b-0 lg:border-r">
+            <Brand />
+            <div className="mt-8 space-y-4">
+              <div>
+                <p className="text-sm font-medium text-brand-700 dark:text-brand-100">安全登入</p>
+                <h1 className="mt-2 text-3xl font-bold tracking-normal text-slate-950 dark:text-slate-50">管理你的個人財務資料</h1>
+              </div>
+              <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">
+                使用 Supabase Auth 驗證信件與密碼登入。所有理財資料仍由 RLS 依使用者隔離，管理員權限只透過資料庫 profile role 管理。
+              </p>
+              <div className="grid gap-2 text-sm">
+                <Info label="預設最高管理員" value="irrvyh4815@gmail.com" />
+                <Info label="資料保護" value="不儲存完整卡號、CVV 或網銀憑證" />
+                <Info label="登入方式" value="密碼登入、註冊認證信、Magic Link" />
+              </div>
+            </div>
+          </div>
+          <div className="p-6">
+            {dataNotice && <InlineNotice tone="warning" message={dataNotice} />}
+            {message && <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">{message}</div>}
+            <div className="mt-4 grid grid-cols-2 gap-2 rounded-lg bg-slate-100 p-1 dark:bg-slate-900">
+              <button className={`rounded-md px-3 py-2 text-sm font-semibold ${mode === "signin" ? "bg-white text-brand-700 shadow-subtle dark:bg-slate-950 dark:text-brand-100" : "text-slate-500"}`} onClick={() => setMode("signin")}>登入</button>
+              <button className={`rounded-md px-3 py-2 text-sm font-semibold ${mode === "signup" ? "bg-white text-brand-700 shadow-subtle dark:bg-slate-950 dark:text-brand-100" : "text-slate-500"}`} onClick={() => setMode("signup")}>註冊</button>
+            </div>
+            <form className="mt-5 space-y-3" onSubmit={handleFormSubmit((formData) => void submitAuth(formData))}>
+              {mode === "signup" && <Field label="顯示名稱"><input className="input" name="displayName" placeholder="例如 Renault" /></Field>}
+              <Field label="Email"><input className="input" name="email" type="email" autoComplete="email" required /></Field>
+              <Field label="密碼"><input className="input" name="password" type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} minLength={8} required /></Field>
+              <button className="btn-primary w-full" type="submit" disabled={loading}>
+                {loading ? "處理中" : mode === "signup" ? "註冊並寄送認證信" : "登入"}
+              </button>
+            </form>
+            <div className="my-5 flex items-center gap-3 text-xs text-slate-400">
+              <span className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
+              或
+              <span className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
+            </div>
+            <form className="space-y-3" onSubmit={handleFormSubmit((formData) => void submitMagicLink(formData))}>
+              <Field label="寄送認證登入信"><input className="input" name="magicEmail" type="email" autoComplete="email" required /></Field>
+              <button className="btn-secondary w-full" type="submit" disabled={loading}>寄送 Magic Link</button>
+            </form>
+          </div>
+        </div>
+      </section>
+    </main>
   );
 }
 
@@ -2383,6 +2536,7 @@ function SettingsPage({
   darkMode,
   isSupabaseConfigured,
   sessionEmail,
+  profile,
   dataNotice,
   supabaseCheck,
   supabaseChecking,
@@ -2394,6 +2548,7 @@ function SettingsPage({
   darkMode: boolean;
   isSupabaseConfigured: boolean;
   sessionEmail: string | null;
+  profile: UserProfile | null;
   dataNotice: string;
   supabaseCheck: Awaited<ReturnType<typeof checkSupabaseConnection>> | null;
   supabaseChecking: boolean;
@@ -2419,6 +2574,7 @@ function SettingsPage({
         <div className="mt-4 space-y-3 text-sm">
           <Info label="Supabase" value={isSupabaseConfigured ? "已設定前端 anon key" : "未設定，請先設定 Vercel 環境變數"} />
           <Info label="登入狀態" value={sessionEmail ?? "尚未登入"} />
+          <Info label="帳號角色" value={profile ? getRoleLabel(profile) : "尚未建立 profile"} />
           <Info label="AI" value="預設 mock mode；API Key 僅允許後端環境變數" />
           <Info label="敏感資料" value="不儲存完整卡號、CVV、網銀密碼；財務資料不寫入 localStorage" />
           <Info label="CSV 限制" value="512KB、500 筆、先預覽再匯入" />
@@ -2503,6 +2659,12 @@ function InfoBlock({ title, value }: { title: string; value: string }) {
 
 function Badge({ children }: { children: React.ReactNode }) {
   return <span className="rounded bg-brand-50 px-2 py-1 text-xs font-medium text-brand-700 dark:bg-brand-950 dark:text-brand-100">{children}</span>;
+}
+
+function getRoleLabel(profile: UserProfile) {
+  if (profile.isSuperAdmin || profile.role === "super_admin") return "最高管理員";
+  if (profile.role === "admin") return "管理員";
+  return "一般使用者";
 }
 
 function EmptyState({ label }: { label: string }) {

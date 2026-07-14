@@ -9,7 +9,8 @@ import type {
   FinancialAccount,
   FinancialReminder,
   Loan,
-  Transaction
+  Transaction,
+  UserProfile
 } from "../types/finance";
 
 export interface FinanceData {
@@ -27,6 +28,7 @@ export interface FinanceData {
 export interface LoadFinanceResult {
   data: FinanceData;
   session: Session | null;
+  profile: UserProfile | null;
 }
 
 export interface SupabaseConnectionCheck {
@@ -53,6 +55,51 @@ export async function getCurrentSession(): Promise<Session | null> {
   const { data, error } = await supabase.auth.getSession();
   if (error) throw new Error("無法讀取登入狀態");
   return data.session;
+}
+
+export async function getCurrentProfile(): Promise<UserProfile | null> {
+  if (!supabase) return null;
+  const session = await getCurrentSession();
+  if (!session) return null;
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id,user_id,email,display_name,locale,currency,timezone,role,is_super_admin,created_at,updated_at")
+    .eq("user_id", session.user.id)
+    .single();
+  if (error) return ensureUserProfile();
+  return mapProfile(data);
+}
+
+export async function ensureUserProfile(): Promise<UserProfile | null> {
+  if (!supabase) return null;
+  const session = await getCurrentSession();
+  if (!session) return null;
+  const existing = await supabase
+    .from("profiles")
+    .select("id,user_id,email,display_name,locale,currency,timezone,role,is_super_admin,created_at,updated_at")
+    .eq("user_id", session.user.id)
+    .maybeSingle();
+  if (existing.data) return mapProfile(existing.data);
+
+  const email = session.user.email ?? "";
+  const isSeedSuperAdmin = email.toLowerCase() === "irrvyh4815@gmail.com";
+  const { data, error } = await supabase
+    .from("profiles")
+    .insert(
+      {
+        id: session.user.id,
+        user_id: session.user.id,
+        email,
+        display_name: session.user.user_metadata?.display_name ?? session.user.user_metadata?.name ?? email.split("@")[0] ?? "使用者",
+        role: isSeedSuperAdmin ? "super_admin" : "user",
+        is_super_admin: isSeedSuperAdmin,
+        admin_granted_at: isSeedSuperAdmin ? new Date().toISOString() : null
+      }
+    )
+    .select("id,user_id,email,display_name,locale,currency,timezone,role,is_super_admin,created_at,updated_at")
+    .single();
+  if (error) throw new Error("使用者資料建立失敗，請確認 profiles RLS 與 migration");
+  return mapProfile(data);
 }
 
 export async function checkSupabaseConnection(): Promise<SupabaseConnectionCheck> {
@@ -109,6 +156,32 @@ export async function sendSignInLink(email: string): Promise<void> {
   if (error) throw new Error("登入連結寄送失敗");
 }
 
+export async function signInWithPassword(email: string, password: string): Promise<UserProfile | null> {
+  if (!supabase) throw new Error("Supabase 尚未設定");
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) throw new Error("登入失敗，請確認 Email、密碼或是否已完成信箱認證");
+  return ensureUserProfile();
+}
+
+export async function signUpWithPassword(email: string, password: string, displayName: string): Promise<{ needsEmailConfirmation: boolean }> {
+  if (!supabase) throw new Error("Supabase 尚未設定");
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      emailRedirectTo: window.location.origin,
+      data: {
+        display_name: displayName
+      }
+    }
+  });
+  if (error) throw new Error("註冊失敗，請確認 Email 格式、密碼長度或 Supabase Auth 設定");
+  if (data.session) {
+    await ensureUserProfile();
+  }
+  return { needsEmailConfirmation: !data.session };
+}
+
 export async function signOut(): Promise<void> {
   if (!supabase) return;
   const { error } = await supabase.auth.signOut();
@@ -116,10 +189,11 @@ export async function signOut(): Promise<void> {
 }
 
 export async function loadFinanceData(): Promise<LoadFinanceResult> {
-  if (!supabase) return { data: emptyFinanceData, session: null };
+  if (!supabase) return { data: emptyFinanceData, session: null, profile: null };
   const session = await getCurrentSession();
-  if (!session) return { data: emptyFinanceData, session: null };
+  if (!session) return { data: emptyFinanceData, session: null, profile: null };
   const userId = session.user.id;
+  const profile = await ensureUserProfile();
 
   const [
     accounts,
@@ -196,6 +270,7 @@ export async function loadFinanceData(): Promise<LoadFinanceResult> {
 
   return {
     session,
+    profile,
     data: {
       accounts: (accounts.data ?? []).map(mapAccount),
       transactions: (transactions.data ?? []).map(mapTransaction),
@@ -207,6 +282,22 @@ export async function loadFinanceData(): Promise<LoadFinanceResult> {
       reminders: (reminders.data ?? []).map(mapReminder),
       categories: [...new Set((categories.data ?? []).map((row) => String(row.name)).filter(Boolean))]
     }
+  };
+}
+
+function mapProfile(row: Record<string, unknown>): UserProfile {
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    email: nullableString(row.email),
+    displayName: nullableString(row.display_name),
+    locale: String(row.locale ?? "zh-Hant-TW"),
+    currency: "TWD",
+    timezone: String(row.timezone ?? "Asia/Taipei"),
+    role: String(row.role ?? "user") as UserProfile["role"],
+    isSuperAdmin: Boolean(row.is_super_admin),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
   };
 }
 

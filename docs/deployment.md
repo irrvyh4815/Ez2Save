@@ -20,8 +20,12 @@ supabase db push
 
 確認：
 
+- Auth email/password provider enabled
+- Email confirmation and magic link redirect URL point to the Vercel domain
 - RLS enabled
 - `user_id = auth.uid()` policies
+- `profiles.role` and `profiles.is_super_admin` protected by `202607140003_auth_profiles_admin.sql`
+- `irrvyh4815@gmail.com` profile is assigned `super_admin`
 - indexes exist
 - no service role key in frontend
 

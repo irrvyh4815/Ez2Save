@@ -43,6 +43,18 @@ export interface BaseEntity {
   updatedAt: string;
 }
 
+export type UserRole = "user" | "admin" | "super_admin";
+
+export interface UserProfile extends BaseEntity {
+  email?: string;
+  displayName?: string;
+  locale: string;
+  currency: CurrencyCode;
+  timezone: string;
+  role: UserRole;
+  isSuperAdmin: boolean;
+}
+
 export interface FinancialAccount extends BaseEntity {
   name: string;
   type: AccountType;
