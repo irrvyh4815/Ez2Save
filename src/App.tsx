@@ -281,6 +281,26 @@ const investmentRiskLabels: Record<InvestmentCategory["risk"], string> = {
   high: "高風險"
 };
 
+const budgetCategoryOptions = [
+  "全部",
+  "餐飲",
+  "交通",
+  "房租",
+  "水電瓦斯",
+  "電信網路",
+  "保險",
+  "醫療",
+  "教育",
+  "育兒",
+  "購物",
+  "娛樂",
+  "訂閱服務",
+  "旅遊",
+  "投資",
+  "儲蓄",
+  "其他"
+];
+
 const today = "2026-07-13";
 const localUserId = "local-user";
 const chartPalette = ["#059669", "#0284c7", "#d97706", "#7c3aed", "#dc2626", "#0f766e", "#be123c", "#4f46e5"];
@@ -1527,6 +1547,55 @@ function getStatTheme(label: string) {
   return { border: "border-slate-300 dark:border-slate-700", dot: "bg-slate-400", text: "text-slate-950 dark:text-slate-50" };
 }
 
+function FeatureHero({
+  icon,
+  label,
+  title,
+  value,
+  metrics,
+  children,
+  tone = "emerald"
+}: {
+  icon: React.ReactNode;
+  label: string;
+  title: string;
+  value: string;
+  metrics: { label: string; value: string; accent: string }[];
+  children?: React.ReactNode;
+  tone?: "emerald" | "sky" | "violet" | "amber" | "rose" | "slate";
+}) {
+  const toneClass = {
+    emerald: "from-slate-950 via-emerald-950 to-sky-950 border-emerald-200 dark:border-emerald-900 text-emerald-200",
+    sky: "from-slate-950 via-sky-950 to-emerald-950 border-sky-200 dark:border-sky-900 text-sky-200",
+    violet: "from-slate-950 via-violet-950 to-sky-950 border-violet-200 dark:border-violet-900 text-violet-200",
+    amber: "from-slate-950 via-amber-950 to-emerald-950 border-amber-200 dark:border-amber-900 text-amber-200",
+    rose: "from-slate-950 via-rose-950 to-violet-950 border-rose-200 dark:border-rose-900 text-rose-200",
+    slate: "from-slate-950 via-slate-900 to-sky-950 border-slate-200 dark:border-slate-800 text-slate-200"
+  }[tone];
+  return (
+    <section className={`overflow-hidden rounded-xl border bg-gradient-to-br p-5 text-white shadow-card ${toneClass}`}>
+      <div className="grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            {icon}
+            {label}
+          </div>
+          <p className="mt-3 text-sm text-slate-300">{title}</p>
+          <p className="mt-1 break-words text-4xl font-bold tracking-normal text-white">{value}</p>
+          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            {metrics.map((metric) => (
+              <PulseMetric key={metric.label} label={metric.label} value={metric.value} accent={metric.accent} />
+            ))}
+          </div>
+        </div>
+        <div className="rounded-lg border border-white/10 bg-white/10 p-4">
+          {children}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function Progress({ label, value, helper, colorClass = "bg-brand-600" }: { label: string; value: number; helper?: string; colorClass?: string }) {
   const bounded = Math.max(0, Math.min(value, 1));
   return (
@@ -1915,6 +1984,56 @@ function DepositMaturityBars({ data, total }: { data: { month: string; amountCen
   );
 }
 
+function BudgetPlanChart({
+  rows
+}: {
+  rows: { category: string; budgetCents: number; spentCents: number; remainingCents: number; ratio: number }[];
+}) {
+  const activeRows = rows.filter((row) => row.budgetCents > 0 || row.spentCents > 0);
+  if (activeRows.length === 0) return <EmptyState label="尚無預算資料，新增分類預算後會顯示規劃圖表" />;
+  const max = Math.max(...activeRows.map((row) => Math.max(row.budgetCents, row.spentCents)), 1);
+  return (
+    <div className="mt-4 space-y-4">
+      {activeRows.map((row, index) => {
+        const overBudget = row.spentCents > row.budgetCents && row.budgetCents > 0;
+        return (
+          <div key={row.category} className="rounded-lg border border-slate-200 bg-white/70 p-3 dark:border-slate-800 dark:bg-slate-950/60">
+            <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+              <span className="flex min-w-0 items-center gap-2 font-semibold">
+                <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: getChartColor(index) }} />
+                <span className="truncate">{row.category}</span>
+              </span>
+              <span className={`shrink-0 font-semibold ${overBudget ? "text-rose-600 dark:text-rose-300" : "text-slate-700 dark:text-slate-200"}`}>
+                {formatPercent(row.ratio)}
+              </span>
+            </div>
+            <div className="space-y-2">
+              <div>
+                <div className="mb-1 flex justify-between text-xs text-slate-500">
+                  <span>預算</span>
+                  <span>{formatMoney(row.budgetCents)}</span>
+                </div>
+                <div className="h-2 rounded-full bg-slate-200 dark:bg-slate-800">
+                  <div className="h-2 rounded-full bg-sky-500" style={{ width: `${Math.max(4, (row.budgetCents / max) * 100)}%` }} />
+                </div>
+              </div>
+              <div>
+                <div className="mb-1 flex justify-between text-xs text-slate-500">
+                  <span>已使用</span>
+                  <span>{formatMoney(row.spentCents)}{overBudget ? ` · 超支 ${formatMoney(row.spentCents - row.budgetCents)}` : ""}</span>
+                </div>
+                <div className="h-2 rounded-full bg-slate-200 dark:bg-slate-800">
+                  <div className={`h-2 rounded-full ${overBudget ? "bg-rose-500" : "bg-emerald-500"}`} style={{ width: `${Math.max(4, (row.spentCents / max) * 100)}%` }} />
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function DonutChart({
   segments,
   centerLabel,
@@ -2052,9 +2171,63 @@ function TransactionsPage({
   onImportCsv: () => void;
   rememberedCategories: string[];
 }) {
+  const currentMonth = currentTaipeiMonth();
+  const monthlyTransactions = transactions.filter((transaction) => transaction.date.startsWith(currentMonth));
+  const monthlyIncomeCents = monthlyTransactions
+    .filter((transaction) => transaction.type === "income")
+    .reduce((sum, transaction) => sum + transaction.amountCents, 0);
+  const monthlyExpenseCents = monthlyTransactions
+    .filter((transaction) => transaction.type === "expense" || transaction.type === "credit_card_purchase")
+    .reduce((sum, transaction) => sum + transaction.amountCents, 0);
+  const monthlyBalanceCents = monthlyIncomeCents - monthlyExpenseCents;
+  const monthlyTransferCents = monthlyTransactions
+    .filter((transaction) => transaction.type === "transfer" || transaction.type === "credit_card_payment" || transaction.type === "loan_payment" || transaction.type === "deposit_transfer")
+    .reduce((sum, transaction) => sum + transaction.amountCents, 0);
+  const transactionCategoryBreakdown = Object.entries(
+    monthlyTransactions
+      .filter((transaction) => transaction.type === "expense" || transaction.type === "credit_card_purchase")
+      .reduce<Record<string, number>>((acc, transaction) => {
+        acc[transaction.category] = (acc[transaction.category] ?? 0) + transaction.amountCents;
+        return acc;
+      }, {})
+  )
+    .map(([category, amountCents]) => ({ category, amountCents }))
+    .sort((a, b) => b.amountCents - a.amountCents)
+    .slice(0, 6);
+
   return (
-    <div className="grid gap-4 xl:grid-cols-[380px_1fr]">
-      <section className="panel">
+    <div className="space-y-4">
+      <FeatureHero
+        icon={<ReceiptText size={18} />}
+        label="收支紀錄"
+        title="本月已記錄現金流"
+        value={formatMoney(monthlyBalanceCents)}
+        tone="sky"
+        metrics={[
+          { label: "本月收入", value: formatMoney(monthlyIncomeCents), accent: "border-emerald-300" },
+          { label: "本月支出", value: formatMoney(monthlyExpenseCents), accent: "border-rose-300" },
+          { label: "內部轉帳", value: formatMoney(monthlyTransferCents), accent: "border-sky-300" }
+        ]}
+      >
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+          <DonutChart
+            segments={transactionCategoryBreakdown.map((item, index) => ({ label: item.category, value: item.amountCents, color: getChartColor(index) }))}
+            centerLabel="支出"
+            centerValue={formatCompactMoney(monthlyExpenseCents)}
+          />
+          <div className="flex-1 space-y-3">
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span className="text-slate-300">本月交易數</span>
+              <span className="font-semibold text-white">{monthlyTransactions.length} 筆</span>
+            </div>
+            <StackedDistribution data={transactionCategoryBreakdown} total={monthlyExpenseCents} />
+            <CompactDistributionList data={transactionCategoryBreakdown} total={monthlyExpenseCents} inverse />
+          </div>
+        </div>
+      </FeatureHero>
+
+      <div className="grid gap-4 xl:grid-cols-[380px_1fr]">
+        <section className="panel">
         <h2 className="text-lg font-semibold">新增交易</h2>
         <form className="mt-4 space-y-3" onSubmit={handleFormSubmit(onAdd)}>
           <Field label="日期"><input className="input" name="date" type="date" defaultValue={today} required /></Field>
@@ -2169,6 +2342,7 @@ function TransactionsPage({
           </div>
         </div>
       </section>
+      </div>
     </div>
   );
 }
@@ -2378,9 +2552,49 @@ function CardsPage({
   const installmentDebt = getInstallmentDebtCents(cards, installments);
   const installmentMonthlyDue = getInstallmentMonthlyDueCents(installments);
   const totalCardStatementDebt = cards.reduce((sum, card) => sum + card.currentStatementAmountCents + card.unbilledAmountCents, 0);
+  const totalCreditLimitCents = cards.reduce((sum, card) => sum + card.creditLimitCents, 0);
+  const currentStatementCents = cards.reduce((sum, card) => sum + card.currentStatementAmountCents, 0);
+  const unbilledCents = cards.reduce((sum, card) => sum + card.unbilledAmountCents, 0);
+  const cardUtilization = (totalCardStatementDebt + installmentDebt) / Math.max(totalCreditLimitCents, 1);
 
   return (
     <div className="space-y-4">
+      <FeatureHero
+        icon={<CreditCardIcon size={18} />}
+        label="信用卡總覽"
+        title="卡費、未出帳與分期負債"
+        value={formatMoney(totalCardStatementDebt + installmentDebt)}
+        tone="violet"
+        metrics={[
+          { label: "本期帳單", value: formatMoney(currentStatementCents), accent: "border-rose-300" },
+          { label: "下期未出帳", value: formatMoney(unbilledCents), accent: "border-amber-300" },
+          { label: "額度使用率", value: formatPercent(cardUtilization), accent: "border-violet-300" }
+        ]}
+      >
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+          <DonutChart
+            segments={[
+              { label: "本期帳單", value: currentStatementCents, color: "#7c3aed" },
+              { label: "未出帳", value: unbilledCents, color: "#f59e0b" },
+              { label: "分期負債", value: installmentDebt, color: "#dc2626" }
+            ]}
+            centerLabel="待整理"
+            centerValue={formatCompactMoney(totalCardStatementDebt + installmentDebt)}
+          />
+          <div className="flex-1 space-y-3 text-sm">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-slate-300">信用額度</span>
+              <span className="font-semibold text-white">{formatMoney(totalCreditLimitCents)}</span>
+            </div>
+            <Progress label="總額度使用率" value={cardUtilization} colorClass={cardUtilization >= 0.3 ? "bg-amber-500" : "bg-emerald-500"} />
+            <CompactDistributionList data={[
+              { category: "本期帳單", amountCents: currentStatementCents },
+              { category: "下期未出帳", amountCents: unbilledCents },
+              { category: "分期負債", amountCents: installmentDebt }
+            ]} total={Math.max(totalCardStatementDebt + installmentDebt, 1)} inverse />
+          </div>
+        </div>
+      </FeatureHero>
       <section className="grid gap-3 md:grid-cols-3">
         <StatCard label="信用卡帳款" value={formatMoney(totalCardStatementDebt)} />
         <StatCard label="分期剩餘負債" value={formatMoney(installmentDebt)} />
@@ -2485,6 +2699,18 @@ function LoansPage({
     oneTimePrepaymentMonth: 1
   });
   const result = calculateLoan(calcInput);
+  const activeLoans = loans.filter((loan) => loan.status === "active");
+  const loanPrincipalCents = activeLoans.reduce((sum, loan) => sum + loan.remainingPrincipalCents, 0);
+  const loanOriginalPrincipalCents = activeLoans.reduce((sum, loan) => sum + loan.originalPrincipalCents, 0);
+  const loanMonthlyDueCents = activeLoans.reduce((sum, loan) => sum + loan.paymentPerPeriodCents, 0);
+  const weightedLoanRate = loanPrincipalCents > 0
+    ? activeLoans.reduce((sum, loan) => sum + loan.remainingPrincipalCents * loan.annualRate, 0) / loanPrincipalCents
+    : 0;
+  const paidDownRatio = loanOriginalPrincipalCents > 0 ? 1 - loanPrincipalCents / loanOriginalPrincipalCents : 0;
+  const loanBreakdown = activeLoans
+    .map((loan) => ({ category: loan.name, amountCents: loan.remainingPrincipalCents }))
+    .sort((a, b) => b.amountCents - a.amountCents)
+    .slice(0, 6);
 
   function addLoan(formData: FormData) {
     const principal = parseMoneyToCents(String(formData.get("principal") ?? ""));
@@ -2521,6 +2747,34 @@ function LoansPage({
 
   return (
     <div className="space-y-4">
+      <FeatureHero
+        icon={<Landmark size={18} />}
+        label="貸款負債"
+        title="剩餘本金與每月現金流壓力"
+        value={formatMoney(loanPrincipalCents)}
+        tone="amber"
+        metrics={[
+          { label: "每月應繳", value: formatMoney(loanMonthlyDueCents), accent: "border-rose-300" },
+          { label: "平均利率", value: formatPercent(weightedLoanRate), accent: "border-amber-300" },
+          { label: "已清償比例", value: formatPercent(Math.max(0, paidDownRatio)), accent: "border-emerald-300" }
+        ]}
+      >
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+          <DonutChart
+            segments={[
+              { label: "剩餘本金", value: loanPrincipalCents, color: "#d97706" },
+              { label: "已還本金", value: Math.max(0, loanOriginalPrincipalCents - loanPrincipalCents), color: "#059669" }
+            ]}
+            centerLabel="清償"
+            centerValue={formatPercent(Math.max(0, paidDownRatio))}
+          />
+          <div className="flex-1 space-y-3">
+            <Progress label="清償進度" value={Math.max(0, paidDownRatio)} colorClass="bg-emerald-500" />
+            <StackedDistribution data={loanBreakdown} total={loanPrincipalCents} />
+            <CompactDistributionList data={loanBreakdown} total={loanPrincipalCents} inverse />
+          </div>
+        </div>
+      </FeatureHero>
       <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
         <section className="panel">
           <h2 className="text-lg font-semibold">新增貸款</h2>
@@ -2781,6 +3035,12 @@ function InvestmentsPage({ notify }: { notify: (type: ToastType, message: string
   const fundAllocation = categories
     .filter((category) => category.kind === "mutual_fund" || category.kind === "bond_fund" || category.kind === "money_market")
     .reduce((sum, category) => sum + category.targetAllocation, 0);
+  const investmentRiskRows = Object.entries(
+    categories.reduce<Record<string, number>>((acc, category) => {
+      acc[investmentRiskLabels[category.risk]] = (acc[investmentRiskLabels[category.risk]] ?? 0) + category.targetAllocation;
+      return acc;
+    }, {})
+  ).map(([category, amountCents]) => ({ category, amountCents }));
 
   function addCategory(formData: FormData) {
     const name = String(formData.get("name") ?? "").trim();
@@ -2812,6 +3072,30 @@ function InvestmentsPage({ notify }: { notify: (type: ToastType, message: string
 
   return (
     <div className="space-y-4">
+      <FeatureHero
+        icon={<TrendingUp size={18} />}
+        label="投資分類"
+        title="股票與基金目標配置"
+        value={`${totalAllocation.toFixed(0)}%`}
+        tone="sky"
+        metrics={[
+          { label: "基金類配置", value: `${fundAllocation.toFixed(0)}%`, accent: "border-emerald-300" },
+          { label: "高風險配置", value: `${highRiskAllocation.toFixed(0)}%`, accent: "border-rose-300" },
+          { label: "分類數", value: `${categories.length} 類`, accent: "border-sky-300" }
+        ]}
+      >
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+          <DonutChart
+            segments={investmentRiskRows.map((row, index) => ({ label: row.category, value: row.amountCents, color: getChartColor(index) }))}
+            centerLabel="配置"
+            centerValue={`${totalAllocation.toFixed(0)}%`}
+          />
+          <div className="flex-1 space-y-3">
+            <Progress label="目標配置合計" value={totalAllocation / 100} colorClass={totalAllocation > 100 ? "bg-rose-500" : "bg-emerald-500"} />
+            <CompactDistributionList data={investmentRiskRows} total={Math.max(totalAllocation, 1)} inverse />
+          </div>
+        </div>
+      </FeatureHero>
       <div className="grid gap-4 lg:grid-cols-3">
         <StatCard label="分類數" value={`${categories.length} 類`} />
         <StatCard label="目標配置合計" value={`${totalAllocation.toFixed(0)}%`} />
@@ -2926,8 +3210,30 @@ function CalculatorsPage() {
   const investmentContributionCents = investmentPrincipalCents + monthlyInvestmentCents * investmentYears * 12;
 
   return (
-    <div className="grid gap-4 xl:grid-cols-2">
-      <section className="panel">
+    <div className="space-y-4">
+      <FeatureHero
+        icon={<Calculator size={18} />}
+        label="財務計算機"
+        title="常用試算結果摘要"
+        value={formatMoney(netWorthCents)}
+        tone="slate"
+        metrics={[
+          { label: "貸款月付", value: formatMoney(loanResult.monthlyPaymentCents), accent: "border-rose-300" },
+          { label: "存款到期", value: formatMoney(depositResult.maturityAmountCents), accent: "border-emerald-300" },
+          { label: "投資期末", value: formatMoney(investmentFutureValueCents), accent: "border-sky-300" }
+        ]}
+      >
+        <div className="space-y-4">
+          <Progress label="負債比" value={debtRatio} colorClass={debtRatio > 0.5 ? "bg-rose-500" : "bg-emerald-500"} />
+          <Progress label="預備金月數" value={Math.min(emergencyMonths / 6, 1)} helper={`${emergencyMonths.toFixed(1)} / 6 個月`} colorClass="bg-sky-500" />
+          <CompactDistributionList data={[
+            { category: "總資產", amountCents: totalAssetsCents },
+            { category: "總負債", amountCents: totalLiabilitiesCents }
+          ]} total={Math.max(totalAssetsCents + totalLiabilitiesCents, 1)} inverse />
+        </div>
+      </FeatureHero>
+      <div className="grid gap-4 xl:grid-cols-2">
+        <section className="panel">
         <div className="flex items-center gap-2"><Calculator size={18} /><h2 className="text-lg font-semibold">貸款試算</h2></div>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <CalcInput label="貸款本金" value={loanInput.principalCents / 100} onChange={(value) => setLoanInput((current) => ({ ...current, principalCents: Math.round(value * 100) }))} />
@@ -3002,6 +3308,7 @@ function CalculatorsPage() {
         </div>
         <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-400">此試算僅為複利模型估算，不代表任何投資報酬保證。</p>
       </section>
+      </div>
     </div>
   );
 }
@@ -3038,6 +3345,55 @@ function BudgetsPage({
   setBudgets: React.Dispatch<React.SetStateAction<Budget[]>>;
   notify: (type: ToastType, message: string) => void;
 }) {
+  const monthlyExpenseTransactions = transactions
+    .filter((transaction) => transaction.date.startsWith(month))
+    .filter((transaction) => transaction.type === "expense" || transaction.type === "credit_card_purchase");
+  const currentBudgets = budgets.filter((budget) => budget.month === month);
+  const categoryBudgets = currentBudgets.filter((budget) => budget.category !== "全部");
+  const totalBudgetFromCategories = categoryBudgets.reduce((sum, budget) => sum + budget.budgetCents, 0);
+  const fallbackTotalBudget = currentBudgets
+    .filter((budget) => budget.category === "全部")
+    .reduce((sum, budget) => Math.max(sum, budget.budgetCents), 0);
+  const plannedBudgetCents = totalBudgetFromCategories > 0 ? totalBudgetFromCategories : fallbackTotalBudget;
+  const spentCents = monthlyExpenseTransactions.reduce((sum, transaction) => sum + transaction.amountCents, 0);
+  const necessarySpentCents = monthlyExpenseTransactions
+    .filter((transaction) => transaction.isNecessary)
+    .reduce((sum, transaction) => sum + transaction.amountCents, 0);
+  const fixedSpentCents = monthlyExpenseTransactions
+    .filter((transaction) => transaction.isRecurring)
+    .reduce((sum, transaction) => sum + transaction.amountCents, 0);
+  const flexibleSpentCents = Math.max(0, spentCents - necessarySpentCents);
+  const remainingBudgetCents = Math.max(0, plannedBudgetCents - spentCents);
+  const overspentCents = Math.max(0, spentCents - plannedBudgetCents);
+  const dayOfMonth = Math.max(1, new Date().getDate());
+  const projectedMonthEndCents = Math.round((spentCents / dayOfMonth) * 31);
+  const budgetUseRatio = spentCents / Math.max(plannedBudgetCents, 1);
+  const categorySpentMap = monthlyExpenseTransactions.reduce<Record<string, number>>((acc, transaction) => {
+    acc[transaction.category] = (acc[transaction.category] ?? 0) + transaction.amountCents;
+    return acc;
+  }, {});
+  const budgetPlanRows = [...new Set([...budgetCategoryOptions, ...currentBudgets.map((budget) => budget.category ?? "全部"), ...Object.keys(categorySpentMap)])]
+    .filter((category) => category !== "全部")
+    .map((category) => {
+      const budgetCents = currentBudgets
+        .filter((budget) => budget.category === category)
+        .reduce((sum, budget) => sum + budget.budgetCents, 0);
+      const spent = categorySpentMap[category] ?? 0;
+      return {
+        category,
+        budgetCents,
+        spentCents: spent,
+        remainingCents: Math.max(0, budgetCents - spent),
+        ratio: spent / Math.max(budgetCents, 1)
+      };
+    })
+    .filter((row) => row.budgetCents > 0 || row.spentCents > 0 || budgetCategoryOptions.includes(row.category))
+    .slice(0, 18);
+  const topBudgetRows = budgetPlanRows
+    .filter((row) => row.budgetCents > 0 || row.spentCents > 0)
+    .sort((a, b) => Math.max(b.spentCents, b.budgetCents) - Math.max(a.spentCents, a.budgetCents))
+    .slice(0, 8);
+
   function addBudget(formData: FormData) {
     const amount = parseMoneyToCents(String(formData.get("amount") ?? ""));
     const validation = validatePositiveAmount(amount, "預算");
@@ -3061,38 +3417,97 @@ function BudgetsPage({
   }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[320px_1fr]">
-      <section className="panel">
-        <h2 className="text-lg font-semibold">新增每月預算</h2>
-        <form className="mt-4 space-y-3" onSubmit={handleFormSubmit(addBudget)}>
-          <Field label="分類"><input className="input" name="category" defaultValue="全部" /></Field>
-          <Field label="預算金額"><input className="input" name="amount" inputMode="decimal" required /></Field>
-          <button className="btn-primary w-full" type="submit"><Plus size={16} />新增預算</button>
-        </form>
-      </section>
-      <section className="grid gap-3 md:grid-cols-2">
-        {budgets.filter((budget) => budget.month === month).map((budget) => {
-          const spent = transactions
-            .filter((transaction) => transaction.date.startsWith(month))
-            .filter((transaction) => transaction.type === "expense" || transaction.type === "credit_card_purchase")
-            .filter((transaction) => budget.category === "全部" || transaction.category === budget.category)
-            .reduce((sum, transaction) => sum + transaction.amountCents, 0);
-          const ratio = spent / Math.max(budget.budgetCents, 1);
-          const projected = Math.round(spent / 13 * 31);
-          return (
-            <div key={budget.id} className="panel">
-              <p className="font-semibold">{budget.category} 預算</p>
-              <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                <Info label="已使用" value={formatMoney(spent)} />
-                <Info label="剩餘" value={formatMoney(Math.max(0, budget.budgetCents - spent))} />
-                <Info label="超支" value={formatMoney(Math.max(0, spent - budget.budgetCents))} />
-                <Info label="預估月底" value={formatMoney(projected)} />
-              </div>
-              <div className="mt-4"><Progress label="使用比例" value={ratio} /></div>
+    <div className="space-y-4">
+      <FeatureHero
+        icon={<Banknote size={18} />}
+        label="預算規劃"
+        title="本月預算使用狀態"
+        value={plannedBudgetCents > 0 ? `${formatPercent(budgetUseRatio)} 已使用` : "尚未設定預算"}
+        tone="rose"
+        metrics={[
+          { label: "總預算", value: formatMoney(plannedBudgetCents), accent: "border-sky-300" },
+          { label: "已使用", value: formatMoney(spentCents), accent: "border-rose-300" },
+          { label: "剩餘", value: formatMoney(remainingBudgetCents), accent: "border-emerald-300" }
+        ]}
+      >
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+          <DonutChart
+            segments={[
+              { label: "已使用", value: spentCents, color: overspentCents > 0 ? "#dc2626" : "#db2777" },
+              { label: "剩餘", value: remainingBudgetCents, color: "#059669" }
+            ]}
+            centerLabel="預算"
+            centerValue={plannedBudgetCents > 0 ? formatPercent(budgetUseRatio) : "0%"}
+          />
+          <div className="flex-1 space-y-3 text-sm">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-slate-300">預估月底</span>
+              <span className="font-semibold text-white">{formatMoney(projectedMonthEndCents)}</span>
             </div>
-          );
-        })}
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-slate-300">超支金額</span>
+              <span className="font-semibold text-white">{formatMoney(overspentCents)}</span>
+            </div>
+            <StackedDistribution data={[
+              { category: "必要支出", amountCents: necessarySpentCents },
+              { category: "非必要支出", amountCents: flexibleSpentCents }
+            ]} total={Math.max(spentCents, 1)} />
+            <CompactDistributionList data={[
+              { category: "必要支出", amountCents: necessarySpentCents },
+              { category: "非必要支出", amountCents: flexibleSpentCents }
+            ]} total={Math.max(spentCents, 1)} inverse />
+          </div>
+        </div>
+      </FeatureHero>
+
+      <div className="grid gap-4 lg:grid-cols-5">
+        <StatCard label="必要支出" value={formatMoney(necessarySpentCents)} />
+        <StatCard label="固定支出" value={formatMoney(fixedSpentCents)} />
+        <StatCard label="非必要支出" value={formatMoney(flexibleSpentCents)} />
+        <StatCard label="超支金額" value={formatMoney(overspentCents)} />
+        <StatCard label="預估月底支出" value={formatMoney(projectedMonthEndCents)} />
+      </div>
+
+      <section className="panel">
+        <div className="flex items-center gap-2">
+          <BarChart3 size={18} />
+          <h2 className="text-lg font-semibold">分類預算地圖</h2>
+        </div>
+        <BudgetPlanChart rows={topBudgetRows} />
       </section>
+
+      <div className="grid gap-4 xl:grid-cols-[340px_1fr]">
+        <section className="panel">
+          <h2 className="text-lg font-semibold">新增每月預算</h2>
+          <form className="mt-4 space-y-3" onSubmit={handleFormSubmit(addBudget)}>
+            <Field label="分類">
+              <input className="input" name="category" list="budget-categories" defaultValue="餐飲" />
+              <datalist id="budget-categories">
+                {budgetCategoryOptions.map((category) => <option key={category} value={category} />)}
+              </datalist>
+            </Field>
+            <Field label="預算金額"><input className="input" name="amount" inputMode="decimal" required /></Field>
+            <button className="btn-primary w-full" type="submit"><Plus size={16} />新增預算</button>
+          </form>
+        </section>
+        <section className="grid gap-3 md:grid-cols-2">
+          {budgetPlanRows.map((row) => (
+            <div key={row.category} className="panel">
+              <div className="flex items-start justify-between gap-3">
+                <p className="font-semibold">{row.category}</p>
+                <Badge>{row.budgetCents > 0 ? "已設定" : "待規劃"}</Badge>
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                <Info label="預算" value={formatMoney(row.budgetCents)} />
+                <Info label="已使用" value={formatMoney(row.spentCents)} />
+                <Info label="剩餘" value={formatMoney(row.remainingCents)} />
+                <Info label="超支" value={formatMoney(Math.max(0, row.spentCents - row.budgetCents))} />
+              </div>
+              <div className="mt-4"><Progress label="使用比例" value={row.ratio} colorClass={row.ratio >= 1 ? "bg-rose-500" : row.ratio >= 0.8 ? "bg-amber-500" : "bg-emerald-500"} /></div>
+            </div>
+          ))}
+        </section>
+      </div>
     </div>
   );
 }
@@ -3108,6 +3523,22 @@ function RemindersPage({
   setReminders: React.Dispatch<React.SetStateAction<FinancialReminder[]>>;
   notify: (type: ToastType, message: string) => void;
 }) {
+  const activeReminders = reminders.filter((reminder) => reminder.status !== "done");
+  const monthlyReminderAmountCents = activeReminders.reduce((sum, reminder) => {
+    const multiplier = reminder.frequency === "weekly" ? 4 : reminder.frequency === "quarterly" ? 1 / 3 : reminder.frequency === "yearly" ? 1 / 12 : 1;
+    return sum + Math.round(reminder.amountCents * multiplier);
+  }, 0);
+  const necessaryReminderCents = activeReminders
+    .filter((reminder) => reminder.isNecessary)
+    .reduce((sum, reminder) => sum + reminder.amountCents, 0);
+  const autoReminderCount = activeReminders.filter((reminder) => reminder.autoCreateTransaction).length;
+  const reminderStatusRows = Object.entries(
+    activeReminders.reduce<Record<string, number>>((acc, reminder) => {
+      acc[reminder.status] = (acc[reminder.status] ?? 0) + reminder.amountCents;
+      return acc;
+    }, {})
+  ).map(([category, amountCents]) => ({ category, amountCents }));
+
   function addReminder(formData: FormData) {
     const amount = parseMoneyToCents(String(formData.get("amount") ?? ""));
     const validation = combineValidations(validatePositiveAmount(amount), validateDateRange(String(formData.get("startDate"))));
@@ -3136,8 +3567,37 @@ function RemindersPage({
   }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[340px_1fr]">
-      <section className="panel">
+    <div className="space-y-4">
+      <FeatureHero
+        icon={<CalendarClock size={18} />}
+        label="固定帳單"
+        title="週期性扣款與提醒狀態"
+        value={formatMoney(monthlyReminderAmountCents)}
+        tone="sky"
+        metrics={[
+          { label: "必要帳單", value: formatMoney(necessaryReminderCents), accent: "border-rose-300" },
+          { label: "提醒項目", value: `${activeReminders.length} 項`, accent: "border-sky-300" },
+          { label: "自動交易", value: `${autoReminderCount} 項`, accent: "border-emerald-300" }
+        ]}
+      >
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+          <DonutChart
+            segments={[
+              { label: "必要", value: necessaryReminderCents, color: "#dc2626" },
+              { label: "其他", value: Math.max(0, monthlyReminderAmountCents - necessaryReminderCents), color: "#0284c7" }
+            ]}
+            centerLabel="月扣款"
+            centerValue={formatCompactMoney(monthlyReminderAmountCents)}
+          />
+          <div className="flex-1 space-y-3">
+            <StackedDistribution data={reminderStatusRows} total={activeReminders.reduce((sum, reminder) => sum + reminder.amountCents, 0)} />
+            <CompactDistributionList data={reminderStatusRows} total={Math.max(activeReminders.reduce((sum, reminder) => sum + reminder.amountCents, 0), 1)} inverse />
+          </div>
+        </div>
+      </FeatureHero>
+
+      <div className="grid gap-4 xl:grid-cols-[340px_1fr]">
+        <section className="panel">
         <h2 className="text-lg font-semibold">新增固定帳單</h2>
         <form className="mt-4 space-y-3" onSubmit={handleFormSubmit(addReminder)}>
           <Field label="名稱"><input className="input" name="name" required /></Field>
@@ -3157,10 +3617,11 @@ function RemindersPage({
           <div key={reminder.id} className="panel">
             <div className="flex items-start justify-between gap-3"><p className="font-semibold">{reminder.name}</p><Badge>{reminder.status}</Badge></div>
             <p className="mt-2 text-2xl font-bold">{formatMoney(reminder.amountCents)}</p>
-            <p className="mt-2 text-sm text-slate-500">{reminder.frequency} · 每月 {reminder.debitDay} 日 · 提前 {reminder.remindDaysBefore} 天提醒</p>
-          </div>
-        ))}
-      </section>
+          <p className="mt-2 text-sm text-slate-500">{reminder.frequency} · 每月 {reminder.debitDay} 日 · 提前 {reminder.remindDaysBefore} 天提醒</p>
+        </div>
+      ))}
+        </section>
+      </div>
     </div>
   );
 }
@@ -3220,6 +3681,26 @@ function ReportsPage({
 
   return (
     <div className="space-y-4">
+      <FeatureHero
+        icon={<FileText size={18} />}
+        label="財務報表"
+        title="總帳、現金流與負債報表"
+        value={formatMoney(dashboard.netWorthCents)}
+        tone="slate"
+        metrics={[
+          { label: "本月結餘", value: formatMoney(dashboard.monthlyBalanceCents), accent: "border-sky-300" },
+          { label: "支出分類", value: `${categoryBreakdown.length} 類`, accent: "border-emerald-300" },
+          { label: "報表月份", value: month.replace("-", "/"), accent: "border-violet-300" }
+        ]}
+      >
+        <div className="space-y-4">
+          <Progress label="負債比" value={dashboard.debtRatio} colorClass={dashboard.debtRatio > 0.5 ? "bg-rose-500" : "bg-emerald-500"} />
+          <CompactDistributionList data={[
+            { category: "總資產", amountCents: dashboard.totalAssetsCents },
+            { category: "總負債", amountCents: dashboard.totalLiabilitiesCents }
+          ]} total={Math.max(dashboard.totalAssetsCents + dashboard.totalLiabilitiesCents, 1)} inverse />
+        </div>
+      </FeatureHero>
       <div className="panel flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">財務報表</h2>
@@ -3272,6 +3753,30 @@ function AiPage({
 }) {
   return (
     <div className="space-y-4">
+      <FeatureHero
+        icon={<Bot size={18} />}
+        label="AI 理財健檢"
+        title="送出前先確認財務摘要"
+        value={formatMoney(dashboard.monthlyBalanceCents)}
+        tone="violet"
+        metrics={[
+          { label: "本月收入", value: formatMoney(dashboard.monthlyIncomeCents), accent: "border-emerald-300" },
+          { label: "本月支出", value: formatMoney(dashboard.monthlyExpenseCents), accent: "border-rose-300" },
+          { label: "預備金", value: `${dashboard.emergencyFundMonths.toFixed(1)} 個月`, accent: "border-sky-300" }
+        ]}
+      >
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+          <DonutChart
+            segments={categoryBreakdown.slice(0, 5).map((item, index) => ({ label: item.category, value: item.amountCents, color: getChartColor(index) }))}
+            centerLabel="支出"
+            centerValue={formatCompactMoney(dashboard.monthlyExpenseCents)}
+          />
+          <div className="flex-1 space-y-3">
+            <Progress label="負債比" value={dashboard.debtRatio} colorClass={dashboard.debtRatio > 0.5 ? "bg-rose-500" : "bg-emerald-500"} />
+            <CompactDistributionList data={categoryBreakdown.slice(0, 5)} total={dashboard.monthlyExpenseCents} inverse />
+          </div>
+        </div>
+      </FeatureHero>
       <section className="panel">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
