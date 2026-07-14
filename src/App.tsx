@@ -12,6 +12,7 @@ import {
   ChevronDown,
   CreditCard as CreditCardIcon,
   Download,
+  FileText,
   Landmark,
   LineChart,
   Moon,
@@ -20,6 +21,7 @@ import {
   ReceiptText,
   Settings,
   ShieldCheck,
+  Table,
   Trash2,
   Upload,
   WalletCards
@@ -36,9 +38,11 @@ import {
 import { currentTaipeiMonth, formatDate, formatMoney, formatPercent, parseMoneyToCents } from "./lib/format";
 import { parseTransactionsCsv } from "./lib/csv";
 import { combineValidations, validateAnnualRate, validateDateRange, validatePositiveAmount } from "./lib/validation";
+import { exportReportToExcel, exportReportToPdf } from "./lib/reportExport";
 import { isSupabaseConfigured } from "./services/supabaseClient";
 import { mockAiFinancialHealth, requestAiFinancialHealth } from "./services/aiFinancialHealth";
 import {
+  checkSupabaseConnection,
   createFinancialAccount,
   createCreditCardInstallment,
   createTransactionWithCategory,
@@ -142,6 +146,8 @@ export default function App() {
   const [rememberedCategories, setRememberedCategories] = useState<string[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
   const [dataNotice, setDataNotice] = useState("");
+  const [supabaseCheck, setSupabaseCheck] = useState<Awaited<ReturnType<typeof checkSupabaseConnection>> | null>(null);
+  const [supabaseChecking, setSupabaseChecking] = useState(false);
   const [sessionEmail, setSessionEmail] = useState<string | null>(null);
   const [csvPreview, setCsvPreview] = useState<ReturnType<typeof parseTransactionsCsv>>([]);
   const [aiReport, setAiReport] = useState<AiFinancialReport | null>(null);
@@ -176,6 +182,26 @@ export default function App() {
       setDataNotice(error instanceof Error ? error.message : "資料讀取失敗");
     } finally {
       setDataLoading(false);
+    }
+  }
+
+  async function runSupabaseConnectionCheck() {
+    setSupabaseChecking(true);
+    try {
+      const result = await checkSupabaseConnection();
+      setSupabaseCheck(result);
+      notify(result.ok ? "success" : "error", result.message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Supabase 連線檢查失敗";
+      setSupabaseCheck({
+        ok: false,
+        status: "schema_error",
+        message,
+        details: ["請確認環境變數、登入狀態、migration 與 RLS policy"]
+      });
+      notify("error", message);
+    } finally {
+      setSupabaseChecking(false);
     }
   }
 
@@ -508,6 +534,7 @@ export default function App() {
             {page === "reminders" && <RemindersPage reminders={reminders} accounts={accounts} setReminders={setReminders} notify={notify} />}
             {page === "reports" && (
               <ReportsPage
+                month={month}
                 transactions={transactions}
                 loans={loans}
                 creditCards={creditCards}
@@ -533,7 +560,10 @@ export default function App() {
                 isSupabaseConfigured={isSupabaseConfigured}
                 sessionEmail={sessionEmail}
                 dataNotice={dataNotice}
+                supabaseCheck={supabaseCheck}
+                supabaseChecking={supabaseChecking}
                 onRefresh={refreshFinanceData}
+                onCheckSupabase={runSupabaseConnectionCheck}
                 onSendSignInLink={async (email) => {
                   try {
                     await sendSignInLink(email);
@@ -2206,6 +2236,7 @@ function RemindersPage({
 }
 
 function ReportsPage({
+  month,
   transactions,
   loans,
   creditCards,
@@ -2215,6 +2246,7 @@ function ReportsPage({
   accounts,
   dashboard
 }: {
+  month: string;
   transactions: Transaction[];
   loans: Loan[];
   creditCards: CreditCard[];
@@ -2224,6 +2256,18 @@ function ReportsPage({
   accounts: FinancialAccount[];
   dashboard: ReturnType<typeof summarizeDashboard>;
 }) {
+  const reportInput = {
+    month,
+    dashboard,
+    accounts,
+    transactions,
+    creditCards,
+    creditCardInstallments,
+    loans,
+    monthlyTrend,
+    categoryBreakdown
+  };
+
   function downloadCsv() {
     const headers = ["日期", "類型", "金額", "分類", "商家", "備註"];
     const rows = transactions.map((transaction) => [
@@ -2251,7 +2295,22 @@ function ReportsPage({
           <h2 className="text-lg font-semibold">財務報表</h2>
           <p className="text-sm text-slate-500">查詢採期間資料，不一次載入全部年份。</p>
         </div>
-        <button className="btn-primary" onClick={downloadCsv}><Download size={16} />匯出 CSV</button>
+        <div className="flex flex-wrap gap-2">
+          <button className="btn-secondary" onClick={downloadCsv}><Download size={16} />CSV</button>
+          <button className="btn-secondary" onClick={() => exportReportToExcel(reportInput)}><Table size={16} />Excel</button>
+          <button
+            className="btn-primary"
+            onClick={() => {
+              try {
+                exportReportToPdf(reportInput);
+              } catch (error) {
+                window.alert(error instanceof Error ? error.message : "PDF 匯出失敗");
+              }
+            }}
+          >
+            <FileText size={16} />PDF
+          </button>
+        </div>
       </div>
       <div className="grid gap-4 lg:grid-cols-12">
         <section className="panel lg:col-span-8"><h3 className="font-semibold">月收支與現金流趨勢</h3><TrendChart data={monthlyTrend} /></section>
@@ -2325,7 +2384,10 @@ function SettingsPage({
   isSupabaseConfigured,
   sessionEmail,
   dataNotice,
+  supabaseCheck,
+  supabaseChecking,
   onRefresh,
+  onCheckSupabase,
   onSendSignInLink,
   onSignOut
 }: {
@@ -2333,7 +2395,10 @@ function SettingsPage({
   isSupabaseConfigured: boolean;
   sessionEmail: string | null;
   dataNotice: string;
+  supabaseCheck: Awaited<ReturnType<typeof checkSupabaseConnection>> | null;
+  supabaseChecking: boolean;
   onRefresh: () => void;
+  onCheckSupabase: () => void;
   onSendSignInLink: (email: string) => Promise<void>;
   onSignOut: () => Promise<void>;
 }) {
@@ -2362,13 +2427,31 @@ function SettingsPage({
       <section className="panel lg:col-span-2">
         <h2 className="text-lg font-semibold">Supabase 資料連線</h2>
         {dataNotice && <div className="mt-3"><InlineNotice tone="warning" message={dataNotice} /></div>}
+        {supabaseCheck && (
+          <div className={`mt-3 rounded-md border p-3 text-sm ${
+            supabaseCheck.ok
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-100"
+              : "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
+          }`}>
+            <p className="font-semibold">{supabaseCheck.message}</p>
+            <ul className="mt-2 list-disc space-y-1 pl-5">
+              {supabaseCheck.details.map((detail) => <li key={detail}>{detail}</li>)}
+            </ul>
+          </div>
+        )}
         <form className="mt-4 flex flex-col gap-3 sm:flex-row" onSubmit={handleFormSubmit((formData) => void onSendSignInLink(String(formData.get("email") ?? "")))}>
           <input className="input mt-0" name="email" type="email" placeholder="輸入 Supabase Auth email" required disabled={!isSupabaseConfigured} />
           <button className="btn-primary shrink-0" type="submit" disabled={!isSupabaseConfigured}>寄送登入連結</button>
         </form>
         <div className="mt-3 flex flex-wrap gap-2">
+          <button className="btn-secondary" onClick={onCheckSupabase} disabled={supabaseChecking}>
+            {supabaseChecking ? "檢查中" : "檢查 Supabase 連線"}
+          </button>
           <button className="btn-secondary" onClick={onRefresh}>重新讀取 Supabase 資料</button>
           <button className="btn-danger" onClick={() => void onSignOut()} disabled={!sessionEmail}>登出</button>
+        </div>
+        <div className="mt-4 rounded-md bg-slate-50 p-3 text-sm text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+          本機請在 `.env.local` 設定 `VITE_SUPABASE_URL` 與 `VITE_SUPABASE_ANON_KEY`；Vercel 需在 Production、Preview、Development 三個環境都設定同名變數。請勿把 service role key 放到前端。
         </div>
       </section>
     </div>

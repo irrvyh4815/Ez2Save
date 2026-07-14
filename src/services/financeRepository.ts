@@ -1,5 +1,5 @@
 import type { Session } from "@supabase/supabase-js";
-import { supabase } from "./supabaseClient";
+import { isSupabaseConfigured, supabase } from "./supabaseClient";
 import type {
   AccountType,
   Budget,
@@ -29,6 +29,13 @@ export interface LoadFinanceResult {
   session: Session | null;
 }
 
+export interface SupabaseConnectionCheck {
+  ok: boolean;
+  status: "not_configured" | "not_authenticated" | "connected" | "schema_error";
+  message: string;
+  details: string[];
+}
+
 export const emptyFinanceData: FinanceData = {
   accounts: [],
   transactions: [],
@@ -46,6 +53,49 @@ export async function getCurrentSession(): Promise<Session | null> {
   const { data, error } = await supabase.auth.getSession();
   if (error) throw new Error("無法讀取登入狀態");
   return data.session;
+}
+
+export async function checkSupabaseConnection(): Promise<SupabaseConnectionCheck> {
+  if (!isSupabaseConfigured || !supabase) {
+    return {
+      ok: false,
+      status: "not_configured",
+      message: "尚未設定 Supabase 環境變數",
+      details: ["請設定 VITE_SUPABASE_URL", "請設定 VITE_SUPABASE_ANON_KEY", "重新啟動本機 dev server 或重新部署 Vercel"]
+    };
+  }
+
+  const session = await getCurrentSession();
+  if (!session) {
+    return {
+      ok: false,
+      status: "not_authenticated",
+      message: "Supabase client 已建立，但尚未登入",
+      details: ["請在設定頁寄送登入連結", "完成 email magic link 登入後，再重新讀取 Supabase 資料"]
+    };
+  }
+
+  const { error } = await supabase
+    .from("financial_accounts")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", session.user.id)
+    .is("deleted_at", null);
+
+  if (error) {
+    return {
+      ok: false,
+      status: "schema_error",
+      message: "已登入，但資料表或 RLS 尚未通過讀取檢查",
+      details: ["請確認 Supabase migration 已執行", "請確認 financial_accounts RLS policy 允許 authenticated user 讀取自己的 user_id 資料"]
+    };
+  }
+
+  return {
+    ok: true,
+    status: "connected",
+    message: "Supabase 已連線並可讀取個人理財資料表",
+    details: [`目前登入：${session.user.email ?? session.user.id}`, "financial_accounts 讀取檢查通過", "資料仍會透過 RLS 依 user_id 隔離"]
+  };
 }
 
 export async function sendSignInLink(email: string): Promise<void> {
