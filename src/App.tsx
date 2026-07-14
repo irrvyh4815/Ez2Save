@@ -181,7 +181,7 @@ export default function App() {
           ? "尚未設定 Supabase 環境變數，已停用範例資料並顯示空資料。"
           : result.session
             ? ""
-            : "尚未登入 Supabase，請到設定頁寄送登入連結後讀取你的已儲存資料。"
+            : "登入或註冊後，即可讀取你儲存在 Supabase 的個人理財資料。"
       );
     } catch (error) {
       setDataNotice(error instanceof Error ? error.message : "資料讀取失敗");
@@ -769,54 +769,133 @@ function AuthPage({
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center p-4">
-      <section className="w-full max-w-5xl overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-950">
-        <div className="grid lg:grid-cols-[0.9fr_1.1fr]">
-          <div className="border-b border-slate-200 bg-slate-50 p-6 dark:border-slate-800 dark:bg-slate-900 lg:border-b-0 lg:border-r">
+    <main className="min-h-screen bg-[#f6f8fb] text-slate-950 dark:bg-slate-950 dark:text-slate-50">
+      <section className="mx-auto grid min-h-screen w-full max-w-7xl gap-8 px-4 py-6 sm:px-6 lg:grid-cols-[1.08fr_0.92fr] lg:items-center lg:px-8">
+        <div className="relative overflow-hidden rounded-lg border border-slate-200 bg-white p-5 shadow-lg dark:border-slate-800 dark:bg-slate-900 sm:p-8">
+          <div className="flex items-center justify-between gap-3">
             <Brand />
-            <div className="mt-8 space-y-4">
+            <span className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-100">
+              TWD · Asia/Taipei
+            </span>
+          </div>
+          <div className="mt-10 max-w-3xl">
+            <p className="text-sm font-semibold text-brand-700 dark:text-brand-100">Ez2SaveMore 個人財務中樞</p>
+            <h1 className="mt-3 text-4xl font-bold tracking-normal text-slate-950 dark:text-slate-50 sm:text-5xl">
+              把你的總帳，整理成可以行動的財務決策。
+            </h1>
+            <p className="mt-5 max-w-2xl text-base leading-7 text-slate-600 dark:text-slate-300">
+              用一個清楚、安靜、專業的介面，管理帳戶、收支、信用卡、貸款、預算與提醒。從每月現金流到完整負債結構，都能快速看懂。
+            </p>
+          </div>
+
+          <div className="mt-8 grid gap-3 sm:grid-cols-3">
+            <AuthMetric label="可視化總帳" value="15+" helper="核心財務指標" />
+            <AuthMetric label="負債追蹤" value="3 層" helper="卡費、分期、貸款" />
+            <AuthMetric label="報表輸出" value="PDF" helper="Excel / CSV 同步支援" />
+          </div>
+
+          <div className="mt-8 rounded-lg border border-slate-200 bg-slate-950 p-4 text-white shadow-lg dark:border-slate-700">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-medium text-brand-700 dark:text-brand-100">Ez2SaveMore 個人財務中樞</p>
-                <h1 className="mt-2 text-3xl font-bold tracking-normal text-slate-950 dark:text-slate-50">把收入、支出、信用卡與貸款整理成清楚決策</h1>
+                <p className="text-xs font-medium text-emerald-300">Live finance workspace</p>
+                <p className="mt-1 text-lg font-semibold">本月財務指揮台</p>
               </div>
-              <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">
-                專為台灣使用情境設計，預設新台幣、繁體中文與月度檢視。從日常記帳到負債整理，讓每一筆錢都有位置，每一個到期日都有提醒。
-              </p>
-              <div className="grid gap-2 text-sm">
-                <Info label="總帳總覽" value="資產、負債、淨資產與現金流一次看懂" />
-                <Info label="負債管理" value="信用卡帳單、分期款項與貸款還款集中追蹤" />
-                <Info label="報表輸出" value="支援 CSV、Excel 與 PDF 財務報表" />
+              <span className="rounded-md bg-white/10 px-3 py-1 text-xs text-slate-200">已連接 Supabase</span>
+            </div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-md bg-white/10 p-3">
+                <p className="text-xs text-slate-300">淨資產</p>
+                <p className="mt-2 text-2xl font-bold">+NT$842K</p>
+              </div>
+              <div className="rounded-md bg-white/10 p-3">
+                <p className="text-xs text-slate-300">本月結餘</p>
+                <p className="mt-2 text-2xl font-bold text-emerald-300">+NT$18K</p>
+              </div>
+              <div className="rounded-md bg-white/10 p-3">
+                <p className="text-xs text-slate-300">負債壓力</p>
+                <p className="mt-2 text-2xl font-bold text-amber-300">32%</p>
+              </div>
+            </div>
+            <div className="mt-5 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+              <div className="rounded-md bg-white/10 p-4">
+                <div className="flex h-32 items-end gap-2">
+                  {[42, 64, 48, 76, 58, 88].map((height, index) => (
+                    <div key={height} className="flex flex-1 flex-col items-center gap-2">
+                      <div className="w-full rounded-t bg-emerald-400" style={{ height: `${height}%` }} />
+                      <span className="text-[10px] text-slate-400">{index + 2}月</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-3 rounded-md bg-white/10 p-4">
+                <AuthPreviewRow label="信用卡待繳" value="NT$26,300" color="bg-sky-400" />
+                <AuthPreviewRow label="貸款應繳" value="NT$18,900" color="bg-amber-300" />
+                <AuthPreviewRow label="固定帳單" value="NT$12,480" color="bg-rose-300" />
               </div>
             </div>
           </div>
-          <div className="p-6">
-            {dataNotice && <InlineNotice tone="warning" message={dataNotice} />}
-            {message && <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">{message}</div>}
-            <div className="mt-4 grid grid-cols-2 gap-2 rounded-lg bg-slate-100 p-1 dark:bg-slate-900">
-              <button className={`rounded-md px-3 py-2 text-sm font-semibold ${mode === "signin" ? "bg-white text-brand-700 shadow-subtle dark:bg-slate-950 dark:text-brand-100" : "text-slate-500"}`} onClick={() => setMode("signin")}>登入</button>
-              <button className={`rounded-md px-3 py-2 text-sm font-semibold ${mode === "signup" ? "bg-white text-brand-700 shadow-subtle dark:bg-slate-950 dark:text-brand-100" : "text-slate-500"}`} onClick={() => setMode("signup")}>註冊</button>
-            </div>
-            <form className="mt-5 space-y-3" onSubmit={handleFormSubmit((formData) => void submitAuth(formData))}>
-              {mode === "signup" && <Field label="顯示名稱"><input className="input" name="displayName" placeholder="例如 Renault" /></Field>}
-              <Field label="Email"><input className="input" name="email" type="email" autoComplete="email" required /></Field>
-              <Field label="密碼"><input className="input" name="password" type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} minLength={8} required /></Field>
-              <button className="btn-primary w-full" type="submit" disabled={loading}>
-                {loading ? "處理中" : mode === "signup" ? "註冊並寄送認證信" : "登入"}
-              </button>
-            </form>
-            <div className="my-5 flex items-center gap-3 text-xs text-slate-400">
-              <span className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
-              或
-              <span className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
-            </div>
-            <form className="space-y-3" onSubmit={handleFormSubmit((formData) => void submitMagicLink(formData))}>
-              <Field label="寄送認證登入信"><input className="input" name="magicEmail" type="email" autoComplete="email" required /></Field>
-              <button className="btn-secondary w-full" type="submit" disabled={loading}>寄送 Magic Link</button>
-            </form>
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-lg dark:border-slate-800 dark:bg-slate-900 sm:p-8">
+          <div>
+            <p className="text-sm font-semibold text-brand-700 dark:text-brand-100">開始使用</p>
+            <h2 className="mt-2 text-2xl font-bold tracking-normal">登入你的財務工作台</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">
+              {dataNotice || "登入或註冊後，系統會載入你儲存在 Supabase 的資料。"}
+            </p>
           </div>
+          {message && <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">{message}</div>}
+          <div className="mt-6 grid grid-cols-2 gap-2 rounded-lg bg-slate-100 p-1 dark:bg-slate-950">
+            <button className={`rounded-md px-3 py-2 text-sm font-semibold transition ${mode === "signin" ? "bg-white text-brand-700 shadow-subtle dark:bg-slate-800 dark:text-brand-100" : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"}`} onClick={() => setMode("signin")}>登入</button>
+            <button className={`rounded-md px-3 py-2 text-sm font-semibold transition ${mode === "signup" ? "bg-white text-brand-700 shadow-subtle dark:bg-slate-800 dark:text-brand-100" : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"}`} onClick={() => setMode("signup")}>註冊</button>
+          </div>
+          <form className="mt-5 space-y-4" onSubmit={handleFormSubmit((formData) => void submitAuth(formData))}>
+            {mode === "signup" && <Field label="顯示名稱"><input className="input" name="displayName" placeholder="例如 Renault" /></Field>}
+            <Field label="Email"><input className="input" name="email" type="email" autoComplete="email" required /></Field>
+            <Field label="密碼"><input className="input" name="password" type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} minLength={8} required /></Field>
+            <button className="btn-primary h-11 w-full" type="submit" disabled={loading}>
+              {loading ? "處理中" : mode === "signup" ? "建立帳號並寄送認證信" : "登入 Ez2SaveMore"}
+            </button>
+          </form>
+          <div className="my-6 flex items-center gap-3 text-xs text-slate-400">
+            <span className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
+            免密碼登入
+            <span className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
+          </div>
+          <form className="space-y-4" onSubmit={handleFormSubmit((formData) => void submitMagicLink(formData))}>
+            <Field label="Email 認證登入信"><input className="input" name="magicEmail" type="email" autoComplete="email" required /></Field>
+            <button className="btn-secondary h-11 w-full" type="submit" disabled={loading}>寄送 Magic Link</button>
+          </form>
+          <p className="mt-5 text-center text-xs leading-5 text-slate-500 dark:text-slate-400">
+            最高管理員帳號會由 Supabase profile role 判定；一般使用者無法自行提升權限。
+          </p>
         </div>
       </section>
     </main>
+  );
+}
+
+function AuthMetric({ label, value, helper }: { label: string; value: string; helper: string }) {
+  return (
+    <div className="rounded-md border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
+      <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</p>
+      <p className="mt-2 text-2xl font-bold text-slate-950 dark:text-slate-50">{value}</p>
+      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{helper}</p>
+    </div>
+  );
+}
+
+function AuthPreviewRow({ label, value, color }: { label: string; value: string; color: string }) {
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between gap-3 text-xs">
+        <span className="text-slate-300">{label}</span>
+        <span className="font-semibold">{value}</span>
+      </div>
+      <div className="h-2 rounded-full bg-white/10">
+        <div className={`h-2 rounded-full ${color}`} style={{ width: label === "信用卡待繳" ? "72%" : label === "貸款應繳" ? "54%" : "38%" }} />
+      </div>
+    </div>
   );
 }
 
