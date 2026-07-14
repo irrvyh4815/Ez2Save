@@ -23,6 +23,7 @@ import {
   ShieldCheck,
   Sparkles,
   Table,
+  TrendingUp,
   Trash2,
   Upload,
   WalletCards
@@ -77,6 +78,7 @@ type Page =
   | "cards"
   | "loans"
   | "deposits"
+  | "investments"
   | "calculators"
   | "budgets"
   | "reminders"
@@ -96,7 +98,7 @@ type FinanceNotification = {
   status: "overdue" | "due_today" | "upcoming" | "scheduled";
 };
 
-const navGroups: { title: "理財" | "投資"; items: { page: Page; label: string; icon: typeof BarChart3 }[] }[] = [
+const navGroups: { title: "理財" | "投資" | "其他" | "設定"; items: { page: Page; label: string; icon: typeof BarChart3 }[] }[] = [
   {
     title: "理財",
     items: [
@@ -105,18 +107,29 @@ const navGroups: { title: "理財" | "投資"; items: { page: Page; label: strin
       { page: "accounts", label: "帳戶", icon: WalletCards },
       { page: "cards", label: "信用卡", icon: CreditCardIcon },
       { page: "loans", label: "貸款", icon: Landmark },
+      { page: "deposits", label: "存款", icon: PiggyBank },
       { page: "budgets", label: "預算", icon: Banknote },
       { page: "reminders", label: "固定帳單", icon: CalendarClock },
-      { page: "reports", label: "報表", icon: LineChart },
-      { page: "settings", label: "設定", icon: Settings }
+      { page: "reports", label: "報表", icon: LineChart }
     ]
   },
   {
     title: "投資",
     items: [
-      { page: "deposits", label: "存款", icon: PiggyBank },
+      { page: "investments", label: "股票基金", icon: TrendingUp }
+    ]
+  },
+  {
+    title: "其他",
+    items: [
       { page: "calculators", label: "計算機", icon: Calculator },
       { page: "ai", label: "AI 健檢", icon: Bot }
+    ]
+  },
+  {
+    title: "設定",
+    items: [
+      { page: "settings", label: "設定", icon: Settings }
     ]
   }
 ];
@@ -165,6 +178,13 @@ const pageIntros: Record<Page, { eyebrow: string; title: string; description: st
     accent: "#16a34a",
     tint: "#f0fdf4"
   },
+  investments: {
+    eyebrow: "Investment classes",
+    title: "管理股票與基金分類",
+    description: "把台股、美股、ETF、基金與其他投資分類整理好，後續持倉與報表才有清楚架構。",
+    accent: "#2563eb",
+    tint: "#eff6ff"
+  },
   calculators: {
     eyebrow: "Scenario lab",
     title: "把常用試算集中在計算機",
@@ -201,9 +221,9 @@ const pageIntros: Record<Page, { eyebrow: string; title: string; description: st
     tint: "#faf5ff"
   },
   settings: {
-    eyebrow: "Control room",
-    title: "管理連線、登入與系統偏好",
-    description: "確認 Supabase、帳號角色、AI mock mode 與部署設定是否正確。",
+    eyebrow: "Account settings",
+    title: "管理帳號與資料連線",
+    description: "只保留登入狀態、帳號權限與 Supabase 連線檢查。",
     accent: "#475569",
     tint: "#f8fafc"
   }
@@ -227,6 +247,38 @@ const transactionTypeLabels: Record<Transaction["type"], string> = {
   credit_card_payment: "信用卡繳款",
   loan_payment: "貸款還款",
   deposit_transfer: "存款轉入"
+};
+
+type InvestmentCategory = {
+  id: string;
+  name: string;
+  kind: "tw_stock" | "us_stock" | "etf" | "mutual_fund" | "bond_fund" | "money_market" | "other";
+  market: "TW" | "US" | "GLOBAL";
+  targetAllocation: number;
+  risk: "low" | "medium" | "high";
+  note: string;
+};
+
+const investmentKindLabels: Record<InvestmentCategory["kind"], string> = {
+  tw_stock: "台股",
+  us_stock: "美股",
+  etf: "ETF",
+  mutual_fund: "共同基金",
+  bond_fund: "債券基金",
+  money_market: "貨幣市場",
+  other: "其他"
+};
+
+const investmentMarketLabels: Record<InvestmentCategory["market"], string> = {
+  TW: "台灣",
+  US: "美國",
+  GLOBAL: "全球"
+};
+
+const investmentRiskLabels: Record<InvestmentCategory["risk"], string> = {
+  low: "低風險",
+  medium: "中風險",
+  high: "高風險"
 };
 
 const today = "2026-07-13";
@@ -684,6 +736,7 @@ export default function App() {
             )}
             {page === "loans" && <LoansPage loans={loans} setLoans={setLoans} notify={notify} />}
             {page === "deposits" && <DepositsPage deposits={deposits} setDeposits={setDeposits} notify={notify} />}
+            {page === "investments" && <InvestmentsPage notify={notify} />}
             {page === "calculators" && <CalculatorsPage />}
             {page === "budgets" && (
               <BudgetsPage budgets={budgets} transactions={transactions} month={month} setBudgets={setBudgets} notify={notify} />
@@ -713,7 +766,6 @@ export default function App() {
             )}
             {page === "settings" && (
               <SettingsPage
-                darkMode={darkMode}
                 isSupabaseConfigured={isSupabaseConfigured}
                 sessionEmail={sessionEmail}
                 profile={currentProfile}
@@ -2503,6 +2555,120 @@ function DepositsPage({
   );
 }
 
+function InvestmentsPage({ notify }: { notify: (type: ToastType, message: string) => void }) {
+  const [categories, setCategories] = useState<InvestmentCategory[]>([]);
+
+  const totalAllocation = categories.reduce((sum, category) => sum + category.targetAllocation, 0);
+  const highRiskAllocation = categories
+    .filter((category) => category.risk === "high")
+    .reduce((sum, category) => sum + category.targetAllocation, 0);
+  const fundAllocation = categories
+    .filter((category) => category.kind === "mutual_fund" || category.kind === "bond_fund" || category.kind === "money_market")
+    .reduce((sum, category) => sum + category.targetAllocation, 0);
+
+  function addCategory(formData: FormData) {
+    const name = String(formData.get("name") ?? "").trim();
+    const targetAllocation = Number(formData.get("targetAllocation"));
+    if (!name) return notify("error", "請輸入分類名稱");
+    if (!Number.isFinite(targetAllocation) || targetAllocation < 0 || targetAllocation > 100) {
+      return notify("error", "目標配置需介於 0% 到 100%");
+    }
+    setCategories((current) => [
+      {
+        id: crypto.randomUUID(),
+        name,
+        kind: String(formData.get("kind")) as InvestmentCategory["kind"],
+        market: String(formData.get("market")) as InvestmentCategory["market"],
+        targetAllocation,
+        risk: String(formData.get("risk")) as InvestmentCategory["risk"],
+        note: String(formData.get("note") ?? "")
+      },
+      ...current
+    ]);
+    notify("success", "投資分類已新增");
+  }
+
+  function deleteCategory(id: string) {
+    if (!window.confirm("確定刪除此投資分類？")) return;
+    setCategories((current) => current.filter((category) => category.id !== id));
+    notify("success", "投資分類已刪除");
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 lg:grid-cols-3">
+        <StatCard label="分類數" value={`${categories.length} 類`} />
+        <StatCard label="目標配置合計" value={`${totalAllocation.toFixed(0)}%`} />
+        <StatCard label="高風險配置" value={`${highRiskAllocation.toFixed(0)}%`} />
+      </div>
+      <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
+        <section className="panel">
+          <div className="flex items-center gap-2">
+            <TrendingUp size={18} />
+            <h2 className="text-lg font-semibold">新增投資分類</h2>
+          </div>
+          <form className="mt-4 space-y-3" onSubmit={handleFormSubmit(addCategory)}>
+            <Field label="分類名稱"><input className="input" name="name" placeholder="例如：台股高股息 ETF" required /></Field>
+            <Field label="投資類型">
+              <select className="input" name="kind" defaultValue="etf">
+                {Object.entries(investmentKindLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </Field>
+            <Field label="市場">
+              <select className="input" name="market" defaultValue="TW">
+                {Object.entries(investmentMarketLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </Field>
+            <Field label="目標配置 %"><input className="input" name="targetAllocation" type="number" min={0} max={100} defaultValue={10} required /></Field>
+            <Field label="風險等級">
+              <select className="input" name="risk" defaultValue="medium">
+                {Object.entries(investmentRiskLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </Field>
+            <Field label="備註"><input className="input" name="note" placeholder="配置目的、觀察重點" /></Field>
+            <button className="btn-primary w-full" type="submit"><Plus size={16} />新增分類</button>
+          </form>
+        </section>
+
+        <section className="panel">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">股票基金分類</h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400">目前基金類配置 {fundAllocation.toFixed(0)}%，高風險配置 {highRiskAllocation.toFixed(0)}%。</p>
+            </div>
+            <Badge>{totalAllocation > 100 ? "配置超過 100%" : "配置可用"}</Badge>
+          </div>
+          {categories.length === 0 ? (
+            <EmptyState label="尚未建立股票或基金分類" />
+          ) : (
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {categories.map((category) => (
+                <div key={category.id} className="rounded-lg border border-slate-200 bg-white/80 p-4 shadow-subtle dark:border-slate-800 dark:bg-slate-950/70">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold">{category.name}</p>
+                      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                        {investmentKindLabels[category.kind]} · {investmentMarketLabels[category.market]} · {investmentRiskLabels[category.risk]}
+                      </p>
+                    </div>
+                    <button className="rounded-md p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950" onClick={() => deleteCategory(category.id)} aria-label="刪除投資分類">
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                  <div className="mt-4">
+                    <Progress label="目標配置" value={category.targetAllocation / 100} helper={`${category.targetAllocation.toFixed(0)}%`} colorClass={category.risk === "high" ? "bg-rose-500" : category.risk === "low" ? "bg-emerald-500" : "bg-sky-500"} />
+                  </div>
+                  {category.note && <p className="mt-3 rounded-md bg-slate-50 p-3 text-sm text-slate-600 dark:bg-slate-900 dark:text-slate-300">{category.note}</p>}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
+
 function CalculatorsPage() {
   const [loanInput, setLoanInput] = useState<LoanCalculationInput>({
     principalCents: 800_000_00,
@@ -2928,7 +3094,6 @@ function AiPage({
 }
 
 function SettingsPage({
-  darkMode,
   isSupabaseConfigured,
   sessionEmail,
   profile,
@@ -2940,7 +3105,6 @@ function SettingsPage({
   onSendSignInLink,
   onSignOut
 }: {
-  darkMode: boolean;
   isSupabaseConfigured: boolean;
   sessionEmail: string | null;
   profile: UserProfile | null;
@@ -2955,27 +3119,14 @@ function SettingsPage({
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <section className="panel">
-        <h2 className="text-lg font-semibold">系統設定</h2>
+        <h2 className="text-lg font-semibold">帳號狀態</h2>
         <div className="mt-4 grid gap-3 text-sm">
-          <Info label="語言" value="繁體中文" />
-          <Info label="貨幣" value="TWD 新台幣" />
-          <Info label="時區" value="Asia/Taipei" />
-          <Info label="日期格式" value="YYYY/MM/DD" />
-          <Info label="深色模式" value={darkMode ? "已開啟" : "未開啟"} />
+          <Info label="登入 Email" value={sessionEmail ?? "尚未登入"} />
+          <Info label="帳號角色" value={profile ? getRoleLabel(profile) : "尚未建立 profile"} />
+          <Info label="資料來源" value={sessionEmail ? "Supabase 已登入帳號" : "尚未讀取雲端資料"} />
         </div>
       </section>
       <section className="panel">
-        <h2 className="text-lg font-semibold">連線與資安</h2>
-        <div className="mt-4 space-y-3 text-sm">
-          <Info label="Supabase" value={isSupabaseConfigured ? "已設定前端 anon key" : "未設定，請先設定 Vercel 環境變數"} />
-          <Info label="登入狀態" value={sessionEmail ?? "尚未登入"} />
-          <Info label="帳號角色" value={profile ? getRoleLabel(profile) : "尚未建立 profile"} />
-          <Info label="AI" value="預設 mock mode；API Key 僅允許後端環境變數" />
-          <Info label="資料儲存" value="登入後透過 Supabase 儲存並讀取你的個人理財資料" />
-          <Info label="CSV 限制" value="512KB、500 筆、先預覽再匯入" />
-        </div>
-      </section>
-      <section className="panel lg:col-span-2">
         <h2 className="text-lg font-semibold">Supabase 資料連線</h2>
         {dataNotice && <div className="mt-3"><InlineNotice tone="warning" message={dataNotice} /></div>}
         {supabaseCheck && (
@@ -2998,12 +3149,12 @@ function SettingsPage({
           <button className="btn-secondary" onClick={onCheckSupabase} disabled={supabaseChecking}>
             {supabaseChecking ? "檢查中" : "檢查 Supabase 連線"}
           </button>
-          <button className="btn-secondary" onClick={onRefresh}>重新讀取 Supabase 資料</button>
+          <button className="btn-secondary" onClick={onRefresh}>重新讀取資料</button>
           <button className="btn-danger" onClick={() => void onSignOut()} disabled={!sessionEmail}>登出</button>
         </div>
-        <div className="mt-4 rounded-md bg-slate-50 p-3 text-sm text-slate-600 dark:bg-slate-900 dark:text-slate-300">
-          本機請在 `.env.local` 設定 `VITE_SUPABASE_URL` 與 `VITE_SUPABASE_ANON_KEY`；Vercel 需在 Production、Preview、Development 三個環境都設定同名變數。請勿把 service role key 放到前端。
-        </div>
+        <p className="mt-4 text-sm leading-6 text-slate-500 dark:text-slate-400">
+          目前狀態：{isSupabaseConfigured ? "已設定 Supabase 前端連線。" : "尚未設定 Supabase 前端連線。"}
+        </p>
       </section>
     </div>
   );
