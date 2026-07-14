@@ -21,6 +21,7 @@ import {
   ReceiptText,
   Settings,
   ShieldCheck,
+  Sparkles,
   Table,
   Trash2,
   Upload,
@@ -107,6 +108,86 @@ const navItems: { page: Page; label: string; icon: typeof BarChart3 }[] = [
   { page: "ai", label: "AI 健檢", icon: Bot },
   { page: "settings", label: "設定", icon: Settings }
 ];
+
+const pageIntros: Record<Page, { eyebrow: string; title: string; description: string; accent: string; tint: string }> = {
+  dashboard: {
+    eyebrow: "Today at a glance",
+    title: "你的財務全景已整理好",
+    description: "快速掌握資產、負債、現金流與近期到期事項，先看方向，再處理細節。",
+    accent: "#059669",
+    tint: "#ecfdf5"
+  },
+  transactions: {
+    eyebrow: "Smart ledger",
+    title: "讓每筆收支都有清楚位置",
+    description: "分類記憶、CSV 匯入與近期交易，協助你把資料整理成可分析的帳本。",
+    accent: "#0284c7",
+    tint: "#eff6ff"
+  },
+  accounts: {
+    eyebrow: "Portfolio base",
+    title: "整理所有帳戶與可動用資金",
+    description: "從現金、活存到定存，建立你的資產底圖，後續報表才會更準。",
+    accent: "#0f766e",
+    tint: "#f0fdfa"
+  },
+  cards: {
+    eyebrow: "Debt clarity",
+    title: "信用卡、帳單與分期一次看清",
+    description: "追蹤本期帳款、未出帳、額度使用率與分期負債，降低漏繳與高使用率風險。",
+    accent: "#7c3aed",
+    tint: "#f5f3ff"
+  },
+  loans: {
+    eyebrow: "Payoff map",
+    title: "把貸款變成可規劃的路線",
+    description: "集中檢視本金、利率、期數與還款日，搭配試算器評估提前還款效果。",
+    accent: "#d97706",
+    tint: "#fffbeb"
+  },
+  deposits: {
+    eyebrow: "Savings growth",
+    title: "掌握存款到期與預估收益",
+    description: "整理活存、定存與定期儲蓄，讓資金配置更有節奏。",
+    accent: "#16a34a",
+    tint: "#f0fdf4"
+  },
+  budgets: {
+    eyebrow: "Spending rhythm",
+    title: "用預算掌握本月節奏",
+    description: "追蹤已使用、剩餘與預估月底支出，及早看見超支風險。",
+    accent: "#db2777",
+    tint: "#fdf2f8"
+  },
+  reminders: {
+    eyebrow: "Never miss a due date",
+    title: "重要扣款與帳單到期都在這裡",
+    description: "固定帳單、信用卡與貸款提醒會集中顯示，讓付款節奏更穩。",
+    accent: "#ea580c",
+    tint: "#fff7ed"
+  },
+  reports: {
+    eyebrow: "Monthly review",
+    title: "把你的總帳輸出成報表",
+    description: "查看趨勢、分類、帳戶與負債報表，並匯出 CSV、Excel 或 PDF。",
+    accent: "#4f46e5",
+    tint: "#eef2ff"
+  },
+  ai: {
+    eyebrow: "Insight mode",
+    title: "把數字轉成下一步行動",
+    description: "AI 只在你主動點擊時分析彙總資料，協助整理風險、優先順序與建議。",
+    accent: "#9333ea",
+    tint: "#faf5ff"
+  },
+  settings: {
+    eyebrow: "Control room",
+    title: "管理連線、登入與系統偏好",
+    description: "確認 Supabase、帳號角色、AI mock mode 與部署設定是否正確。",
+    accent: "#475569",
+    tint: "#f8fafc"
+  }
+};
 
 const accountTypeLabels: Record<AccountType, string> = {
   cash: "現金",
@@ -298,7 +379,7 @@ export default function App() {
     [creditCardInstallments, creditCards, loans, month, reminders]
   );
 
-  const rootClass = darkMode ? "dark min-h-screen bg-slate-950" : "min-h-screen bg-slate-50";
+  const rootClass = darkMode ? "dark min-h-screen bg-slate-950" : "min-h-screen bg-[#f6f8fb]";
 
   function notify(type: ToastType, message: string) {
     setToast({ type, message });
@@ -482,13 +563,13 @@ export default function App() {
   return (
     <div className={rootClass}>
       <div className="flex min-h-screen">
-        <aside className="hidden w-64 shrink-0 border-r border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950 lg:block">
+        <aside className="hidden w-72 shrink-0 border-r border-slate-200/80 bg-white/90 p-4 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/90 lg:block">
           <Brand />
           {currentProfile && (
-            <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-800 dark:bg-slate-900">
+            <div className="mt-4 rounded-lg border border-emerald-100 bg-emerald-50/80 p-3 text-sm dark:border-emerald-900 dark:bg-emerald-950/30">
               <p className="truncate font-semibold text-slate-950 dark:text-slate-50">{currentProfile.displayName || currentProfile.email}</p>
               <p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">{currentProfile.email}</p>
-              <Badge>{getRoleLabel(currentProfile)}</Badge>
+              <div className="mt-2"><Badge>{getRoleLabel(currentProfile)}</Badge></div>
             </div>
           )}
           <nav className="mt-6 space-y-1">
@@ -499,7 +580,7 @@ export default function App() {
         </aside>
 
         <main className="min-w-0 flex-1 pb-24 lg:pb-0">
-          <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 sm:px-6">
+          <header className="sticky top-0 z-20 border-b border-slate-200/70 bg-[#f6f8fb]/90 px-4 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-950/90 sm:px-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-medium text-brand-700 dark:text-brand-100">Asia/Taipei · TWD · YYYY/MM/DD</p>
@@ -533,7 +614,8 @@ export default function App() {
             </div>
           </header>
 
-          <div className="mx-auto max-w-7xl p-4 sm:p-6">
+          <div className="mx-auto max-w-7xl space-y-4 p-4 sm:p-6">
+            <PageExperience page={page} dashboard={dashboard} month={month} notifications={financeNotifications.length} />
             {toast && <ToastBanner toast={toast} />}
             {page === "dashboard" && (
               <DashboardPage
@@ -635,7 +717,7 @@ export default function App() {
         </main>
       </div>
 
-      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950 lg:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 lg:hidden">
         <div className="grid grid-cols-6 gap-1 px-2 py-2">
           {navItems.slice(0, 6).map((item) => (
             <MobileNavButton key={item.page} item={item} active={page === item.page} onClick={() => setPage(item.page)} />
@@ -659,7 +741,7 @@ export default function App() {
 function Brand() {
   return (
     <div className="flex items-center gap-3">
-      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-700 text-white">
+      <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-slate-950 text-white shadow-md dark:bg-white dark:text-slate-950">
         <ShieldCheck size={22} />
       </div>
       <div>
@@ -674,12 +756,16 @@ function NavButton({ item, active, onClick }: { item: (typeof navItems)[number];
   const Icon = item.icon;
   return (
     <button
-      className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm font-medium ${
-        active ? "bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-100" : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900"
+      className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition ${
+        active
+          ? "border border-emerald-100 bg-emerald-50 text-brand-700 shadow-subtle dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-brand-100"
+          : "text-slate-600 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-white"
       }`}
       onClick={onClick}
     >
-      <Icon size={18} />
+      <span className={`flex h-8 w-8 items-center justify-center rounded-md ${active ? "bg-white text-brand-700 dark:bg-slate-950 dark:text-brand-100" : "bg-slate-100 text-slate-500 dark:bg-slate-900 dark:text-slate-400"}`}>
+        <Icon size={17} />
+      </span>
       {item.label}
     </button>
   );
@@ -690,13 +776,60 @@ function MobileNavButton({ item, active, onClick }: { item: (typeof navItems)[nu
   return (
     <button
       className={`flex min-h-12 flex-col items-center justify-center gap-1 rounded-md text-[11px] font-medium ${
-        active ? "bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-100" : "text-slate-500 dark:text-slate-400"
+        active ? "bg-emerald-50 text-brand-700 dark:bg-brand-950 dark:text-brand-100" : "text-slate-500 dark:text-slate-400"
       }`}
       onClick={onClick}
     >
       <Icon size={17} />
       <span className="leading-tight">{item.label}</span>
     </button>
+  );
+}
+
+function PageExperience({
+  page,
+  dashboard,
+  month,
+  notifications
+}: {
+  page: Page;
+  dashboard: ReturnType<typeof summarizeDashboard>;
+  month: string;
+  notifications: number;
+}) {
+  const intro = pageIntros[page];
+  return (
+    <section
+      className="overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:p-5"
+      style={{
+        backgroundImage: `linear-gradient(115deg, ${intro.tint} 0%, rgba(255,255,255,0.96) 44%, rgba(255,255,255,0.98) 100%)`
+      }}
+    >
+      <div className="grid gap-4 lg:grid-cols-[1.4fr_0.9fr] lg:items-center">
+        <div>
+          <div className="inline-flex items-center gap-2 rounded-md bg-white/80 px-3 py-1 text-xs font-semibold text-slate-600 shadow-subtle dark:bg-slate-900 dark:text-slate-300">
+            <Sparkles size={14} style={{ color: intro.accent }} />
+            {intro.eyebrow}
+          </div>
+          <h2 className="mt-3 text-2xl font-bold tracking-normal text-slate-950">{intro.title}</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{intro.description}</p>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <PageMiniStat label="月份" value={month.replace("-", "/")} accent={intro.accent} />
+          <PageMiniStat label="本月結餘" value={formatCompactMoney(dashboard.monthlyBalanceCents)} accent={dashboard.monthlyBalanceCents >= 0 ? "#059669" : "#dc2626"} />
+          <PageMiniStat label="提醒" value={`${notifications}`} accent={notifications > 0 ? "#dc2626" : "#64748b"} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PageMiniStat({ label, value, accent }: { label: string; value: string; accent: string }) {
+  return (
+    <div className="rounded-md border border-white/80 bg-white/85 p-3 shadow-subtle">
+      <p className="text-xs text-slate-500">{label}</p>
+      <p className="mt-1 truncate text-lg font-bold text-slate-950" style={{ color: accent }}>{value}</p>
+    </div>
   );
 }
 
@@ -1224,14 +1357,14 @@ function DashboardPulse({
   const balanceDelta = latestBalance - priorBalance;
   const positiveBalance = dashboard.monthlyBalanceCents >= 0;
   return (
-    <section className="panel overflow-hidden">
+    <section className="overflow-hidden rounded-lg border border-slate-200 bg-slate-950 p-4 text-white shadow-lg dark:border-slate-800 sm:p-5">
       <div className="grid gap-4 lg:grid-cols-[1.25fr_1fr] lg:items-center">
         <div>
-          <p className="text-sm font-medium text-brand-700 dark:text-brand-100">財務脈搏</p>
+          <p className="text-sm font-medium text-emerald-300">財務脈搏</p>
           <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-2">
             <div>
-              <p className="text-sm text-slate-500 dark:text-slate-400">淨資產</p>
-              <p className="break-words text-4xl font-bold tracking-normal text-slate-950 dark:text-slate-50">{formatMoney(dashboard.netWorthCents)}</p>
+              <p className="text-sm text-slate-300">淨資產</p>
+              <p className="break-words text-4xl font-bold tracking-normal text-white">{formatMoney(dashboard.netWorthCents)}</p>
             </div>
             <span
               className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm font-semibold ${
@@ -1245,14 +1378,14 @@ function DashboardPulse({
             </span>
           </div>
           <div className="mt-5 grid gap-3 sm:grid-cols-3">
-            <PulseMetric label="可動用現金" value={formatMoney(dashboard.availableCashCents)} accent="border-emerald-500" />
-            <PulseMetric label="負債比" value={formatPercent(dashboard.debtRatio)} accent="border-amber-500" />
-            <PulseMetric label="預備金" value={`${dashboard.emergencyFundMonths.toFixed(1)} 個月`} accent="border-sky-500" />
+            <PulseMetric label="可動用現金" value={formatMoney(dashboard.availableCashCents)} accent="border-emerald-400" />
+            <PulseMetric label="負債比" value={formatPercent(dashboard.debtRatio)} accent="border-amber-300" />
+            <PulseMetric label="預備金" value={`${dashboard.emergencyFundMonths.toFixed(1)} 個月`} accent="border-sky-300" />
           </div>
         </div>
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/70">
+        <div className="rounded-lg border border-white/10 bg-white/10 p-3">
           <div className="flex items-center justify-between gap-3">
-            <p className="font-semibold">近月現金流</p>
+            <p className="font-semibold text-white">近月現金流</p>
             <span className={`text-sm font-semibold ${balanceDelta >= 0 ? "text-emerald-700 dark:text-emerald-100" : "text-rose-700 dark:text-rose-100"}`}>
               {balanceDelta >= 0 ? "+" : ""}{formatMoney(balanceDelta)}
             </span>
@@ -1266,9 +1399,9 @@ function DashboardPulse({
 
 function PulseMetric({ label, value, accent }: { label: string; value: string; accent: string }) {
   return (
-    <div className={`rounded-md border-l-4 ${accent} bg-slate-50 px-3 py-2 dark:bg-slate-900`}>
-      <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
-      <p className="mt-1 break-words text-lg font-bold text-slate-950 dark:text-slate-50">{value}</p>
+    <div className={`rounded-md border-l-4 ${accent} bg-white/10 px-3 py-2`}>
+      <p className="text-xs text-slate-300">{label}</p>
+      <p className="mt-1 break-words text-lg font-bold text-white">{value}</p>
     </div>
   );
 }
@@ -1276,7 +1409,7 @@ function PulseMetric({ label, value, accent }: { label: string; value: string; a
 function StatCard({ label, value }: { label: string; value: string }) {
   const theme = getStatTheme(label);
   return (
-    <div className={`panel min-h-24 border-l-4 ${theme.border}`}>
+    <div className={`panel min-h-24 border-l-4 ${theme.border} bg-white/95`}>
       <div className="flex items-start justify-between gap-3">
         <p className="text-sm text-slate-500 dark:text-slate-400">{label}</p>
         <span className={`h-2.5 w-2.5 rounded-full ${theme.dot}`} />
@@ -2748,8 +2881,13 @@ function getRoleLabel(profile: UserProfile) {
 
 function EmptyState({ label }: { label: string }) {
   return (
-    <div className="panel flex min-h-36 items-center justify-center text-center text-sm text-slate-500 dark:text-slate-400">
-      {label}
+    <div className="flex min-h-36 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white/70 p-5 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-400">
+      <div>
+        <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300">
+          <Sparkles size={18} />
+        </div>
+        {label}
+      </div>
     </div>
   );
 }
