@@ -1861,6 +1861,60 @@ function StackedDistribution({ data, total }: { data: { category: string; amount
   );
 }
 
+function CompactDistributionList({
+  data,
+  total,
+  inverse = false
+}: {
+  data: { category: string; amountCents: number }[];
+  total: number;
+  inverse?: boolean;
+}) {
+  const filtered = data.filter((item) => item.amountCents > 0);
+  if (filtered.length === 0 || total <= 0) return <p className={`text-sm ${inverse ? "text-slate-300" : "text-slate-500 dark:text-slate-400"}`}>尚無分布資料</p>;
+  return (
+    <div className="space-y-2">
+      {filtered.map((item, index) => (
+        <div key={item.category} className={`flex items-center justify-between gap-3 text-sm ${inverse ? "text-slate-200" : "text-slate-600 dark:text-slate-300"}`}>
+          <span className="min-w-0 truncate">
+            <span className="mr-2 inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: getChartColor(index) }} />
+            {item.category}
+          </span>
+          <span className="shrink-0 font-semibold">{formatPercent(item.amountCents / total)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DepositMaturityBars({ data, total }: { data: { month: string; amountCents: number }[]; total: number }) {
+  const filtered = data.filter((item) => item.amountCents > 0);
+  if (filtered.length === 0) return <EmptyState label="尚無存款到期資料" />;
+  const max = Math.max(...filtered.map((item) => item.amountCents), 1);
+  return (
+    <div className="mt-4 space-y-4">
+      <StackedDistribution data={filtered.map((item) => ({ category: item.month, amountCents: item.amountCents }))} total={total} />
+      <div className="grid gap-3 md:grid-cols-2">
+        {filtered.map((item, index) => (
+          <div key={item.month}>
+            <div className="mb-1 flex justify-between gap-3 text-sm">
+              <span className="flex items-center gap-2">
+                <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: getChartColor(index) }} />
+                {item.month}
+              </span>
+              <span className="shrink-0 font-semibold">{formatMoney(item.amountCents)}</span>
+            </div>
+            <div className="h-3 rounded-full bg-slate-200 dark:bg-slate-800">
+              <div className="h-3 rounded-full" style={{ width: `${Math.max(4, (item.amountCents / max) * 100)}%`, backgroundColor: getChartColor(index) }} />
+            </div>
+            <p className="mt-1 text-xs text-slate-500">{formatPercent(item.amountCents / Math.max(total, 1))}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function DonutChart({
   segments,
   centerLabel,
@@ -2120,39 +2174,116 @@ function TransactionsPage({
 }
 
 function AccountsPage({ accounts, onAdd }: { accounts: FinancialAccount[]; onAdd: (formData: FormData) => void }) {
+  const activeAccounts = accounts.filter((account) => account.isActive);
+  const totalBalanceCents = activeAccounts.reduce((sum, account) => sum + account.balanceCents, 0);
+  const availableCashCents = activeAccounts
+    .filter((account) => account.includeInAvailableCash)
+    .reduce((sum, account) => sum + account.balanceCents, 0);
+  const emergencyFundCents = activeAccounts
+    .filter((account) => account.includeInEmergencyFund)
+    .reduce((sum, account) => sum + account.balanceCents, 0);
+  const timeDepositBalanceCents = activeAccounts
+    .filter((account) => account.type === "time_deposit")
+    .reduce((sum, account) => sum + account.balanceCents, 0);
+  const accountTypeBreakdown = Object.entries(
+    activeAccounts.reduce<Record<string, number>>((acc, account) => {
+      acc[accountTypeLabels[account.type]] = (acc[accountTypeLabels[account.type]] ?? 0) + account.balanceCents;
+      return acc;
+    }, {})
+  )
+    .map(([category, amountCents]) => ({ category, amountCents }))
+    .sort((a, b) => b.amountCents - a.amountCents);
+  const accountSegments = accountTypeBreakdown.map((item, index) => ({
+    label: item.category,
+    value: item.amountCents,
+    color: getChartColor(index)
+  }));
+
   return (
-    <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
-      <section className="panel">
-        <h2 className="text-lg font-semibold">新增帳戶</h2>
-        <form className="mt-4 space-y-3" onSubmit={handleFormSubmit(onAdd)}>
-          <Field label="帳戶名稱"><input className="input" name="name" required /></Field>
-          <Field label="帳戶類型">
-            <select className="input" name="type">{Object.entries(accountTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
-          </Field>
-          <Field label="金融機構"><input className="input" name="institution" /></Field>
-          <Field label="目前餘額"><input className="input" name="balance" inputMode="decimal" required /></Field>
-          <label className="flex items-center gap-2 text-sm"><input name="available" type="checkbox" defaultChecked /> 列入可動用現金</label>
-          <label className="flex items-center gap-2 text-sm"><input name="emergency" type="checkbox" defaultChecked /> 列入緊急預備金</label>
-          <Field label="備註"><textarea className="input" name="note" rows={2} /></Field>
-          <button className="btn-primary w-full" type="submit"><Plus size={16} />新增帳戶</button>
-        </form>
-      </section>
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {accounts.map((account) => (
-          <div key={account.id} className="panel">
-            <div className="flex items-center justify-between">
-              <p className="font-semibold">{account.name}</p>
-              <span className="text-xs text-slate-500">{account.isActive ? "啟用" : "停用"}</span>
+    <div className="space-y-4">
+      <section className="overflow-hidden rounded-xl border border-emerald-200 bg-gradient-to-br from-slate-950 via-emerald-950 to-sky-950 p-5 text-white shadow-card dark:border-emerald-900">
+        <div className="grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">
+          <div>
+            <div className="flex items-center gap-2 text-sm font-semibold text-emerald-200">
+              <WalletCards size={18} />
+              帳戶總覽
             </div>
-            <p className="mt-1 text-sm text-slate-500">{accountTypeLabels[account.type]} · {account.institution}</p>
-            <p className="mt-4 text-2xl font-bold">{formatMoney(account.balanceCents)}</p>
-            <div className="mt-3 flex flex-wrap gap-2 text-xs">
-              {account.includeInAvailableCash && <Badge>可動用</Badge>}
-              {account.includeInEmergencyFund && <Badge>預備金</Badge>}
+            <p className="mt-3 text-sm text-slate-300">所有啟用帳戶目前餘額</p>
+            <p className="mt-1 break-words text-4xl font-bold tracking-normal">{formatMoney(totalBalanceCents)}</p>
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              <PulseMetric label="可動用現金" value={formatMoney(availableCashCents)} accent="border-emerald-300" />
+              <PulseMetric label="緊急預備金" value={formatMoney(emergencyFundCents)} accent="border-sky-300" />
+              <PulseMetric label="定存帳戶餘額" value={formatMoney(timeDepositBalanceCents)} accent="border-amber-300" />
             </div>
           </div>
-        ))}
+          <div className="rounded-lg border border-white/10 bg-white/10 p-4">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+              {accountSegments.length > 0 ? (
+                <DonutChart segments={accountSegments} centerLabel="總資產" centerValue={formatCompactMoney(totalBalanceCents)} />
+              ) : (
+                <div className="flex h-40 w-40 shrink-0 items-center justify-center rounded-full border border-white/15 text-sm text-slate-300">尚無資料</div>
+              )}
+              <div className="flex-1 space-y-3 text-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-slate-300">啟用帳戶</span>
+                  <span className="font-semibold text-white">{activeAccounts.length} 個</span>
+                </div>
+                <StackedDistribution data={accountTypeBreakdown} total={totalBalanceCents} />
+                <CompactDistributionList data={accountTypeBreakdown.slice(0, 4)} total={totalBalanceCents} inverse />
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
+
+      <div className="grid gap-4 lg:grid-cols-4">
+        <StatCard label="目前總資產" value={formatMoney(totalBalanceCents)} />
+        <StatCard label="可動用現金" value={formatMoney(availableCashCents)} />
+        <StatCard label="緊急預備金" value={formatMoney(emergencyFundCents)} />
+        <StatCard label="帳戶數量" value={`${activeAccounts.length} 個`} />
+      </div>
+
+      <section className="panel">
+        <div className="flex items-center gap-2">
+          <BarChart3 size={18} />
+          <h2 className="text-lg font-semibold">帳戶餘額排行</h2>
+        </div>
+        <AccountBalanceChart accounts={activeAccounts} />
+      </section>
+
+      <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
+        <section className="panel">
+          <h2 className="text-lg font-semibold">新增帳戶</h2>
+          <form className="mt-4 space-y-3" onSubmit={handleFormSubmit(onAdd)}>
+            <Field label="帳戶名稱"><input className="input" name="name" required /></Field>
+            <Field label="帳戶類型">
+              <select className="input" name="type">{Object.entries(accountTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+            </Field>
+            <Field label="金融機構"><input className="input" name="institution" /></Field>
+            <Field label="目前餘額"><input className="input" name="balance" inputMode="decimal" required /></Field>
+            <label className="flex items-center gap-2 text-sm"><input name="available" type="checkbox" defaultChecked /> 列入可動用現金</label>
+            <label className="flex items-center gap-2 text-sm"><input name="emergency" type="checkbox" defaultChecked /> 列入緊急預備金</label>
+            <Field label="備註"><textarea className="input" name="note" rows={2} /></Field>
+            <button className="btn-primary w-full" type="submit"><Plus size={16} />新增帳戶</button>
+          </form>
+        </section>
+        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {accounts.map((account) => (
+            <div key={account.id} className="panel">
+              <div className="flex items-center justify-between">
+                <p className="font-semibold">{account.name}</p>
+                <span className="text-xs text-slate-500">{account.isActive ? "啟用" : "停用"}</span>
+              </div>
+              <p className="mt-1 text-sm text-slate-500">{accountTypeLabels[account.type]} · {account.institution}</p>
+              <p className="mt-4 text-2xl font-bold">{formatMoney(account.balanceCents)}</p>
+              <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                {account.includeInAvailableCash && <Badge>可動用</Badge>}
+                {account.includeInEmergencyFund && <Badge>預備金</Badge>}
+              </div>
+            </div>
+          ))}
+        </section>
+      </div>
     </div>
   );
 }
@@ -2465,6 +2596,31 @@ function DepositsPage({
     taxRate: 0
   });
   const result = calculateDeposit(calcInput);
+  const activeDeposits = deposits.filter((deposit) => deposit.isActive);
+  const depositPrincipalCents = activeDeposits.reduce((sum, deposit) => sum + deposit.principalCents, 0);
+  const depositInterestCents = activeDeposits.reduce((sum, deposit) => sum + deposit.estimatedInterestCents, 0);
+  const depositMaturityAmountCents = activeDeposits.reduce((sum, deposit) => sum + deposit.estimatedMaturityAmountCents, 0);
+  const availableDepositCents = activeDeposits
+    .filter((deposit) => deposit.includeInAvailableCash)
+    .reduce((sum, deposit) => sum + deposit.estimatedMaturityAmountCents, 0);
+  const weightedAnnualRate = depositPrincipalCents > 0
+    ? activeDeposits.reduce((sum, deposit) => sum + deposit.principalCents * deposit.annualRate, 0) / depositPrincipalCents
+    : 0;
+  const upcomingDeposit = [...activeDeposits].sort((a, b) => a.maturityDate.localeCompare(b.maturityDate))[0];
+  const depositSegments = [
+    { label: "本金", value: depositPrincipalCents, color: "#059669" },
+    { label: "預估利息", value: depositInterestCents, color: "#f59e0b" }
+  ];
+  const maturityBuckets = Object.entries(
+    activeDeposits.reduce<Record<string, number>>((acc, deposit) => {
+      const label = deposit.maturityDate.slice(0, 7).replace("-", "/");
+      acc[label] = (acc[label] ?? 0) + deposit.estimatedMaturityAmountCents;
+      return acc;
+    }, {})
+  )
+    .map(([month, amountCents]) => ({ month, amountCents }))
+    .sort((a, b) => a.month.localeCompare(b.month))
+    .slice(0, 8);
 
   function addDeposit(formData: FormData) {
     const principal = parseMoneyToCents(String(formData.get("principal") ?? ""));
@@ -2505,6 +2661,66 @@ function DepositsPage({
 
   return (
     <div className="space-y-4">
+      <section className="overflow-hidden rounded-xl border border-sky-200 bg-gradient-to-br from-slate-950 via-sky-950 to-emerald-950 p-5 text-white shadow-card dark:border-sky-900">
+        <div className="grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">
+          <div>
+            <div className="flex items-center gap-2 text-sm font-semibold text-sky-200">
+              <PiggyBank size={18} />
+              存款總覽
+            </div>
+            <p className="mt-3 text-sm text-slate-300">定存與儲蓄型存款預估到期總額</p>
+            <p className="mt-1 break-words text-4xl font-bold tracking-normal">{formatMoney(depositMaturityAmountCents)}</p>
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              <PulseMetric label="存款本金" value={formatMoney(depositPrincipalCents)} accent="border-emerald-300" />
+              <PulseMetric label="預估利息" value={formatMoney(depositInterestCents)} accent="border-amber-300" />
+              <PulseMetric label="平均年利率" value={formatPercent(weightedAnnualRate)} accent="border-sky-300" />
+            </div>
+          </div>
+          <div className="rounded-lg border border-white/10 bg-white/10 p-4">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+              {depositMaturityAmountCents > 0 ? (
+                <DonutChart segments={depositSegments} centerLabel="到期" centerValue={formatCompactMoney(depositMaturityAmountCents)} />
+              ) : (
+                <div className="flex h-40 w-40 shrink-0 items-center justify-center rounded-full border border-white/15 text-sm text-slate-300">尚無資料</div>
+              )}
+              <div className="flex-1 space-y-3 text-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-slate-300">最近到期</span>
+                  <span className="font-semibold text-white">{upcomingDeposit ? formatDate(upcomingDeposit.maturityDate) : "尚無資料"}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-slate-300">列入可動用</span>
+                  <span className="font-semibold text-white">{formatMoney(availableDepositCents)}</span>
+                </div>
+                <StackedDistribution data={[
+                  { category: "本金", amountCents: depositPrincipalCents },
+                  { category: "預估利息", amountCents: depositInterestCents }
+                ]} total={depositMaturityAmountCents} />
+                <CompactDistributionList data={[
+                  { category: "本金", amountCents: depositPrincipalCents },
+                  { category: "預估利息", amountCents: depositInterestCents }
+                ]} total={depositMaturityAmountCents} inverse />
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div className="grid gap-4 lg:grid-cols-4">
+        <StatCard label="定期存款總額" value={formatMoney(depositPrincipalCents)} />
+        <StatCard label="預估總利息" value={formatMoney(depositInterestCents)} />
+        <StatCard label="預估到期金額" value={formatMoney(depositMaturityAmountCents)} />
+        <StatCard label="存款筆數" value={`${activeDeposits.length} 筆`} />
+      </div>
+
+      <section className="panel">
+        <div className="flex items-center gap-2">
+          <CalendarClock size={18} />
+          <h2 className="text-lg font-semibold">到期月份分布</h2>
+        </div>
+        <DepositMaturityBars data={maturityBuckets} total={depositMaturityAmountCents} />
+      </section>
+
       <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
         <section className="panel">
           <h2 className="text-lg font-semibold">新增定期存款</h2>
