@@ -776,16 +776,16 @@ function AuthPage({
             <Brand />
             <div className="mt-8 space-y-4">
               <div>
-                <p className="text-sm font-medium text-brand-700 dark:text-brand-100">安全登入</p>
-                <h1 className="mt-2 text-3xl font-bold tracking-normal text-slate-950 dark:text-slate-50">管理你的個人財務資料</h1>
+                <p className="text-sm font-medium text-brand-700 dark:text-brand-100">Ez2SaveMore 個人財務中樞</p>
+                <h1 className="mt-2 text-3xl font-bold tracking-normal text-slate-950 dark:text-slate-50">把收入、支出、信用卡與貸款整理成清楚決策</h1>
               </div>
               <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">
-                使用 Supabase Auth 驗證信件與密碼登入。所有理財資料仍由 RLS 依使用者隔離，管理員權限只透過資料庫 profile role 管理。
+                專為台灣使用情境設計，預設新台幣、繁體中文與月度檢視。從日常記帳到負債整理，讓每一筆錢都有位置，每一個到期日都有提醒。
               </p>
               <div className="grid gap-2 text-sm">
-                <Info label="預設最高管理員" value="irrvyh4815@gmail.com" />
-                <Info label="資料保護" value="不儲存完整卡號、CVV 或網銀憑證" />
-                <Info label="登入方式" value="密碼登入、註冊認證信、Magic Link" />
+                <Info label="總帳總覽" value="資產、負債、淨資產與現金流一次看懂" />
+                <Info label="負債管理" value="信用卡帳單、分期款項與貸款還款集中追蹤" />
+                <Info label="報表輸出" value="支援 CSV、Excel 與 PDF 財務報表" />
               </div>
             </div>
           </div>
@@ -2576,7 +2576,7 @@ function SettingsPage({
           <Info label="登入狀態" value={sessionEmail ?? "尚未登入"} />
           <Info label="帳號角色" value={profile ? getRoleLabel(profile) : "尚未建立 profile"} />
           <Info label="AI" value="預設 mock mode；API Key 僅允許後端環境變數" />
-          <Info label="敏感資料" value="不儲存完整卡號、CVV、網銀密碼；財務資料不寫入 localStorage" />
+          <Info label="資料儲存" value="登入後透過 Supabase 儲存並讀取你的個人理財資料" />
           <Info label="CSV 限制" value="512KB、500 筆、先預覽再匯入" />
         </div>
       </section>
