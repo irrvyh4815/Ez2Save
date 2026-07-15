@@ -109,8 +109,19 @@ type LedgerBook = {
   purpose: "personal" | "family" | "business" | "investment" | "custom";
   color: "emerald" | "sky" | "violet" | "amber" | "rose";
   note: string;
+  isShared: boolean;
   createdAt: string;
   updatedAt: string;
+};
+
+type LedgerInvitation = {
+  id: string;
+  ledgerId: string;
+  target: string;
+  method: "email" | "member_code";
+  role: "viewer" | "editor" | "admin";
+  status: "pending" | "accepted" | "revoked";
+  createdAt: string;
 };
 
 type InsurancePolicy = {
@@ -395,6 +406,7 @@ const defaultLedgerBooks: LedgerBook[] = [
     purpose: "personal",
     color: "emerald",
     note: "日常理財、保險、投資與現金流",
+    isShared: false,
     createdAt: "2026-07-15T00:00:00.000Z",
     updatedAt: "2026-07-15T00:00:00.000Z"
   },
@@ -405,6 +417,7 @@ const defaultLedgerBooks: LedgerBook[] = [
     purpose: "family",
     color: "sky",
     note: "家庭開支、保單與共同帳戶規劃",
+    isShared: true,
     createdAt: "2026-07-15T00:00:00.000Z",
     updatedAt: "2026-07-15T00:00:00.000Z"
   },
@@ -415,6 +428,7 @@ const defaultLedgerBooks: LedgerBook[] = [
     purpose: "investment",
     color: "violet",
     note: "股票、基金與長期配置分類",
+    isShared: false,
     createdAt: "2026-07-15T00:00:00.000Z",
     updatedAt: "2026-07-15T00:00:00.000Z"
   }
@@ -423,6 +437,7 @@ const defaultLedgerBooks: LedgerBook[] = [
 export default function App() {
   const [activeLedgerId, setActiveLedgerId] = useState<string | null>(null);
   const [ledgerBooks, setLedgerBooks] = useState<LedgerBook[]>(defaultLedgerBooks);
+  const [ledgerInvitations, setLedgerInvitations] = useState<LedgerInvitation[]>([]);
   const [ledgerSnapshots, setLedgerSnapshots] = useState<Record<string, FinanceSnapshot>>({});
   const [ledgerTransitioning, setLedgerTransitioning] = useState(false);
   const [page, setPage] = useState<Page>("dashboard");
@@ -681,6 +696,7 @@ export default function App() {
       purpose: String(formData.get("purpose") ?? "custom") as LedgerBook["purpose"],
       color: String(formData.get("color") ?? "emerald") as LedgerBook["color"],
       note: String(formData.get("note") ?? ""),
+      isShared: formData.get("isShared") === "on",
       createdAt: now,
       updatedAt: now
     };
@@ -695,6 +711,75 @@ export default function App() {
     setPage("dashboard");
     startLedgerTransition();
     notify("success", "帳本已建立");
+  }
+
+  function updateLedger(ledgerId: string, formData: FormData) {
+    const name = String(formData.get("name") ?? "").trim();
+    if (!name) return notify("error", "請輸入帳本名稱");
+    setLedgerBooks((current) =>
+      current.map((ledger) =>
+        ledger.id === ledgerId
+          ? {
+              ...ledger,
+              name,
+              owner: String(formData.get("owner") ?? "自己"),
+              purpose: String(formData.get("purpose") ?? "custom") as LedgerBook["purpose"],
+              color: String(formData.get("color") ?? "emerald") as LedgerBook["color"],
+              note: String(formData.get("note") ?? ""),
+              updatedAt: new Date().toISOString()
+            }
+          : ledger
+      )
+    );
+    notify("success", "帳本已更新");
+  }
+
+  function deleteLedger(ledgerId: string) {
+    if (ledgerBooks.length <= 1) return notify("error", "至少需要保留一本帳本");
+    const ledger = ledgerBooks.find((candidate) => candidate.id === ledgerId);
+    if (!window.confirm(`確定刪除「${ledger?.name ?? "此帳本"}」？此操作只會移除目前前端帳本與其快照。`)) return;
+    setLedgerBooks((current) => current.filter((candidate) => candidate.id !== ledgerId));
+    setLedgerSnapshots((current) => {
+      const next = { ...current };
+      delete next[ledgerId];
+      return next;
+    });
+    setLedgerInvitations((current) => current.filter((invite) => invite.ledgerId !== ledgerId));
+    if (activeLedgerId === ledgerId) {
+      setActiveLedgerId(null);
+    }
+    notify("success", "帳本已刪除");
+  }
+
+  function toggleLedgerSharing(ledgerId: string, enabled: boolean) {
+    setLedgerBooks((current) =>
+      current.map((ledger) => ledger.id === ledgerId ? { ...ledger, isShared: enabled, updatedAt: new Date().toISOString() } : ledger)
+    );
+    if (!enabled) {
+      setLedgerInvitations((current) => current.map((invite) => invite.ledgerId === ledgerId && invite.status === "pending" ? { ...invite, status: "revoked" } : invite));
+    }
+    notify("success", enabled ? "帳本共用已開啟" : "帳本共用已關閉，待接受邀請已撤銷");
+  }
+
+  function inviteLedgerMember(ledgerId: string, formData: FormData) {
+    const ledger = ledgerBooks.find((candidate) => candidate.id === ledgerId);
+    if (!ledger?.isShared) return notify("error", "請先開啟帳本共用功能");
+    const method = String(formData.get("method") ?? "email") as LedgerInvitation["method"];
+    const target = String(formData.get("target") ?? "").trim();
+    if (!target) return notify("error", "請輸入會員編號或電子信箱");
+    if (method === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(target)) return notify("error", "電子信箱格式不正確");
+    if (method === "member_code" && !/^M[0-9A-Z]{6,16}$/i.test(target)) return notify("error", "會員編號格式需為 M 開頭的 6-16 碼英數字");
+    const invite: LedgerInvitation = {
+      id: crypto.randomUUID(),
+      ledgerId,
+      target: method === "email" ? target.toLowerCase() : target.toUpperCase(),
+      method,
+      role: String(formData.get("role") ?? "viewer") as LedgerInvitation["role"],
+      status: "pending",
+      createdAt: new Date().toISOString()
+    };
+    setLedgerInvitations((current) => [invite, ...current]);
+    notify("success", "邀請已建立");
   }
 
   function returnToLedgerHome() {
@@ -927,6 +1012,7 @@ export default function App() {
         {ledgerTransitioning && <TransitionOverlay label="切換帳本中" />}
         <LedgerHomePage
           ledgerBooks={ledgerBooks}
+          invitations={ledgerInvitations}
           snapshots={{ ...ledgerSnapshots, personal: ledgerSnapshots.personal ?? captureCurrentSnapshot() }}
           month={month}
           sessionEmail={sessionEmail}
@@ -935,6 +1021,10 @@ export default function App() {
           onToggleDarkMode={() => setDarkMode((value) => !value)}
           onOpenLedger={openLedger}
           onCreateLedger={createLedger}
+          onUpdateLedger={updateLedger}
+          onDeleteLedger={deleteLedger}
+          onToggleSharing={toggleLedgerSharing}
+          onInviteMember={inviteLedgerMember}
         />
         {toast && <div className="fixed right-4 top-4 z-50 max-w-sm"><ToastBanner toast={toast} /></div>}
       </div>
@@ -1157,6 +1247,7 @@ export default function App() {
 
 function LedgerHomePage({
   ledgerBooks,
+  invitations,
   snapshots,
   month,
   sessionEmail,
@@ -1164,9 +1255,14 @@ function LedgerHomePage({
   darkMode,
   onToggleDarkMode,
   onOpenLedger,
-  onCreateLedger
+  onCreateLedger,
+  onUpdateLedger,
+  onDeleteLedger,
+  onToggleSharing,
+  onInviteMember
 }: {
   ledgerBooks: LedgerBook[];
+  invitations: LedgerInvitation[];
   snapshots: Record<string, FinanceSnapshot>;
   month: string;
   sessionEmail: string | null;
@@ -1175,6 +1271,10 @@ function LedgerHomePage({
   onToggleDarkMode: () => void;
   onOpenLedger: (ledgerId: string) => void;
   onCreateLedger: (formData: FormData) => void;
+  onUpdateLedger: (ledgerId: string, formData: FormData) => void;
+  onDeleteLedger: (ledgerId: string) => void;
+  onToggleSharing: (ledgerId: string, enabled: boolean) => void;
+  onInviteMember: (ledgerId: string, formData: FormData) => void;
 }) {
   const summaryFor = (ledgerId: string) => {
     const snapshot = snapshots[ledgerId] ?? {
@@ -1204,6 +1304,7 @@ function LedgerHomePage({
     (sum, ledger) => sum + summaryFor(ledger.id).snapshot.insurancePolicies.reduce((policySum, policy) => policySum + policy.coverageAmountCents, 0),
     0
   );
+  const memberCode = profile ? formatMemberCode(profile.userId) : null;
 
   return (
     <main className="min-h-screen overflow-hidden p-4 sm:p-6">
@@ -1212,6 +1313,7 @@ function LedgerHomePage({
           <Brand />
           <div className="flex items-center gap-2">
             {profile && <Badge>{getRoleLabel(profile)}</Badge>}
+            {memberCode && <span className="hidden rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-800 shadow-subtle dark:border-sky-900 dark:bg-sky-950 dark:text-sky-100 sm:inline-flex">會員編號 {memberCode}</span>}
             {sessionEmail && <span className="hidden rounded-md border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-600 shadow-subtle dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 sm:inline-flex">{sessionEmail}</span>}
             <button className="btn-secondary h-10 w-10 px-0" title="切換深色模式" onClick={onToggleDarkMode}>
               <Moon size={18} />
@@ -1257,6 +1359,10 @@ function LedgerHomePage({
                   </select>
                 </Field>
                 <Field label="備註"><input className="input" name="note" placeholder="用途或管理範圍" /></Field>
+                <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/10 p-3 text-sm text-white">
+                  <input name="isShared" type="checkbox" />
+                  開啟共用，可邀請其他會員
+                </label>
                 <button className="btn-primary w-full" type="submit">建立並進入</button>
               </div>
             </form>
@@ -1267,11 +1373,11 @@ function LedgerHomePage({
           {ledgerBooks.map((ledger) => {
             const { snapshot, dashboard } = summaryFor(ledger.id);
             const tone = ledger.color;
+            const ledgerInvites = invitations.filter((invite) => invite.ledgerId === ledger.id);
             return (
-              <button
+              <div
                 key={ledger.id}
-                className="ledger-card group rounded-xl border border-slate-200 bg-white/95 p-4 text-left shadow-subtle transition hover:-translate-y-1 hover:shadow-card dark:border-slate-800 dark:bg-slate-950"
-                onClick={() => onOpenLedger(ledger.id)}
+                className="ledger-card rounded-xl border border-slate-200 bg-white/95 p-4 shadow-subtle transition hover:-translate-y-1 hover:shadow-card dark:border-slate-800 dark:bg-slate-950"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -1291,11 +1397,84 @@ function LedgerHomePage({
                   <Info label="帳戶" value={`${snapshot.accounts.length} 個`} />
                   <Info label="保單" value={`${snapshot.insurancePolicies.length} 張`} />
                 </div>
-                <div className="mt-4 flex items-center justify-between text-sm font-semibold text-brand-700 dark:text-brand-100">
-                  進入帳本
-                  <ArrowUpRight size={16} className="transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button className="btn-primary flex-1" onClick={() => onOpenLedger(ledger.id)}>
+                    進入帳本
+                    <ArrowUpRight size={16} />
+                  </button>
+                  <button className="btn-danger" onClick={() => onDeleteLedger(ledger.id)}>
+                    <Trash2 size={16} />
+                    刪除
+                  </button>
                 </div>
-              </button>
+                <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-800 dark:bg-slate-900/60">
+                  <label className="flex items-center justify-between gap-3 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                    <span>共用帳本</span>
+                    <input type="checkbox" checked={ledger.isShared} onChange={(event) => onToggleSharing(ledger.id, event.target.checked)} />
+                  </label>
+                  <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">開啟後可用會員編號或 Email 邀請其他人。實際雲端權限會由 Supabase RLS 的 ledger_members 控制。</p>
+                </div>
+                <details className="mt-3 rounded-lg border border-slate-200 bg-white/70 p-3 dark:border-slate-800 dark:bg-slate-950/70">
+                  <summary className="cursor-pointer text-sm font-semibold text-slate-700 dark:text-slate-200">編輯帳本</summary>
+                  <form className="mt-3 space-y-3" onSubmit={handleFormSubmit((formData) => onUpdateLedger(ledger.id, formData))}>
+                    <Field label="帳本名稱"><input className="input" name="name" defaultValue={ledger.name} required /></Field>
+                    <Field label="擁有者"><input className="input" name="owner" defaultValue={ledger.owner} /></Field>
+                    <Field label="帳本類型">
+                      <select className="input" name="purpose" defaultValue={ledger.purpose}>
+                        {Object.entries(ledgerPurposeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="主題色">
+                      <select className="input" name="color" defaultValue={ledger.color}>
+                        <option value="emerald">綠色</option>
+                        <option value="sky">藍色</option>
+                        <option value="violet">紫色</option>
+                        <option value="amber">金色</option>
+                        <option value="rose">紅色</option>
+                      </select>
+                    </Field>
+                    <Field label="備註"><input className="input" name="note" defaultValue={ledger.note} /></Field>
+                    <button className="btn-secondary w-full" type="submit">儲存帳本設定</button>
+                  </form>
+                </details>
+                {ledger.isShared && (
+                  <details className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 dark:border-emerald-900 dark:bg-emerald-950/30">
+                    <summary className="cursor-pointer text-sm font-semibold text-emerald-800 dark:text-emerald-100">邀請與共用權限</summary>
+                    <form className="mt-3 space-y-3" onSubmit={handleFormSubmit((formData) => onInviteMember(ledger.id, formData))}>
+                      <Field label="邀請方式">
+                        <select className="input" name="method" defaultValue="email">
+                          <option value="email">電子信箱</option>
+                          <option value="member_code">會員編號</option>
+                        </select>
+                      </Field>
+                      <Field label="會員編號或 Email"><input className="input" name="target" placeholder="member@example.com 或 M123456" required /></Field>
+                      <Field label="權限">
+                        <select className="input" name="role" defaultValue="viewer">
+                          <option value="viewer">檢視者</option>
+                          <option value="editor">可編輯</option>
+                          <option value="admin">管理員</option>
+                        </select>
+                      </Field>
+                      <button className="btn-primary w-full" type="submit">建立邀請</button>
+                    </form>
+                    <div className="mt-3 space-y-2">
+                      {ledgerInvites.length === 0 ? (
+                        <p className="text-xs text-slate-500 dark:text-slate-400">尚無邀請紀錄</p>
+                      ) : (
+                        ledgerInvites.slice(0, 4).map((invite) => (
+                          <div key={invite.id} className="rounded-md bg-white/80 p-2 text-xs text-slate-600 dark:bg-slate-950 dark:text-slate-300">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="truncate">{invite.target}</span>
+                              <Badge>{invite.status === "pending" ? "待接受" : invite.status === "accepted" ? "已接受" : "已撤銷"}</Badge>
+                            </div>
+                            <p className="mt-1">{invite.method === "email" ? "Email" : "會員編號"} · {invite.role}</p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </details>
+                )}
+              </div>
             );
           })}
         </section>
@@ -4594,6 +4773,10 @@ function getRoleLabel(profile: UserProfile) {
   if (profile.isSuperAdmin || profile.role === "super_admin") return "最高管理員";
   if (profile.role === "admin") return "管理員";
   return "一般使用者";
+}
+
+function formatMemberCode(userId: string) {
+  return `M${userId.replace(/-/g, "").slice(0, 10).toUpperCase()}`;
 }
 
 function EmptyState({ label }: { label: string }) {

@@ -16,6 +16,9 @@
 ## Tables
 
 - `profiles`
+- `ledger_books`
+- `ledger_members`
+- `ledger_invitations`
 - `financial_accounts`
 - `transaction_categories`
 - `transactions`
@@ -27,6 +30,7 @@
 - `credit_card_installments`
 - `credit_card_payments`
 - `deposits`
+- `insurance_policies`
 - `budgets`
 - `financial_reminders`
 - `monthly_financial_summaries`
@@ -36,13 +40,30 @@
 
 ## RLS
 
-所有個人資料表都啟用 RLS：
+所有個人資料表都啟用 RLS。第一版以 `user_id` 隔離：
 
 ```sql
 auth.uid() = user_id
 ```
 
-使用者只能讀寫自己的資料。前端查詢條件只能作為效能最佳化，不能作為權限邊界。
+帳本共用版改以 `ledger_id` 與 `ledger_members` 作為主要權限邊界：
+
+```sql
+public.can_read_ledger(ledger_id)
+public.can_write_ledger(ledger_id)
+public.can_admin_ledger(ledger_id)
+```
+
+使用者必須是帳本成員才可讀取資料；可寫入角色限制為 `owner`、`admin`、`editor`。前端查詢條件只能作為效能最佳化，不能作為權限邊界。
+
+Apply `supabase/migrations/202607150004_ledgers_sharing_insurance_security.sql` to enable:
+
+- `profiles.member_code`
+- ledger books and memberships
+- ledger invitations by email or member code
+- insurance policies
+- ledger-aware RLS policies for personal finance tables
+- default ledger assignment for existing data
 
 ## Auth Profiles And Roles
 
