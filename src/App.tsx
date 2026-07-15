@@ -1304,6 +1304,17 @@ function LedgerHomePage({
     (sum, ledger) => sum + summaryFor(ledger.id).snapshot.insurancePolicies.reduce((policySum, policy) => policySum + policy.coverageAmountCents, 0),
     0
   );
+  const ledgerChartRows = ledgerBooks.map((ledger) => {
+    const { snapshot, dashboard } = summaryFor(ledger.id);
+    return {
+      id: ledger.id,
+      name: ledger.name,
+      color: ledger.color,
+      netWorthCents: Math.max(0, dashboard.netWorthCents),
+      expenseCents: dashboard.monthlyExpenseCents,
+      coverageCents: snapshot.insurancePolicies.reduce((sum, policy) => sum + policy.coverageAmountCents, 0)
+    };
+  });
   const memberCode = profile ? formatMemberCode(profile.userId) : null;
 
   return (
@@ -1335,14 +1346,17 @@ function LedgerHomePage({
                 <LedgerHomeMetric label="合計淨資產" value={formatMoney(totalNetWorthCents)} accent="bg-sky-500" />
                 <LedgerHomeMetric label="合計保障額" value={formatMoney(totalInsuranceCoverageCents)} accent="bg-violet-500" />
               </div>
-              <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-900/50">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">共用與資安</p>
-                    <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">共用帳本會以會員身分與 RLS 權限控管；未加入帳本的人不應取得資料。</p>
-                  </div>
-                  {memberCode && <span className="rounded-md border border-sky-200 bg-white px-3 py-2 text-sm font-semibold text-sky-800 dark:border-sky-900 dark:bg-slate-950 dark:text-sky-100">會員編號 {memberCode}</span>}
+              <div className="mt-5 grid gap-3 xl:grid-cols-3">
+                <LedgerSummaryChart title="淨資產分布" rows={ledgerChartRows.map((row) => ({ label: row.name, amountCents: row.netWorthCents, color: row.color }))} emptyLabel="尚無帳本資產資料" />
+                <LedgerSummaryChart title="本月支出" rows={ledgerChartRows.map((row) => ({ label: row.name, amountCents: row.expenseCents, color: row.color }))} emptyLabel="尚無本月支出資料" />
+                <LedgerSummaryChart title="保障額分布" rows={ledgerChartRows.map((row) => ({ label: row.name, amountCents: row.coverageCents, color: row.color }))} emptyLabel="尚無保險保障資料" />
+              </div>
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/50">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">共用與資安</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">共用帳本以成員身分與 RLS 權限控管。</p>
                 </div>
+                {memberCode && <span className="rounded-md border border-sky-200 bg-white px-3 py-2 text-sm font-semibold text-sky-800 dark:border-sky-900 dark:bg-slate-950 dark:text-sky-100">會員編號 {memberCode}</span>}
               </div>
             </div>
             <form className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 shadow-subtle dark:border-slate-800 dark:bg-slate-900/50" onSubmit={handleFormSubmit(onCreateLedger)}>
@@ -1524,6 +1538,62 @@ function LedgerHomeMetric({ label, value, accent }: { label: string; value: stri
         <span className={`h-2.5 w-2.5 rounded-full ${accent}`} />
       </div>
       <p className="mt-2 break-words text-2xl font-bold tracking-normal text-slate-950 dark:text-slate-50">{value}</p>
+    </div>
+  );
+}
+
+function getLedgerToneBar(color: LedgerBook["color"]) {
+  if (color === "sky") return "bg-sky-500";
+  if (color === "violet") return "bg-violet-500";
+  if (color === "amber") return "bg-amber-500";
+  if (color === "rose") return "bg-rose-500";
+  return "bg-emerald-500";
+}
+
+function LedgerSummaryChart({
+  title,
+  rows,
+  emptyLabel
+}: {
+  title: string;
+  rows: { label: string; amountCents: number; color: LedgerBook["color"] }[];
+  emptyLabel: string;
+}) {
+  const activeRows = rows.filter((row) => row.amountCents > 0);
+  const total = activeRows.reduce((sum, row) => sum + row.amountCents, 0);
+  const max = Math.max(...activeRows.map((row) => row.amountCents), 1);
+
+  if (activeRows.length === 0) {
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-subtle dark:border-slate-800 dark:bg-slate-950">
+        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</p>
+        <p className="mt-6 text-sm text-slate-500 dark:text-slate-400">{emptyLabel}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-subtle dark:border-slate-800 dark:bg-slate-950">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</p>
+        <span className="shrink-0 text-xs font-semibold text-slate-500 dark:text-slate-400">{formatMoney(total)}</span>
+      </div>
+      <div className="mt-4 space-y-3">
+        {activeRows.slice(0, 5).map((row) => (
+          <div key={row.label}>
+            <div className="mb-1 flex items-center justify-between gap-3 text-xs">
+              <span className="truncate text-slate-600 dark:text-slate-300">{row.label}</span>
+              <span className="shrink-0 font-semibold text-slate-700 dark:text-slate-200">{formatPercent(row.amountCents / total)}</span>
+            </div>
+            <div className="h-2 rounded-full bg-slate-100 dark:bg-slate-800">
+              <div
+                className={`h-2 rounded-full ${getLedgerToneBar(row.color)}`}
+                style={{ width: `${Math.max(6, (row.amountCents / max) * 100)}%` }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
