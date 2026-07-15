@@ -1,11 +1,13 @@
 import {
   AlertTriangle,
+  ArrowLeft,
   ArrowDownRight,
   ArrowUpRight,
   Banknote,
   BarChart3,
   Bell,
   Bot,
+  BookOpen,
   Calculator,
   CalendarClock,
   CheckCircle2,
@@ -25,6 +27,7 @@ import {
   Table,
   TrendingUp,
   Trash2,
+  Umbrella,
   Upload,
   WalletCards
 } from "lucide-react";
@@ -78,6 +81,7 @@ type Page =
   | "cards"
   | "loans"
   | "deposits"
+  | "insurance"
   | "investments"
   | "calculators"
   | "budgets"
@@ -94,8 +98,53 @@ type FinanceNotification = {
   detail: string;
   date: string;
   amountCents?: number;
-  source: "credit_card" | "loan" | "installment" | "reminder";
+  source: "credit_card" | "loan" | "installment" | "reminder" | "insurance";
   status: "overdue" | "due_today" | "upcoming" | "scheduled";
+};
+
+type LedgerBook = {
+  id: string;
+  name: string;
+  owner: string;
+  purpose: "personal" | "family" | "business" | "investment" | "custom";
+  color: "emerald" | "sky" | "violet" | "amber" | "rose";
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type InsurancePolicy = {
+  id: string;
+  userId: string;
+  name: string;
+  type: "life" | "medical" | "accident" | "car" | "home" | "travel" | "investment" | "other";
+  insurer: string;
+  policyNumberLast4: string;
+  insuredPerson: string;
+  annualPremiumCents: number;
+  coverageAmountCents: number;
+  paidClaimAmountCents: number;
+  pendingClaimAmountCents: number;
+  paymentDay: number;
+  renewalDate: string;
+  beneficiary: string;
+  note: string;
+  status: "active" | "paused" | "expired";
+  createdAt: string;
+  updatedAt: string;
+};
+
+type FinanceSnapshot = {
+  accounts: FinancialAccount[];
+  transactions: Transaction[];
+  creditCards: CreditCard[];
+  creditCardInstallments: CreditCardInstallment[];
+  loans: Loan[];
+  deposits: Deposit[];
+  budgets: Budget[];
+  reminders: FinancialReminder[];
+  rememberedCategories: string[];
+  insurancePolicies: InsurancePolicy[];
 };
 
 const navGroups: { title: "理財" | "投資" | "其他" | "設定"; items: { page: Page; label: string; icon: typeof BarChart3 }[] }[] = [
@@ -108,6 +157,7 @@ const navGroups: { title: "理財" | "投資" | "其他" | "設定"; items: { pa
       { page: "cards", label: "信用卡", icon: CreditCardIcon },
       { page: "loans", label: "貸款", icon: Landmark },
       { page: "deposits", label: "存款", icon: PiggyBank },
+      { page: "insurance", label: "保險", icon: Umbrella },
       { page: "budgets", label: "預算", icon: Banknote },
       { page: "reminders", label: "固定帳單", icon: CalendarClock },
       { page: "reports", label: "報表", icon: LineChart }
@@ -177,6 +227,13 @@ const pageIntros: Record<Page, { eyebrow: string; title: string; description: st
     description: "整理活存、定存與定期儲蓄，讓資金配置更有節奏。",
     accent: "#16a34a",
     tint: "#f0fdf4"
+  },
+  insurance: {
+    eyebrow: "Protection map",
+    title: "保費、保障與理賠一眼看懂",
+    description: "集中管理壽險、醫療、意外、車險與其他保單，快速掌握保險費用與賠付狀態。",
+    accent: "#0d9488",
+    tint: "#f0fdfa"
   },
   investments: {
     eyebrow: "Investment classes",
@@ -281,6 +338,31 @@ const investmentRiskLabels: Record<InvestmentCategory["risk"], string> = {
   high: "高風險"
 };
 
+const insuranceTypeLabels: Record<InsurancePolicy["type"], string> = {
+  life: "壽險",
+  medical: "醫療險",
+  accident: "意外險",
+  car: "車險",
+  home: "住宅險",
+  travel: "旅平險",
+  investment: "投資型保單",
+  other: "其他保險"
+};
+
+const insuranceStatusLabels: Record<InsurancePolicy["status"], string> = {
+  active: "有效",
+  paused: "暫停",
+  expired: "已到期"
+};
+
+const ledgerPurposeLabels: Record<LedgerBook["purpose"], string> = {
+  personal: "個人帳本",
+  family: "家庭帳本",
+  business: "事業帳本",
+  investment: "投資帳本",
+  custom: "自訂帳本"
+};
+
 const budgetCategoryOptions = [
   "全部",
   "餐飲",
@@ -305,7 +387,44 @@ const today = "2026-07-13";
 const localUserId = "local-user";
 const chartPalette = ["#059669", "#0284c7", "#d97706", "#7c3aed", "#dc2626", "#0f766e", "#be123c", "#4f46e5"];
 
+const defaultLedgerBooks: LedgerBook[] = [
+  {
+    id: "personal",
+    name: "個人主帳本",
+    owner: "自己",
+    purpose: "personal",
+    color: "emerald",
+    note: "日常理財、保險、投資與現金流",
+    createdAt: "2026-07-15T00:00:00.000Z",
+    updatedAt: "2026-07-15T00:00:00.000Z"
+  },
+  {
+    id: "family",
+    name: "家庭共同帳本",
+    owner: "家庭",
+    purpose: "family",
+    color: "sky",
+    note: "家庭開支、保單與共同帳戶規劃",
+    createdAt: "2026-07-15T00:00:00.000Z",
+    updatedAt: "2026-07-15T00:00:00.000Z"
+  },
+  {
+    id: "investment",
+    name: "投資觀察帳本",
+    owner: "自己",
+    purpose: "investment",
+    color: "violet",
+    note: "股票、基金與長期配置分類",
+    createdAt: "2026-07-15T00:00:00.000Z",
+    updatedAt: "2026-07-15T00:00:00.000Z"
+  }
+];
+
 export default function App() {
+  const [activeLedgerId, setActiveLedgerId] = useState<string | null>(null);
+  const [ledgerBooks, setLedgerBooks] = useState<LedgerBook[]>(defaultLedgerBooks);
+  const [ledgerSnapshots, setLedgerSnapshots] = useState<Record<string, FinanceSnapshot>>({});
+  const [ledgerTransitioning, setLedgerTransitioning] = useState(false);
   const [page, setPage] = useState<Page>("dashboard");
   const [month, setMonth] = useState(currentTaipeiMonth());
   const [darkMode, setDarkMode] = useState(false);
@@ -319,6 +438,7 @@ export default function App() {
   const [deposits, setDeposits] = useState(emptyFinanceData.deposits);
   const [budgets, setBudgets] = useState(emptyFinanceData.budgets);
   const [reminders, setReminders] = useState(emptyFinanceData.reminders);
+  const [insurancePolicies, setInsurancePolicies] = useState<InsurancePolicy[]>([]);
   const [rememberedCategories, setRememberedCategories] = useState<string[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
   const [dataNotice, setDataNotice] = useState("");
@@ -332,21 +452,74 @@ export default function App() {
 
   useEffect(() => {
     void refreshFinanceData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function createEmptySnapshot(): FinanceSnapshot {
+    return {
+      accounts: [],
+      transactions: [],
+      creditCards: [],
+      creditCardInstallments: [],
+      loans: [],
+      deposits: [],
+      budgets: [],
+      reminders: [],
+      rememberedCategories: [],
+      insurancePolicies: []
+    };
+  }
+
+  function captureCurrentSnapshot(): FinanceSnapshot {
+    return {
+      accounts,
+      transactions,
+      creditCards,
+      creditCardInstallments,
+      loans,
+      deposits,
+      budgets,
+      reminders,
+      rememberedCategories,
+      insurancePolicies
+    };
+  }
+
+  function applySnapshot(snapshot: FinanceSnapshot) {
+    setAccounts(snapshot.accounts);
+    setTransactions(snapshot.transactions);
+    setCreditCards(snapshot.creditCards);
+    setCreditCardInstallments(snapshot.creditCardInstallments);
+    setLoans(snapshot.loans);
+    setDeposits(snapshot.deposits);
+    setBudgets(snapshot.budgets);
+    setReminders(snapshot.reminders);
+    setRememberedCategories(snapshot.rememberedCategories);
+    setInsurancePolicies(snapshot.insurancePolicies);
+    setAiReport(null);
+    setCsvPreview([]);
+  }
 
   async function refreshFinanceData() {
     setDataLoading(true);
     try {
       const result = await loadFinanceData();
-      setAccounts(result.data.accounts);
-      setTransactions(result.data.transactions);
-      setCreditCards(result.data.creditCards);
-      setCreditCardInstallments(result.data.creditCardInstallments);
-      setLoans(result.data.loans);
-      setDeposits(result.data.deposits);
-      setBudgets(result.data.budgets);
-      setReminders(result.data.reminders);
-      setRememberedCategories(result.data.categories);
+      const personalSnapshot: FinanceSnapshot = {
+        accounts: result.data.accounts,
+        transactions: result.data.transactions,
+        creditCards: result.data.creditCards,
+        creditCardInstallments: result.data.creditCardInstallments,
+        loans: result.data.loans,
+        deposits: result.data.deposits,
+        budgets: result.data.budgets,
+        reminders: result.data.reminders,
+        rememberedCategories: result.data.categories,
+        insurancePolicies: ledgerSnapshots.personal?.insurancePolicies ?? []
+      };
+      setLedgerSnapshots((current) => ({ ...current, personal: personalSnapshot }));
+      if (!activeLedgerId || activeLedgerId === "personal") {
+        applySnapshot(personalSnapshot);
+      }
       setCurrentProfile(result.profile);
       setSessionEmail(result.session?.user.email ?? null);
       setDataNotice(
@@ -466,16 +639,75 @@ export default function App() {
         reminders,
         creditCards,
         installments: creditCardInstallments,
-        loans
+        loans,
+        insurancePolicies
       }),
-    [creditCardInstallments, creditCards, loans, month, reminders]
+    [creditCardInstallments, creditCards, insurancePolicies, loans, month, reminders]
   );
 
   const rootClass = darkMode ? "dark min-h-screen bg-slate-950" : "min-h-screen bg-[#f6f8fb]";
+  const activeLedger = ledgerBooks.find((ledger) => ledger.id === activeLedgerId) ?? null;
 
   function notify(type: ToastType, message: string) {
     setToast({ type, message });
     window.setTimeout(() => setToast(null), 2800);
+  }
+
+  function startLedgerTransition() {
+    setLedgerTransitioning(true);
+    window.setTimeout(() => setLedgerTransitioning(false), 720);
+  }
+
+  function openLedger(ledgerId: string) {
+    if (activeLedgerId === ledgerId) return;
+    if (activeLedgerId) {
+      setLedgerSnapshots((current) => ({ ...current, [activeLedgerId]: captureCurrentSnapshot() }));
+    }
+    const nextSnapshot = ledgerSnapshots[ledgerId] ?? (ledgerId === "personal" ? captureCurrentSnapshot() : createEmptySnapshot());
+    applySnapshot(nextSnapshot);
+    setActiveLedgerId(ledgerId);
+    setPage("dashboard");
+    startLedgerTransition();
+  }
+
+  function createLedger(formData: FormData) {
+    const name = String(formData.get("name") ?? "").trim();
+    if (!name) return notify("error", "請輸入帳本名稱");
+    const now = new Date().toISOString();
+    const ledger: LedgerBook = {
+      id: crypto.randomUUID(),
+      name,
+      owner: String(formData.get("owner") ?? "自己"),
+      purpose: String(formData.get("purpose") ?? "custom") as LedgerBook["purpose"],
+      color: String(formData.get("color") ?? "emerald") as LedgerBook["color"],
+      note: String(formData.get("note") ?? ""),
+      createdAt: now,
+      updatedAt: now
+    };
+    if (activeLedgerId) {
+      setLedgerSnapshots((current) => ({ ...current, [activeLedgerId]: captureCurrentSnapshot(), [ledger.id]: createEmptySnapshot() }));
+    } else {
+      setLedgerSnapshots((current) => ({ ...current, [ledger.id]: createEmptySnapshot() }));
+    }
+    setLedgerBooks((current) => [ledger, ...current]);
+    applySnapshot(createEmptySnapshot());
+    setActiveLedgerId(ledger.id);
+    setPage("dashboard");
+    startLedgerTransition();
+    notify("success", "帳本已建立");
+  }
+
+  function returnToLedgerHome() {
+    if (activeLedgerId) {
+      setLedgerSnapshots((current) => ({ ...current, [activeLedgerId]: captureCurrentSnapshot() }));
+    }
+    setActiveLedgerId(null);
+    startLedgerTransition();
+  }
+
+  function navigateToPage(nextPage: Page) {
+    if (nextPage === page) return;
+    setPage(nextPage);
   }
 
   async function addAccount(formData: FormData) {
@@ -562,6 +794,43 @@ export default function App() {
         )
       );
     }
+  }
+
+  function addInsurancePolicy(formData: FormData) {
+    const annualPremiumCents = parseMoneyToCents(String(formData.get("annualPremium") ?? ""));
+    const coverageAmountCents = parseMoneyToCents(String(formData.get("coverageAmount") ?? ""));
+    const paidClaimAmountCents = parseMoneyToCents(String(formData.get("paidClaimAmount") ?? "0"));
+    const pendingClaimAmountCents = parseMoneyToCents(String(formData.get("pendingClaimAmount") ?? "0"));
+    const renewalDate = String(formData.get("renewalDate") ?? "");
+    const validation = combineValidations(
+      validatePositiveAmount(annualPremiumCents, "年保費"),
+      validatePositiveAmount(coverageAmountCents, "保障額度"),
+      validateDateRange(renewalDate)
+    );
+    if (!validation.valid) return notify("error", validation.errors[0]);
+    const now = new Date().toISOString();
+    const policy: InsurancePolicy = {
+      id: crypto.randomUUID(),
+      userId: localUserId,
+      name: String(formData.get("name") ?? ""),
+      type: String(formData.get("type") ?? "medical") as InsurancePolicy["type"],
+      insurer: String(formData.get("insurer") ?? ""),
+      policyNumberLast4: String(formData.get("policyNumberLast4") ?? "").slice(-4),
+      insuredPerson: String(formData.get("insuredPerson") ?? ""),
+      annualPremiumCents,
+      coverageAmountCents,
+      paidClaimAmountCents,
+      pendingClaimAmountCents,
+      paymentDay: Number(formData.get("paymentDay") ?? 1),
+      renewalDate,
+      beneficiary: String(formData.get("beneficiary") ?? ""),
+      note: String(formData.get("note") ?? ""),
+      status: String(formData.get("status") ?? "active") as InsurancePolicy["status"],
+      createdAt: now,
+      updatedAt: now
+    };
+    setInsurancePolicies((current) => [policy, ...current]);
+    notify("success", "保單已新增");
   }
 
   async function softDeleteTransaction(id: string) {
@@ -652,11 +921,47 @@ export default function App() {
     );
   }
 
+  if (!activeLedgerId) {
+    return (
+      <div className={rootClass}>
+        {ledgerTransitioning && <TransitionOverlay label="切換帳本中" />}
+        <LedgerHomePage
+          ledgerBooks={ledgerBooks}
+          snapshots={{ ...ledgerSnapshots, personal: ledgerSnapshots.personal ?? captureCurrentSnapshot() }}
+          month={month}
+          sessionEmail={sessionEmail}
+          profile={currentProfile}
+          darkMode={darkMode}
+          onToggleDarkMode={() => setDarkMode((value) => !value)}
+          onOpenLedger={openLedger}
+          onCreateLedger={createLedger}
+        />
+        {toast && <div className="fixed right-4 top-4 z-50 max-w-sm"><ToastBanner toast={toast} /></div>}
+      </div>
+    );
+  }
+
   return (
     <div className={rootClass}>
+      {ledgerTransitioning && <TransitionOverlay label={activeLedger ? `進入 ${activeLedger.name}` : "切換帳本中"} />}
       <div className="flex min-h-screen">
         <aside className="hidden w-72 shrink-0 border-r border-slate-200/80 bg-white/90 p-4 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/90 lg:block">
           <Brand />
+          {activeLedger && (
+            <div className="mt-4 rounded-lg border border-sky-100 bg-sky-50/80 p-3 text-sm dark:border-sky-900 dark:bg-sky-950/30">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate font-semibold text-slate-950 dark:text-slate-50">{activeLedger.name}</p>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{ledgerPurposeLabels[activeLedger.purpose]} · {activeLedger.owner}</p>
+                </div>
+                <BookOpen size={18} className="shrink-0 text-sky-600" />
+              </div>
+              <button className="btn-secondary mt-3 w-full" onClick={returnToLedgerHome}>
+                <ArrowLeft size={16} />
+                帳本首頁
+              </button>
+            </div>
+          )}
           {currentProfile && (
             <div className="mt-4 rounded-lg border border-emerald-100 bg-emerald-50/80 p-3 text-sm dark:border-emerald-900 dark:bg-emerald-950/30">
               <p className="truncate font-semibold text-slate-950 dark:text-slate-50">{currentProfile.displayName || currentProfile.email}</p>
@@ -670,7 +975,7 @@ export default function App() {
                 <p className="mb-2 px-2 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">{group.title}</p>
                 <div className="space-y-1">
                   {group.items.map((item) => (
-                    <NavButton key={item.page} item={item} active={page === item.page} onClick={() => setPage(item.page)} />
+                    <NavButton key={item.page} item={item} active={page === item.page} onClick={() => navigateToPage(item.page)} />
                   ))}
                 </div>
               </div>
@@ -683,9 +988,13 @@ export default function App() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-medium text-brand-700 dark:text-brand-100">Asia/Taipei · TWD · YYYY/MM/DD</p>
-                <h1 className="text-xl font-bold text-slate-950 dark:text-slate-50">{navItems.find((item) => item.page === page)?.label}</h1>
+                <h1 className="text-xl font-bold text-slate-950 dark:text-slate-50">{activeLedger?.name} · {navItems.find((item) => item.page === page)?.label}</h1>
               </div>
               <div className="flex items-center gap-2">
+                <button className="btn-secondary h-10 px-2 sm:px-3" onClick={returnToLedgerHome} title="切換帳本">
+                  <BookOpen size={16} />
+                  <span className="hidden sm:inline">切換帳本</span>
+                </button>
                 <label className="label hidden sm:block" htmlFor="month">
                   月份
                 </label>
@@ -713,7 +1022,7 @@ export default function App() {
             </div>
           </header>
 
-          <div className="mx-auto max-w-7xl space-y-4 p-4 sm:p-6">
+          <div key={`${activeLedgerId}-${page}`} className="route-transition mx-auto max-w-7xl space-y-4 p-4 sm:p-6">
             <PageExperience page={page} dashboard={dashboard} month={month} notifications={financeNotifications.length} />
             {toast && <ToastBanner toast={toast} />}
             {page === "dashboard" && (
@@ -756,6 +1065,7 @@ export default function App() {
             )}
             {page === "loans" && <LoansPage loans={loans} setLoans={setLoans} notify={notify} />}
             {page === "deposits" && <DepositsPage deposits={deposits} setDeposits={setDeposits} notify={notify} />}
+            {page === "insurance" && <InsurancePage policies={insurancePolicies} onAdd={addInsurancePolicy} />}
             {page === "investments" && <InvestmentsPage notify={notify} />}
             {page === "calculators" && <CalculatorsPage />}
             {page === "budgets" && (
@@ -820,7 +1130,7 @@ export default function App() {
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 lg:hidden">
         <div className="grid grid-cols-6 gap-1 px-2 py-2">
           {navItems.slice(0, 6).map((item) => (
-            <MobileNavButton key={item.page} item={item} active={page === item.page} onClick={() => setPage(item.page)} />
+            <MobileNavButton key={item.page} item={item} active={page === item.page} onClick={() => navigateToPage(item.page)} />
           ))}
         </div>
         <details className="border-t border-slate-200 px-2 pb-2 dark:border-slate-800">
@@ -833,7 +1143,7 @@ export default function App() {
                 <p className="px-1 pb-1 text-[10px] font-bold tracking-[0.16em] text-slate-400">{group.title}</p>
                 <div className="grid grid-cols-5 gap-1">
                   {group.items.filter((item) => !navItems.slice(0, 6).some((primary) => primary.page === item.page)).map((item) => (
-                    <MobileNavButton key={item.page} item={item} active={page === item.page} onClick={() => setPage(item.page)} />
+                    <MobileNavButton key={item.page} item={item} active={page === item.page} onClick={() => navigateToPage(item.page)} />
                   ))}
                 </div>
               </div>
@@ -841,6 +1151,166 @@ export default function App() {
           </div>
         </details>
       </nav>
+    </div>
+  );
+}
+
+function LedgerHomePage({
+  ledgerBooks,
+  snapshots,
+  month,
+  sessionEmail,
+  profile,
+  darkMode,
+  onToggleDarkMode,
+  onOpenLedger,
+  onCreateLedger
+}: {
+  ledgerBooks: LedgerBook[];
+  snapshots: Record<string, FinanceSnapshot>;
+  month: string;
+  sessionEmail: string | null;
+  profile: UserProfile | null;
+  darkMode: boolean;
+  onToggleDarkMode: () => void;
+  onOpenLedger: (ledgerId: string) => void;
+  onCreateLedger: (formData: FormData) => void;
+}) {
+  const summaryFor = (ledgerId: string) => {
+    const snapshot = snapshots[ledgerId] ?? {
+      accounts: [],
+      transactions: [],
+      creditCards: [],
+      creditCardInstallments: [],
+      loans: [],
+      deposits: [],
+      budgets: [],
+      reminders: [],
+      rememberedCategories: [],
+      insurancePolicies: []
+    };
+    const dashboard = summarizeDashboard({
+      accounts: snapshot.accounts,
+      creditCards: snapshot.creditCards,
+      loans: snapshot.loans,
+      transactions: snapshot.transactions,
+      month,
+      averageNecessaryExpenseCents: 0
+    });
+    return { snapshot, dashboard };
+  };
+  const totalNetWorthCents = ledgerBooks.reduce((sum, ledger) => sum + summaryFor(ledger.id).dashboard.netWorthCents, 0);
+  const totalInsuranceCoverageCents = ledgerBooks.reduce(
+    (sum, ledger) => sum + summaryFor(ledger.id).snapshot.insurancePolicies.reduce((policySum, policy) => policySum + policy.coverageAmountCents, 0),
+    0
+  );
+
+  return (
+    <main className="min-h-screen overflow-hidden p-4 sm:p-6">
+      <div className="mx-auto max-w-7xl space-y-5">
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          <Brand />
+          <div className="flex items-center gap-2">
+            {profile && <Badge>{getRoleLabel(profile)}</Badge>}
+            {sessionEmail && <span className="hidden rounded-md border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-600 shadow-subtle dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 sm:inline-flex">{sessionEmail}</span>}
+            <button className="btn-secondary h-10 w-10 px-0" title="切換深色模式" onClick={onToggleDarkMode}>
+              <Moon size={18} />
+            </button>
+          </div>
+        </header>
+
+        <section className="screen-fade overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 p-5 text-white shadow-card dark:border-slate-800">
+          <div className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr] lg:items-center">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-md bg-white/10 px-3 py-1 text-sm font-semibold text-emerald-200">
+                <BookOpen size={16} />
+                帳本主頁
+              </div>
+              <h1 className="mt-4 max-w-3xl text-3xl font-bold tracking-normal sm:text-4xl">選擇一本帳本，進入獨立的理財、保險與投資工作區</h1>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">每本帳本都有自己的帳戶、收支、信用卡、貸款、存款、保險、投資分類、預算與報表。</p>
+              <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                <PulseMetric label="帳本數" value={`${ledgerBooks.length} 本`} accent="border-emerald-300" />
+                <PulseMetric label="合計淨資產" value={formatMoney(totalNetWorthCents)} accent="border-sky-300" />
+                <PulseMetric label="合計保障額" value={formatMoney(totalInsuranceCoverageCents)} accent="border-violet-300" />
+              </div>
+            </div>
+            <form className="rounded-xl border border-white/10 bg-white/10 p-4 backdrop-blur" onSubmit={handleFormSubmit(onCreateLedger)}>
+              <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                <Plus size={16} />
+                新增帳本
+              </div>
+              <div className="mt-4 grid gap-3">
+                <Field label="帳本名稱"><input className="input" name="name" placeholder="例如：副業帳本、家庭帳本" required /></Field>
+                <Field label="擁有者"><input className="input" name="owner" defaultValue="自己" /></Field>
+                <Field label="帳本類型">
+                  <select className="input" name="purpose" defaultValue="custom">
+                    {Object.entries(ledgerPurposeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  </select>
+                </Field>
+                <Field label="主題色">
+                  <select className="input" name="color" defaultValue={darkMode ? "sky" : "emerald"}>
+                    <option value="emerald">綠色</option>
+                    <option value="sky">藍色</option>
+                    <option value="violet">紫色</option>
+                    <option value="amber">金色</option>
+                    <option value="rose">紅色</option>
+                  </select>
+                </Field>
+                <Field label="備註"><input className="input" name="note" placeholder="用途或管理範圍" /></Field>
+                <button className="btn-primary w-full" type="submit">建立並進入</button>
+              </div>
+            </form>
+          </div>
+        </section>
+
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {ledgerBooks.map((ledger) => {
+            const { snapshot, dashboard } = summaryFor(ledger.id);
+            const tone = ledger.color;
+            return (
+              <button
+                key={ledger.id}
+                className="ledger-card group rounded-xl border border-slate-200 bg-white/95 p-4 text-left shadow-subtle transition hover:-translate-y-1 hover:shadow-card dark:border-slate-800 dark:bg-slate-950"
+                onClick={() => onOpenLedger(ledger.id)}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-lg font-bold text-slate-950 dark:text-slate-50">{ledger.name}</p>
+                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{ledgerPurposeLabels[ledger.purpose]} · {ledger.owner}</p>
+                  </div>
+                  <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-white shadow-subtle ${
+                    tone === "sky" ? "bg-sky-600" : tone === "violet" ? "bg-violet-600" : tone === "amber" ? "bg-amber-600" : tone === "rose" ? "bg-rose-600" : "bg-emerald-600"
+                  }`}>
+                    <BookOpen size={20} />
+                  </span>
+                </div>
+                <p className="mt-3 min-h-10 text-sm leading-5 text-slate-600 dark:text-slate-300">{ledger.note || "獨立帳本工作區"}</p>
+                <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                  <Info label="淨資產" value={formatMoney(dashboard.netWorthCents)} />
+                  <Info label="本月支出" value={formatMoney(dashboard.monthlyExpenseCents)} />
+                  <Info label="帳戶" value={`${snapshot.accounts.length} 個`} />
+                  <Info label="保單" value={`${snapshot.insurancePolicies.length} 張`} />
+                </div>
+                <div className="mt-4 flex items-center justify-between text-sm font-semibold text-brand-700 dark:text-brand-100">
+                  進入帳本
+                  <ArrowUpRight size={16} className="transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                </div>
+              </button>
+            );
+          })}
+        </section>
+      </div>
+    </main>
+  );
+}
+
+function TransitionOverlay({ label }: { label: string }) {
+  return (
+    <div className="pointer-events-none fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm ledger-transition">
+      <div className="rounded-xl border border-white/10 bg-white/10 px-5 py-4 text-center text-white shadow-card">
+        <div className="mx-auto mb-3 h-9 w-9 animate-spin rounded-full border-2 border-white/20 border-t-emerald-300" />
+        <p className="text-sm font-semibold">{label}</p>
+      </div>
     </div>
   );
 }
@@ -1190,13 +1660,15 @@ function buildFinanceNotifications({
   reminders,
   creditCards,
   installments,
-  loans
+  loans,
+  insurancePolicies
 }: {
   month: string;
   reminders: FinancialReminder[];
   creditCards: CreditCard[];
   installments: CreditCardInstallment[];
   loans: Loan[];
+  insurancePolicies: InsurancePolicy[];
 }): FinanceNotification[] {
   const items: FinanceNotification[] = [];
   const todayIso = getTaipeiTodayIso();
@@ -1275,6 +1747,32 @@ function buildFinanceNotifications({
       });
     });
 
+  insurancePolicies
+    .filter((policy) => policy.status === "active")
+    .forEach((policy) => {
+      const premiumDate = createMonthlyDate(month, policy.paymentDay);
+      items.push({
+        id: `insurance-premium-${policy.id}-${premiumDate}`,
+        title: `${policy.name} 保費繳款`,
+        detail: `${policy.insurer} · ${insuranceTypeLabels[policy.type]}，年保費 ${formatMoney(policy.annualPremiumCents)}，保障額 ${formatMoney(policy.coverageAmountCents)}`,
+        date: premiumDate,
+        amountCents: Math.round(policy.annualPremiumCents / 12),
+        source: "insurance",
+        status: getNotificationStatus(premiumDate, todayIso, 7)
+      });
+      if (policy.renewalDate.startsWith(month)) {
+        items.push({
+          id: `insurance-renewal-${policy.id}-${policy.renewalDate}`,
+          title: `${policy.name} 續保日`,
+          detail: `${policy.insurer} · ${insuranceTypeLabels[policy.type]}，已理賠 ${formatMoney(policy.paidClaimAmountCents)}，待理賠 ${formatMoney(policy.pendingClaimAmountCents)}`,
+          date: policy.renewalDate,
+          amountCents: policy.annualPremiumCents,
+          source: "insurance",
+          status: getNotificationStatus(policy.renewalDate, todayIso, 14)
+        });
+      }
+    });
+
   const statusWeight: Record<FinanceNotification["status"], number> = {
     overdue: 0,
     due_today: 1,
@@ -1332,7 +1830,8 @@ function getNotificationSourceLabel(source: FinanceNotification["source"]) {
     credit_card: "信用卡",
     loan: "貸款",
     installment: "分期",
-    reminder: "固定帳單"
+    reminder: "固定帳單",
+    insurance: "保險"
   };
   return labels[source];
 }
@@ -3021,6 +3520,169 @@ function DepositsPage({
           <StatCard label="實際年化報酬率" value={formatPercent(result.annualizedReturn)} />
         </div>
       </section>
+    </div>
+  );
+}
+
+function InsurancePage({ policies, onAdd }: { policies: InsurancePolicy[]; onAdd: (formData: FormData) => void }) {
+  const activePolicies = policies.filter((policy) => policy.status === "active");
+  const totalCoverageCents = activePolicies.reduce((sum, policy) => sum + policy.coverageAmountCents, 0);
+  const annualPremiumCents = activePolicies.reduce((sum, policy) => sum + policy.annualPremiumCents, 0);
+  const monthlyPremiumCents = Math.round(annualPremiumCents / 12);
+  const paidClaimsCents = activePolicies.reduce((sum, policy) => sum + policy.paidClaimAmountCents, 0);
+  const pendingClaimsCents = activePolicies.reduce((sum, policy) => sum + policy.pendingClaimAmountCents, 0);
+  const coverageLeverage = annualPremiumCents > 0 ? totalCoverageCents / annualPremiumCents : 0;
+  const nextRenewal = [...activePolicies].sort((a, b) => a.renewalDate.localeCompare(b.renewalDate))[0];
+  const typeBreakdown = Object.entries(
+    activePolicies.reduce<Record<string, number>>((acc, policy) => {
+      acc[insuranceTypeLabels[policy.type]] = (acc[insuranceTypeLabels[policy.type]] ?? 0) + policy.annualPremiumCents;
+      return acc;
+    }, {})
+  )
+    .map(([category, amountCents]) => ({ category, amountCents }))
+    .sort((a, b) => b.amountCents - a.amountCents);
+  const coverageBreakdown = Object.entries(
+    activePolicies.reduce<Record<string, number>>((acc, policy) => {
+      acc[insuranceTypeLabels[policy.type]] = (acc[insuranceTypeLabels[policy.type]] ?? 0) + policy.coverageAmountCents;
+      return acc;
+    }, {})
+  )
+    .map(([category, amountCents]) => ({ category, amountCents }))
+    .sort((a, b) => b.amountCents - a.amountCents);
+
+  return (
+    <div className="space-y-4">
+      <FeatureHero
+        icon={<Umbrella size={18} />}
+        label="保險總覽"
+        title="保障額、保費與理賠狀態"
+        value={formatMoney(totalCoverageCents)}
+        tone="emerald"
+        metrics={[
+          { label: "年保費", value: formatMoney(annualPremiumCents), accent: "border-amber-300" },
+          { label: "月均保費", value: formatMoney(monthlyPremiumCents), accent: "border-sky-300" },
+          { label: "已理賠", value: formatMoney(paidClaimsCents), accent: "border-emerald-300" }
+        ]}
+      >
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+          <DonutChart
+            segments={[
+              { label: "已理賠", value: paidClaimsCents, color: "#059669" },
+              { label: "待理賠", value: pendingClaimsCents, color: "#f59e0b" },
+              { label: "剩餘保障", value: Math.max(0, totalCoverageCents - paidClaimsCents - pendingClaimsCents), color: "#0ea5e9" }
+            ]}
+            centerLabel="保障"
+            centerValue={formatCompactMoney(totalCoverageCents)}
+          />
+          <div className="flex-1 space-y-3 text-sm">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-slate-300">保障/年保費</span>
+              <span className="font-semibold text-white">{coverageLeverage.toFixed(1)} 倍</span>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-slate-300">最近續保</span>
+              <span className="font-semibold text-white">{nextRenewal ? formatDate(nextRenewal.renewalDate) : "尚無資料"}</span>
+            </div>
+            <StackedDistribution data={coverageBreakdown.slice(0, 5)} total={totalCoverageCents} />
+            <CompactDistributionList data={coverageBreakdown.slice(0, 5)} total={totalCoverageCents} inverse />
+          </div>
+        </div>
+      </FeatureHero>
+
+      <div className="grid gap-4 lg:grid-cols-5">
+        <StatCard label="有效保單" value={`${activePolicies.length} 張`} />
+        <StatCard label="總保障額" value={formatMoney(totalCoverageCents)} />
+        <StatCard label="年保費" value={formatMoney(annualPremiumCents)} />
+        <StatCard label="待理賠" value={formatMoney(pendingClaimsCents)} />
+        <StatCard label="保障倍數" value={`${coverageLeverage.toFixed(1)}x`} />
+      </div>
+
+      <section className="grid gap-4 lg:grid-cols-2">
+        <div className="panel">
+          <div className="flex items-center gap-2">
+            <BarChart3 size={18} />
+            <h2 className="text-lg font-semibold">保費類型分布</h2>
+          </div>
+          <MiniBars data={typeBreakdown.map((item) => ({ label: item.category, amountCents: item.amountCents }))} emptyLabel="尚無保費資料" />
+        </div>
+        <div className="panel">
+          <div className="flex items-center gap-2">
+            <ShieldCheck size={18} />
+            <h2 className="text-lg font-semibold">保障類型分布</h2>
+          </div>
+          <MiniBars data={coverageBreakdown.map((item) => ({ label: item.category, amountCents: item.amountCents }))} emptyLabel="尚無保障資料" />
+        </div>
+      </section>
+
+      <div className="grid gap-4 xl:grid-cols-[380px_1fr]">
+        <section className="panel">
+          <h2 className="text-lg font-semibold">新增保單</h2>
+          <form className="mt-4 space-y-3" onSubmit={handleFormSubmit(onAdd)}>
+            <Field label="保單名稱"><input className="input" name="name" required /></Field>
+            <Field label="保險類型">
+              <select className="input" name="type" defaultValue="medical">
+                {Object.entries(insuranceTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </Field>
+            <Field label="保險公司"><input className="input" name="insurer" required /></Field>
+            <Field label="保單末四碼"><input className="input" name="policyNumberLast4" maxLength={4} inputMode="numeric" /></Field>
+            <Field label="被保險人"><input className="input" name="insuredPerson" defaultValue="自己" /></Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="年保費"><input className="input" name="annualPremium" inputMode="decimal" required /></Field>
+              <Field label="保障額度"><input className="input" name="coverageAmount" inputMode="decimal" required /></Field>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="已理賠"><input className="input" name="paidClaimAmount" inputMode="decimal" defaultValue="0" /></Field>
+              <Field label="待理賠"><input className="input" name="pendingClaimAmount" inputMode="decimal" defaultValue="0" /></Field>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="繳費日"><input className="input" name="paymentDay" type="number" min={1} max={31} defaultValue={5} /></Field>
+              <Field label="續保日"><input className="input" name="renewalDate" type="date" defaultValue="2027-07-15" /></Field>
+            </div>
+            <Field label="受益人"><input className="input" name="beneficiary" /></Field>
+            <Field label="狀態">
+              <select className="input" name="status" defaultValue="active">
+                {Object.entries(insuranceStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </Field>
+            <Field label="備註"><textarea className="input" name="note" rows={2} /></Field>
+            <button className="btn-primary w-full" type="submit"><Plus size={16} />新增保單</button>
+          </form>
+        </section>
+
+        <section className="grid gap-3 md:grid-cols-2">
+          {policies.length === 0 ? (
+            <div className="md:col-span-2"><EmptyState label="尚未建立保單，新增後會顯示保費、保障與理賠狀態" /></div>
+          ) : (
+            policies.map((policy) => {
+              const claimRatio = (policy.paidClaimAmountCents + policy.pendingClaimAmountCents) / Math.max(policy.coverageAmountCents, 1);
+              return (
+                <div key={policy.id} className="panel">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold">{policy.name}</p>
+                      <p className="mt-1 text-sm text-slate-500">{policy.insurer} · {insuranceTypeLabels[policy.type]}{policy.policyNumberLast4 ? ` · **** ${policy.policyNumberLast4}` : ""}</p>
+                    </div>
+                    <Badge>{insuranceStatusLabels[policy.status]}</Badge>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                    <Info label="保障額度" value={formatMoney(policy.coverageAmountCents)} />
+                    <Info label="年保費" value={formatMoney(policy.annualPremiumCents)} />
+                    <Info label="已理賠" value={formatMoney(policy.paidClaimAmountCents)} />
+                    <Info label="待理賠" value={formatMoney(policy.pendingClaimAmountCents)} />
+                    <Info label="繳費日" value={`每月 ${policy.paymentDay} 日`} />
+                    <Info label="續保日" value={formatDate(policy.renewalDate)} />
+                  </div>
+                  <div className="mt-4">
+                    <Progress label="理賠使用比例" value={claimRatio} colorClass={claimRatio > 0.7 ? "bg-rose-500" : "bg-emerald-500"} />
+                  </div>
+                  {policy.note && <p className="mt-3 rounded-md bg-slate-50 p-3 text-sm text-slate-600 dark:bg-slate-900 dark:text-slate-300">{policy.note}</p>}
+                </div>
+              );
+            })
+          )}
+        </section>
+      </div>
     </div>
   );
 }
