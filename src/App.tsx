@@ -1352,12 +1352,16 @@ function LedgerHomePage({
               </div>
               <div className="mt-4 grid gap-3">
                 <Field label="帳本名稱"><input className="input" name="name" placeholder="例如：副業帳本、家庭帳本" required /></Field>
-                <Field label="擁有者"><input className="input" name="owner" defaultValue="自己" /></Field>
                 <Field label="帳本類型">
                   <select className="input" name="purpose" defaultValue="custom">
                     {Object.entries(ledgerPurposeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                   </select>
                 </Field>
+                <Field label="擁有者"><input className="input" name="owner" defaultValue="自己" /></Field>
+                <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200">
+                  <input name="isShared" type="checkbox" />
+                  開啟共用，可邀請其他會員
+                </label>
                 <Field label="主題色">
                   <select className="input" name="color" defaultValue={darkMode ? "sky" : "emerald"}>
                     <option value="emerald">綠色</option>
@@ -1368,10 +1372,6 @@ function LedgerHomePage({
                   </select>
                 </Field>
                 <Field label="備註"><input className="input" name="note" placeholder="用途或管理範圍" /></Field>
-                <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200">
-                  <input name="isShared" type="checkbox" />
-                  開啟共用，可邀請其他會員
-                </label>
                 <button className="btn-primary w-full" type="submit">建立並進入</button>
               </div>
             </form>
@@ -1419,10 +1419,6 @@ function LedgerHomePage({
                       進入帳本
                       <ArrowUpRight size={16} />
                     </button>
-                    <button className="btn-danger" onClick={() => onDeleteLedger(ledger.id)}>
-                      <Trash2 size={16} />
-                      刪除
-                    </button>
                   </div>
                   <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-800 dark:bg-slate-900/60">
                     <label className="flex items-center justify-between gap-3 text-sm font-semibold text-slate-700 dark:text-slate-200">
@@ -1435,12 +1431,12 @@ function LedgerHomePage({
                     <summary className="cursor-pointer text-sm font-semibold text-slate-700 dark:text-slate-200">編輯帳本</summary>
                     <form className="mt-3 space-y-3" onSubmit={handleFormSubmit((formData) => onUpdateLedger(ledger.id, formData))}>
                     <Field label="帳本名稱"><input className="input" name="name" defaultValue={ledger.name} required /></Field>
-                    <Field label="擁有者"><input className="input" name="owner" defaultValue={ledger.owner} /></Field>
                     <Field label="帳本類型">
                       <select className="input" name="purpose" defaultValue={ledger.purpose}>
                         {Object.entries(ledgerPurposeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                       </select>
                     </Field>
+                    <Field label="擁有者"><input className="input" name="owner" defaultValue={ledger.owner} /></Field>
                     <Field label="主題色">
                       <select className="input" name="color" defaultValue={ledger.color}>
                         <option value="emerald">綠色</option>
@@ -1491,6 +1487,14 @@ function LedgerHomePage({
                     </div>
                     </details>
                   )}
+                  <details className="mt-3 rounded-lg border border-red-200 bg-red-50/70 p-3 dark:border-red-900 dark:bg-red-950/30">
+                    <summary className="cursor-pointer text-sm font-semibold text-red-700 dark:text-red-200">危險操作</summary>
+                    <p className="mt-2 text-xs leading-5 text-red-700 dark:text-red-200">刪除帳本會移除目前前端帳本與快照。正式雲端資料需由 Supabase RLS 與後端流程保護。</p>
+                    <button className="btn-danger mt-3 w-full" onClick={() => onDeleteLedger(ledger.id)}>
+                      <Trash2 size={16} />
+                      刪除帳本
+                    </button>
+                  </details>
                 </div>
               </div>
             );
