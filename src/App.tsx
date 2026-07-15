@@ -1315,12 +1315,15 @@ function LedgerHomePage({
       coverageCents: snapshot.insurancePolicies.reduce((sum, policy) => sum + policy.coverageAmountCents, 0)
     };
   });
+  const totalMonthlyExpenseCents = ledgerChartRows.reduce((sum, row) => sum + row.expenseCents, 0);
+  const sharedLedgerCount = ledgerBooks.filter((ledger) => ledger.isShared).length;
+  const pendingInviteCount = invitations.filter((invite) => invite.status === "pending").length;
   const memberCode = profile ? formatMemberCode(profile.userId) : null;
 
   return (
-    <main className="min-h-screen overflow-hidden bg-[#f7f9fb] p-4 dark:bg-slate-950 sm:p-6">
-      <div className="mx-auto max-w-7xl space-y-5">
-        <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white/90 p-3 shadow-subtle backdrop-blur dark:border-slate-800 dark:bg-slate-950/90">
+    <main className="min-h-screen overflow-hidden bg-slate-100 p-3 dark:bg-slate-950 sm:p-6">
+      <div className="mx-auto max-w-7xl space-y-4">
+        <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white/95 p-3 shadow-subtle backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
           <Brand />
           <div className="flex items-center gap-2">
             {profile && <Badge>{getRoleLabel(profile)}</Badge>}
@@ -1332,50 +1335,51 @@ function LedgerHomePage({
           </div>
         </header>
 
-        <section className="screen-fade overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-card dark:border-slate-800 dark:bg-slate-950">
-          <div className="grid gap-5 lg:grid-cols-[1fr_420px] lg:items-start">
-            <div className="min-w-0">
-              <div className="inline-flex items-center gap-2 rounded-md border border-emerald-100 bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100">
-                <BookOpen size={16} />
-                帳本工作台
-              </div>
-              <h1 className="mt-4 max-w-3xl text-3xl font-bold tracking-normal text-slate-950 dark:text-slate-50 sm:text-4xl">管理你的多本財務帳本</h1>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">每本帳本都有獨立的理財、保險、投資、預算與報表資料。先選帳本，再進入工作區。</p>
-              <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                <LedgerHomeMetric label="帳本數" value={`${ledgerBooks.length} 本`} accent="bg-emerald-500" />
-                <LedgerHomeMetric label="合計淨資產" value={formatMoney(totalNetWorthCents)} accent="bg-sky-500" />
-                <LedgerHomeMetric label="合計保障額" value={formatMoney(totalInsuranceCoverageCents)} accent="bg-violet-500" />
-              </div>
-              <div className="mt-5 grid gap-3 xl:grid-cols-3">
-                <LedgerSummaryChart title="淨資產分布" rows={ledgerChartRows.map((row) => ({ label: row.name, amountCents: row.netWorthCents, color: row.color }))} emptyLabel="尚無帳本資產資料" />
-                <LedgerSummaryChart title="本月支出" rows={ledgerChartRows.map((row) => ({ label: row.name, amountCents: row.expenseCents, color: row.color }))} emptyLabel="尚無本月支出資料" />
-                <LedgerSummaryChart title="保障額分布" rows={ledgerChartRows.map((row) => ({ label: row.name, amountCents: row.coverageCents, color: row.color }))} emptyLabel="尚無保險保障資料" />
-              </div>
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/50">
-                <div>
-                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">共用與資安</p>
-                  <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">共用帳本以成員身分與 RLS 權限控管。</p>
+        <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-stretch">
+          <div className="screen-fade overflow-hidden rounded-2xl border border-slate-900 bg-slate-950 text-white shadow-card dark:border-slate-800">
+            <div className="tech-grid p-5 sm:p-6">
+              <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                <div className="max-w-2xl">
+                  <div className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/10 px-3 py-1 text-sm font-semibold text-emerald-100">
+                    <BookOpen size={16} />
+                    帳本控制塔
+                  </div>
+                  <h1 className="mt-4 text-3xl font-bold tracking-normal text-white sm:text-4xl">選擇帳本，掌握完整財務版圖</h1>
+                  <p className="mt-3 max-w-xl text-sm leading-6 text-slate-300">每本帳本都是獨立工作區，理財、保險、投資、預算與報表分開管理，也能依權限邀請家人或夥伴共用。</p>
                 </div>
-                {memberCode && <span className="rounded-md border border-sky-200 bg-white px-3 py-2 text-sm font-semibold text-sky-800 dark:border-sky-900 dark:bg-slate-950 dark:text-sky-100">會員編號 {memberCode}</span>}
+                <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:w-[420px]">
+                  <LedgerCommandMetric label="帳本數" value={`${ledgerBooks.length} 本`} subLabel={`${sharedLedgerCount} 本共用`} />
+                  <LedgerCommandMetric label="合計淨資產" value={formatMoney(totalNetWorthCents)} subLabel="跨帳本彙總" />
+                  <LedgerCommandMetric label="本月支出" value={formatMoney(totalMonthlyExpenseCents)} subLabel="全部帳本" />
+                  <LedgerCommandMetric label="保障額" value={formatMoney(totalInsuranceCoverageCents)} subLabel={`${pendingInviteCount} 個待處理邀請`} />
+                </div>
+              </div>
+              <div className="mt-5 grid gap-3 lg:grid-cols-3">
+                <LedgerCommandChart title="淨資產分布" rows={ledgerChartRows.map((row) => ({ label: row.name, amountCents: row.netWorthCents, color: row.color }))} emptyLabel="尚無帳本資產資料" />
+                <LedgerCommandChart title="本月支出流向" rows={ledgerChartRows.map((row) => ({ label: row.name, amountCents: row.expenseCents, color: row.color }))} emptyLabel="尚無本月支出資料" />
+                <LedgerCommandChart title="保險保障配置" rows={ledgerChartRows.map((row) => ({ label: row.name, amountCents: row.coverageCents, color: row.color }))} emptyLabel="尚無保險保障資料" />
               </div>
             </div>
-            <form className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 shadow-subtle dark:border-slate-800 dark:bg-slate-900/50" onSubmit={handleFormSubmit(onCreateLedger)}>
-              <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
-                <Plus size={16} />
-                新增帳本
+          </div>
+
+          <form className="screen-fade rounded-2xl border border-slate-200 bg-white p-4 shadow-card dark:border-slate-800 dark:bg-slate-950" onSubmit={handleFormSubmit(onCreateLedger)}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">快速建立帳本</p>
+                <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">新增家庭、投資、副業或自訂帳本。</p>
               </div>
-              <div className="mt-4 grid gap-3">
-                <Field label="帳本名稱"><input className="input" name="name" placeholder="例如：副業帳本、家庭帳本" required /></Field>
-                <Field label="帳本類型">
+              <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-100">
+                <Plus size={16} />
+              </span>
+            </div>
+            <div className="mt-4 grid gap-3">
+              <Field label="帳本名稱"><input className="input" name="name" placeholder="例如：家庭帳本" required /></Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="類型">
                   <select className="input" name="purpose" defaultValue="custom">
                     {Object.entries(ledgerPurposeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                   </select>
                 </Field>
-                <Field label="擁有者"><input className="input" name="owner" defaultValue="自己" /></Field>
-                <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200">
-                  <input name="isShared" type="checkbox" />
-                  開啟共用，可邀請其他會員
-                </label>
                 <Field label="主題色">
                   <select className="input" name="color" defaultValue={darkMode ? "sky" : "emerald"}>
                     <option value="emerald">綠色</option>
@@ -1385,134 +1389,225 @@ function LedgerHomePage({
                     <option value="rose">紅色</option>
                   </select>
                 </Field>
-                <Field label="備註"><input className="input" name="note" placeholder="用途或管理範圍" /></Field>
-                <button className="btn-primary w-full" type="submit">建立並進入</button>
               </div>
-            </form>
-          </div>
+              <Field label="擁有者"><input className="input" name="owner" defaultValue="自己" /></Field>
+              <Field label="備註"><input className="input" name="note" placeholder="用途或管理範圍" /></Field>
+              <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
+                <span>開啟共用邀請</span>
+                <input name="isShared" type="checkbox" />
+              </label>
+              <button className="btn-primary h-11 w-full" type="submit">建立並進入</button>
+            </div>
+          </form>
         </section>
 
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {ledgerBooks.map((ledger) => {
-            const { snapshot, dashboard } = summaryFor(ledger.id);
-            const tone = ledger.color;
-            const ledgerInvites = invitations.filter((invite) => invite.ledgerId === ledger.id);
-            return (
-              <div
-                key={ledger.id}
-                className="ledger-card overflow-hidden rounded-xl border border-slate-200 bg-white shadow-subtle transition hover:-translate-y-1 hover:shadow-card dark:border-slate-800 dark:bg-slate-950"
-              >
-                <div className={`h-1.5 ${
-                  tone === "sky" ? "bg-sky-500" : tone === "violet" ? "bg-violet-500" : tone === "amber" ? "bg-amber-500" : tone === "rose" ? "bg-rose-500" : "bg-emerald-500"
-                }`} />
-                <div className="p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                    <p className="truncate text-lg font-bold text-slate-950 dark:text-slate-50">{ledger.name}</p>
-                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{ledgerPurposeLabels[ledger.purpose]} · {ledger.owner}</p>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <Badge>{ledger.isShared ? "共用中" : "私人"}</Badge>
-                      {ledgerInvites.filter((invite) => invite.status === "pending").length > 0 && <Badge>{ledgerInvites.filter((invite) => invite.status === "pending").length} 個邀請</Badge>}
-                    </div>
-                    </div>
-                    <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg ${
-                      tone === "sky" ? "bg-sky-50 text-sky-700 dark:bg-sky-950 dark:text-sky-100" : tone === "violet" ? "bg-violet-50 text-violet-700 dark:bg-violet-950 dark:text-violet-100" : tone === "amber" ? "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-100" : tone === "rose" ? "bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-100" : "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-100"
-                    }`}>
-                      <BookOpen size={20} />
-                    </span>
-                  </div>
-                  <p className="mt-3 min-h-10 text-sm leading-5 text-slate-600 dark:text-slate-300">{ledger.note || "獨立帳本工作區"}</p>
-                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                    <Info label="淨資產" value={formatMoney(dashboard.netWorthCents)} />
-                    <Info label="本月支出" value={formatMoney(dashboard.monthlyExpenseCents)} />
-                    <Info label="帳戶" value={`${snapshot.accounts.length} 個`} />
-                    <Info label="保單" value={`${snapshot.insurancePolicies.length} 張`} />
-                  </div>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <button className="btn-primary flex-1" onClick={() => onOpenLedger(ledger.id)}>
-                      進入帳本
-                      <ArrowUpRight size={16} />
-                    </button>
-                  </div>
-                  <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-800 dark:bg-slate-900/60">
-                    <label className="flex items-center justify-between gap-3 text-sm font-semibold text-slate-700 dark:text-slate-200">
-                      <span>共用帳本</span>
-                      <input type="checkbox" checked={ledger.isShared} onChange={(event) => onToggleSharing(ledger.id, event.target.checked)} />
-                    </label>
-                    <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">開啟後可用會員編號或 Email 邀請其他人。</p>
-                  </div>
-                  <details className="mt-3 rounded-lg border border-slate-200 bg-white/70 p-3 dark:border-slate-800 dark:bg-slate-950/70">
-                    <summary className="cursor-pointer text-sm font-semibold text-slate-700 dark:text-slate-200">編輯帳本</summary>
-                    <form className="mt-3 space-y-3" onSubmit={handleFormSubmit((formData) => onUpdateLedger(ledger.id, formData))}>
-                    <Field label="帳本名稱"><input className="input" name="name" defaultValue={ledger.name} required /></Field>
-                    <Field label="帳本類型">
-                      <select className="input" name="purpose" defaultValue={ledger.purpose}>
-                        {Object.entries(ledgerPurposeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                      </select>
-                    </Field>
-                    <Field label="擁有者"><input className="input" name="owner" defaultValue={ledger.owner} /></Field>
-                    <Field label="主題色">
-                      <select className="input" name="color" defaultValue={ledger.color}>
-                        <option value="emerald">綠色</option>
-                        <option value="sky">藍色</option>
-                        <option value="violet">紫色</option>
-                        <option value="amber">金色</option>
-                        <option value="rose">紅色</option>
-                      </select>
-                    </Field>
-                    <Field label="備註"><input className="input" name="note" defaultValue={ledger.note} /></Field>
-                    <button className="btn-secondary w-full" type="submit">儲存帳本設定</button>
-                    </form>
-                  </details>
-                  {ledger.isShared && (
-                    <details className="mt-3 rounded-lg border border-sky-200 bg-sky-50/70 p-3 dark:border-sky-900 dark:bg-sky-950/30">
-                    <summary className="cursor-pointer text-sm font-semibold text-sky-800 dark:text-sky-100">邀請與共用權限</summary>
-                    <form className="mt-3 space-y-3" onSubmit={handleFormSubmit((formData) => onInviteMember(ledger.id, formData))}>
-                      <Field label="邀請方式">
-                        <select className="input" name="method" defaultValue="email">
-                          <option value="email">電子信箱</option>
-                          <option value="member_code">會員編號</option>
-                        </select>
-                      </Field>
-                      <Field label="會員編號或 Email"><input className="input" name="target" placeholder="member@example.com 或 M123456" required /></Field>
-                      <Field label="權限">
-                        <select className="input" name="role" defaultValue="viewer">
-                          <option value="viewer">檢視者</option>
-                          <option value="editor">可編輯</option>
-                          <option value="admin">管理員</option>
-                        </select>
-                      </Field>
-                      <button className="btn-primary w-full" type="submit">建立邀請</button>
-                    </form>
-                    <div className="mt-3 space-y-2">
-                      {ledgerInvites.length === 0 ? (
-                        <p className="text-xs text-slate-500 dark:text-slate-400">尚無邀請紀錄</p>
-                      ) : (
-                        ledgerInvites.slice(0, 4).map((invite) => (
-                          <div key={invite.id} className="rounded-md bg-white/80 p-2 text-xs text-slate-600 dark:bg-slate-950 dark:text-slate-300">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="truncate">{invite.target}</span>
-                              <Badge>{invite.status === "pending" ? "待接受" : invite.status === "accepted" ? "已接受" : "已撤銷"}</Badge>
+        <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-card dark:border-slate-800 dark:bg-slate-950">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-lg font-bold text-slate-950 dark:text-slate-50">帳本工作區</p>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">選擇要管理的帳本，或直接調整共用與基本設定。</p>
+              </div>
+              <Badge>{ledgerBooks.length} 個工作區</Badge>
+            </div>
+
+            {ledgerBooks.length === 0 ? (
+              <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center dark:border-slate-700 dark:bg-slate-900">
+                <BookOpen className="mx-auto text-slate-400" size={30} />
+                <p className="mt-3 font-semibold text-slate-900 dark:text-slate-100">尚未建立帳本</p>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">先從右上方建立第一個帳本，就能開始整理資料。</p>
+              </div>
+            ) : (
+              <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                {ledgerBooks.map((ledger) => {
+                  const { snapshot, dashboard } = summaryFor(ledger.id);
+                  const tone = getLedgerToneClasses(ledger.color);
+                  const ledgerInvites = invitations.filter((invite) => invite.ledgerId === ledger.id);
+                  const ledgerCoverageCents = snapshot.insurancePolicies.reduce((sum, policy) => sum + policy.coverageAmountCents, 0);
+                  const pendingLedgerInvites = ledgerInvites.filter((invite) => invite.status === "pending").length;
+
+                  return (
+                    <div
+                      key={ledger.id}
+                      className="ledger-card group overflow-hidden rounded-xl border border-slate-200 bg-white shadow-subtle transition hover:-translate-y-0.5 hover:shadow-card dark:border-slate-800 dark:bg-slate-950"
+                    >
+                      <div className={`h-1 ${tone.bar}`} />
+                      <div className="p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${tone.soft} ${tone.text}`}>
+                                <BookOpen size={18} />
+                              </span>
+                              <div className="min-w-0">
+                                <p className="truncate text-lg font-bold text-slate-950 dark:text-slate-50">{ledger.name}</p>
+                                <p className="truncate text-sm text-slate-500 dark:text-slate-400">{ledgerPurposeLabels[ledger.purpose]} · {ledger.owner}</p>
+                              </div>
                             </div>
-                            <p className="mt-1">{invite.method === "email" ? "Email" : "會員編號"} · {invite.role}</p>
                           </div>
-                        ))
-                      )}
+                          <div className="flex shrink-0 flex-col items-end gap-1">
+                            <Badge>{ledger.isShared ? "共用" : "私人"}</Badge>
+                            {pendingLedgerInvites > 0 && <span className="text-xs font-semibold text-amber-600 dark:text-amber-300">{pendingLedgerInvites} 邀請</span>}
+                          </div>
+                        </div>
+
+                        <p className="mt-3 line-clamp-2 min-h-10 text-sm leading-5 text-slate-600 dark:text-slate-300">{ledger.note || "獨立帳本工作區"}</p>
+
+                        <div className="mt-4 grid grid-cols-3 gap-2">
+                          <LedgerHomeInlineStat label="淨資產" value={formatMoney(dashboard.netWorthCents)} />
+                          <LedgerHomeInlineStat label="月支出" value={formatMoney(dashboard.monthlyExpenseCents)} />
+                          <LedgerHomeInlineStat label="保障額" value={formatMoney(ledgerCoverageCents)} />
+                        </div>
+
+                        <div className="mt-4 space-y-2">
+                          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                            <span>帳本完整度</span>
+                            <span>{snapshot.accounts.length} 帳戶 · {snapshot.insurancePolicies.length} 保單</span>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                            <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${Math.min(100, 24 + snapshot.accounts.length * 14 + snapshot.insurancePolicies.length * 10)}%` }} />
+                          </div>
+                        </div>
+
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          <button className="btn-primary flex-1" onClick={() => onOpenLedger(ledger.id)}>
+                            進入帳本
+                            <ArrowUpRight size={16} />
+                          </button>
+                        </div>
+
+                        <div className="mt-3 grid gap-2">
+                          <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
+                            <span>共用帳本</span>
+                            <input type="checkbox" checked={ledger.isShared} onChange={(event) => onToggleSharing(ledger.id, event.target.checked)} />
+                          </label>
+
+                          <details className="rounded-lg border border-slate-200 bg-white/80 p-3 dark:border-slate-800 dark:bg-slate-950/80">
+                            <summary className="cursor-pointer text-sm font-semibold text-slate-700 dark:text-slate-200">編輯帳本</summary>
+                            <form className="mt-3 space-y-3" onSubmit={handleFormSubmit((formData) => onUpdateLedger(ledger.id, formData))}>
+                              <Field label="帳本名稱"><input className="input" name="name" defaultValue={ledger.name} required /></Field>
+                              <Field label="帳本類型">
+                                <select className="input" name="purpose" defaultValue={ledger.purpose}>
+                                  {Object.entries(ledgerPurposeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                                </select>
+                              </Field>
+                              <Field label="擁有者"><input className="input" name="owner" defaultValue={ledger.owner} /></Field>
+                              <Field label="主題色">
+                                <select className="input" name="color" defaultValue={ledger.color}>
+                                  <option value="emerald">綠色</option>
+                                  <option value="sky">藍色</option>
+                                  <option value="violet">紫色</option>
+                                  <option value="amber">金色</option>
+                                  <option value="rose">紅色</option>
+                                </select>
+                              </Field>
+                              <Field label="備註"><input className="input" name="note" defaultValue={ledger.note} /></Field>
+                              <button className="btn-secondary w-full" type="submit">儲存帳本設定</button>
+                            </form>
+                          </details>
+
+                          {ledger.isShared && (
+                            <details className="rounded-lg border border-sky-200 bg-sky-50/70 p-3 dark:border-sky-900 dark:bg-sky-950/30">
+                              <summary className="cursor-pointer text-sm font-semibold text-sky-800 dark:text-sky-100">邀請與共用權限</summary>
+                              <form className="mt-3 space-y-3" onSubmit={handleFormSubmit((formData) => onInviteMember(ledger.id, formData))}>
+                                <Field label="邀請方式">
+                                  <select className="input" name="method" defaultValue="email">
+                                    <option value="email">電子信箱</option>
+                                    <option value="member_code">會員編號</option>
+                                  </select>
+                                </Field>
+                                <Field label="會員編號或 Email"><input className="input" name="target" placeholder="member@example.com 或 M123456" required /></Field>
+                                <Field label="權限">
+                                  <select className="input" name="role" defaultValue="viewer">
+                                    <option value="viewer">檢視者</option>
+                                    <option value="editor">可編輯</option>
+                                    <option value="admin">管理員</option>
+                                  </select>
+                                </Field>
+                                <button className="btn-primary w-full" type="submit">建立邀請</button>
+                              </form>
+                              <div className="mt-3 space-y-2">
+                                {ledgerInvites.length === 0 ? (
+                                  <p className="text-xs text-slate-500 dark:text-slate-400">尚無邀請紀錄</p>
+                                ) : (
+                                  ledgerInvites.slice(0, 4).map((invite) => (
+                                    <div key={invite.id} className="rounded-md bg-white/80 p-2 text-xs text-slate-600 dark:bg-slate-950 dark:text-slate-300">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <span className="truncate">{invite.target}</span>
+                                        <Badge>{invite.status === "pending" ? "待接受" : invite.status === "accepted" ? "已接受" : "已撤銷"}</Badge>
+                                      </div>
+                                      <p className="mt-1">{invite.method === "email" ? "Email" : "會員編號"} · {invite.role}</p>
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+                            </details>
+                          )}
+
+                          <details className="rounded-lg border border-red-200 bg-red-50/70 p-3 dark:border-red-900 dark:bg-red-950/30">
+                            <summary className="cursor-pointer text-sm font-semibold text-red-700 dark:text-red-200">危險操作</summary>
+                            <p className="mt-2 text-xs leading-5 text-red-700 dark:text-red-200">刪除帳本會移除目前前端帳本與快照。正式雲端資料需由 Supabase RLS 與後端流程保護。</p>
+                            <button className="btn-danger mt-3 w-full" onClick={() => onDeleteLedger(ledger.id)}>
+                              <Trash2 size={16} />
+                              刪除帳本
+                            </button>
+                          </details>
+                        </div>
+                      </div>
                     </div>
-                    </details>
-                  )}
-                  <details className="mt-3 rounded-lg border border-red-200 bg-red-50/70 p-3 dark:border-red-900 dark:bg-red-950/30">
-                    <summary className="cursor-pointer text-sm font-semibold text-red-700 dark:text-red-200">危險操作</summary>
-                    <p className="mt-2 text-xs leading-5 text-red-700 dark:text-red-200">刪除帳本會移除目前前端帳本與快照。正式雲端資料需由 Supabase RLS 與後端流程保護。</p>
-                    <button className="btn-danger mt-3 w-full" onClick={() => onDeleteLedger(ledger.id)}>
-                      <Trash2 size={16} />
-                      刪除帳本
-                    </button>
-                  </details>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <aside className="space-y-4">
+            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-card dark:border-slate-800 dark:bg-slate-950">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="font-bold text-slate-950 dark:text-slate-50">安全與共用中心</p>
+                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">所有帳本以使用者與成員權限隔離。</p>
+                </div>
+                <ShieldCheck className="text-emerald-600 dark:text-emerald-300" size={24} />
+              </div>
+              <div className="mt-4 grid gap-2">
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">會員編號</p>
+                  <p className="mt-1 font-semibold text-slate-900 dark:text-slate-100">{memberCode ?? "尚未建立"}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <LedgerHomeInlineStat label="共用帳本" value={`${sharedLedgerCount} 本`} />
+                  <LedgerHomeInlineStat label="待處理邀請" value={`${pendingInviteCount} 個`} />
                 </div>
               </div>
-            );
-          })}
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-card dark:border-slate-800 dark:bg-slate-950">
+              <p className="font-bold text-slate-950 dark:text-slate-50">帳本排行</p>
+              <div className="mt-4 space-y-3">
+                {ledgerChartRows.length === 0 ? (
+                  <p className="text-sm text-slate-500 dark:text-slate-400">尚無帳本可排序</p>
+                ) : (
+                  ledgerChartRows
+                    .slice()
+                    .sort((a, b) => b.netWorthCents - a.netWorthCents)
+                    .slice(0, 5)
+                    .map((row) => {
+                      const tone = getLedgerToneClasses(row.color);
+                      return (
+                        <div key={row.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{row.name}</p>
+                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">淨資產 {formatMoney(row.netWorthCents)}</p>
+                          </div>
+                          <span className={`h-9 w-1.5 rounded-full ${tone.bar}`} />
+                        </div>
+                      );
+                    })
+                )}
+              </div>
+            </section>
+          </aside>
         </section>
       </div>
     </main>
@@ -1530,27 +1625,62 @@ function TransitionOverlay({ label }: { label: string }) {
   );
 }
 
-function LedgerHomeMetric({ label, value, accent }: { label: string; value: string; accent: string }) {
+function LedgerCommandMetric({ label, value, subLabel }: { label: string; value: string; subLabel: string }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-subtle dark:border-slate-800 dark:bg-slate-950">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm text-slate-500 dark:text-slate-400">{label}</p>
-        <span className={`h-2.5 w-2.5 rounded-full ${accent}`} />
-      </div>
-      <p className="mt-2 break-words text-2xl font-bold tracking-normal text-slate-950 dark:text-slate-50">{value}</p>
+    <div className="rounded-xl border border-white/10 bg-white/10 p-3 shadow-subtle backdrop-blur">
+      <p className="text-xs font-semibold text-slate-300">{label}</p>
+      <p className="mt-2 break-words text-xl font-bold tracking-normal text-white">{value}</p>
+      <p className="mt-1 text-xs text-slate-400">{subLabel}</p>
     </div>
   );
 }
 
-function getLedgerToneBar(color: LedgerBook["color"]) {
-  if (color === "sky") return "bg-sky-500";
-  if (color === "violet") return "bg-violet-500";
-  if (color === "amber") return "bg-amber-500";
-  if (color === "rose") return "bg-rose-500";
-  return "bg-emerald-500";
+function LedgerHomeInlineStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
+      <p className="truncate text-xs text-slate-500 dark:text-slate-400">{label}</p>
+      <p className="mt-1 truncate text-sm font-bold text-slate-950 dark:text-slate-50">{value}</p>
+    </div>
+  );
 }
 
-function LedgerSummaryChart({
+function getLedgerToneClasses(color: LedgerBook["color"]) {
+  if (color === "sky") {
+    return {
+      bar: "bg-sky-500",
+      soft: "bg-sky-50 dark:bg-sky-950",
+      text: "text-sky-700 dark:text-sky-100"
+    };
+  }
+  if (color === "violet") {
+    return {
+      bar: "bg-violet-500",
+      soft: "bg-violet-50 dark:bg-violet-950",
+      text: "text-violet-700 dark:text-violet-100"
+    };
+  }
+  if (color === "amber") {
+    return {
+      bar: "bg-amber-500",
+      soft: "bg-amber-50 dark:bg-amber-950",
+      text: "text-amber-700 dark:text-amber-100"
+    };
+  }
+  if (color === "rose") {
+    return {
+      bar: "bg-rose-500",
+      soft: "bg-rose-50 dark:bg-rose-950",
+      text: "text-rose-700 dark:text-rose-100"
+    };
+  }
+  return {
+    bar: "bg-emerald-500",
+    soft: "bg-emerald-50 dark:bg-emerald-950",
+    text: "text-emerald-700 dark:text-emerald-100"
+  };
+}
+
+function LedgerCommandChart({
   title,
   rows,
   emptyLabel
@@ -1565,29 +1695,29 @@ function LedgerSummaryChart({
 
   if (activeRows.length === 0) {
     return (
-      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-subtle dark:border-slate-800 dark:bg-slate-950">
-        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</p>
-        <p className="mt-6 text-sm text-slate-500 dark:text-slate-400">{emptyLabel}</p>
+      <div className="rounded-xl border border-white/10 bg-white/10 p-4 shadow-subtle backdrop-blur">
+        <p className="text-sm font-semibold text-white">{title}</p>
+        <p className="mt-6 text-sm text-slate-400">{emptyLabel}</p>
       </div>
     );
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-subtle dark:border-slate-800 dark:bg-slate-950">
+    <div className="rounded-xl border border-white/10 bg-white/10 p-4 shadow-subtle backdrop-blur">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</p>
-        <span className="shrink-0 text-xs font-semibold text-slate-500 dark:text-slate-400">{formatMoney(total)}</span>
+        <p className="text-sm font-semibold text-white">{title}</p>
+        <span className="shrink-0 text-xs font-semibold text-slate-300">{formatMoney(total)}</span>
       </div>
       <div className="mt-4 space-y-3">
         {activeRows.slice(0, 5).map((row) => (
           <div key={row.label}>
             <div className="mb-1 flex items-center justify-between gap-3 text-xs">
-              <span className="truncate text-slate-600 dark:text-slate-300">{row.label}</span>
-              <span className="shrink-0 font-semibold text-slate-700 dark:text-slate-200">{formatPercent(row.amountCents / total)}</span>
+              <span className="truncate text-slate-300">{row.label}</span>
+              <span className="shrink-0 font-semibold text-white">{formatPercent(row.amountCents / total)}</span>
             </div>
-            <div className="h-2 rounded-full bg-slate-100 dark:bg-slate-800">
+            <div className="h-2 rounded-full bg-white/10">
               <div
-                className={`h-2 rounded-full ${getLedgerToneBar(row.color)}`}
+                className={`h-2 rounded-full ${getLedgerToneClasses(row.color).bar}`}
                 style={{ width: `${Math.max(6, (row.amountCents / max) * 100)}%` }}
               />
             </div>
