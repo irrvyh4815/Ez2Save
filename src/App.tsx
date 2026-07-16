@@ -662,7 +662,7 @@ export default function App() {
     [creditCardInstallments, creditCards, insurancePolicies, loans, month, reminders]
   );
 
-  const rootClass = darkMode ? "dark min-h-screen bg-slate-950" : "min-h-screen bg-[#f6f8fb]";
+  const rootClass = darkMode ? "dark min-h-screen" : "min-h-screen";
   const activeLedger = ledgerBooks.find((ledger) => ledger.id === activeLedgerId) ?? null;
 
   function notify(type: ToastType, message: string) {
@@ -997,7 +997,7 @@ export default function App() {
 
   if (isSupabaseConfigured && !dataLoading && !sessionEmail) {
     return (
-      <div className={rootClass}>
+      <div className={`${rootClass} app-shell`}>
         <AuthPage
           dataNotice={dataNotice}
           onSignIn={handlePasswordSignIn}
@@ -1010,7 +1010,7 @@ export default function App() {
 
   if (!activeLedgerId) {
     return (
-      <div className={rootClass}>
+      <div className={`${rootClass} app-shell`}>
         {ledgerTransitioning && <TransitionOverlay label="切換帳本中" />}
         <LedgerHomePage
           ledgerBooks={ledgerBooks}
@@ -1034,10 +1034,10 @@ export default function App() {
   }
 
   return (
-    <div className={rootClass}>
+    <div className={`${rootClass} app-shell`}>
       {ledgerTransitioning && <TransitionOverlay label={activeLedger ? `進入 ${activeLedger.name}` : "切換帳本中"} />}
       <div className="flex min-h-screen">
-        <aside className="hidden w-72 shrink-0 border-r border-slate-200/80 bg-white/90 p-4 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/90 lg:block">
+        <aside className="app-sidebar hidden w-64 shrink-0 border-r border-slate-200/80 p-4 shadow-sm backdrop-blur dark:border-slate-700 lg:block">
           <Brand />
           {activeLedger && (
             <div className="mt-4 rounded-lg border border-sky-100 bg-sky-50/80 p-3 text-sm dark:border-sky-900 dark:bg-sky-950/30">
@@ -1076,11 +1076,12 @@ export default function App() {
         </aside>
 
         <main className="min-w-0 flex-1 pb-24 lg:pb-0">
-          <header className="sticky top-0 z-20 border-b border-slate-200/70 bg-[#f6f8fb]/90 px-4 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-950/90 sm:px-6">
+          <header className="app-topbar sticky top-0 z-20 border-b border-slate-200/70 px-4 py-3 backdrop-blur dark:border-slate-700 sm:px-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-xs font-medium text-brand-700 dark:text-brand-100">Asia/Taipei · TWD · YYYY/MM/DD</p>
-                <h1 className="text-xl font-bold text-slate-950 dark:text-slate-50">{activeLedger?.name} · {navItems.find((item) => item.page === page)?.label}</h1>
+                <p className="text-[11px] font-bold tracking-[0.16em] text-brand-700 dark:text-brand-200">EZ2SAVEMORE</p>
+                <h1 className="text-xl font-bold text-slate-950 dark:text-slate-50">{navItems.find((item) => item.page === page)?.label}</h1>
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{activeLedger?.name} · Asia/Taipei · TWD</p>
               </div>
               <div className="flex items-center gap-2">
                 <button className="btn-secondary h-10 px-2 sm:px-3" onClick={returnToLedgerHome} title="切換帳本">
@@ -1115,7 +1116,7 @@ export default function App() {
           </header>
 
           <div key={`${activeLedgerId}-${page}`} className="route-transition mx-auto max-w-7xl space-y-4 p-4 sm:p-6">
-            <PageExperience page={page} dashboard={dashboard} month={month} notifications={financeNotifications.length} />
+            {page !== "dashboard" && <PageExperience page={page} dashboard={dashboard} month={month} notifications={financeNotifications.length} />}
             {toast && <ToastBanner toast={toast} />}
             {page === "dashboard" && (
               <DashboardPage
@@ -1129,6 +1130,7 @@ export default function App() {
                 loans={loans}
                 dataLoading={dataLoading}
                 dataNotice={dataNotice}
+                onNavigate={navigateToPage}
               />
             )}
             {page === "transactions" && (
@@ -1219,20 +1221,20 @@ export default function App() {
         </main>
       </div>
 
-      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 lg:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-700 dark:bg-slate-950/95 lg:hidden">
         <div className="grid grid-cols-6 gap-1 px-2 py-2">
           {navItems.slice(0, 6).map((item) => (
             <MobileNavButton key={item.page} item={item} active={page === item.page} onClick={() => navigateToPage(item.page)} />
           ))}
         </div>
         <details className="border-t border-slate-200 px-2 pb-2 dark:border-slate-800">
-          <summary className="flex cursor-pointer list-none items-center justify-center gap-1 py-1 text-xs text-slate-500">
+          <summary className="flex cursor-pointer list-none items-center justify-center gap-1 py-1 text-xs text-slate-500 dark:text-slate-400">
             更多 <ChevronDown size={14} />
           </summary>
           <div className="space-y-2">
             {navGroups.map((group) => (
               <div key={group.title}>
-                <p className="px-1 pb-1 text-[10px] font-bold tracking-[0.16em] text-slate-400">{group.title}</p>
+                <p className="px-1 pb-1 text-[10px] font-bold tracking-[0.16em] text-slate-400 dark:text-slate-500">{group.title}</p>
                 <div className="grid grid-cols-5 gap-1">
                   {group.items.filter((item) => !navItems.slice(0, 6).some((primary) => primary.page === item.page)).map((item) => (
                     <MobileNavButton key={item.page} item={item} active={page === item.page} onClick={() => navigateToPage(item.page)} />
@@ -1399,7 +1401,7 @@ function LedgerHomePage({
 
             {ledgerBooks.length === 0 ? (
               <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center dark:border-slate-700 dark:bg-slate-900">
-                <BookOpen className="mx-auto text-slate-400" size={30} />
+                <BookOpen className="mx-auto text-slate-400 dark:text-slate-500" size={30} />
                 <p className="mt-3 font-semibold text-slate-900 dark:text-slate-100">尚未建立帳本</p>
                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">先從右上方建立第一個帳本，就能開始整理資料。</p>
               </div>
@@ -1856,10 +1858,8 @@ function PageExperience({
   const intro = pageIntros[page];
   return (
     <section
-      className="page-experience overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-subtle dark:border-slate-800 sm:p-5"
-      style={{
-        backgroundImage: `linear-gradient(115deg, ${intro.tint} 0%, rgba(255,255,255,0.96) 44%, rgba(255,255,255,0.98) 100%)`
-      }}
+      className="page-experience overflow-hidden rounded-lg border border-slate-200 p-4 shadow-subtle dark:border-slate-700 sm:p-5"
+      style={{ "--page-tint": intro.tint } as React.CSSProperties}
     >
       <div className="grid gap-4 lg:grid-cols-[1.4fr_0.9fr] lg:items-center">
         <div>
@@ -2335,7 +2335,8 @@ function DashboardPage({
   creditCardInstallments,
   loans,
   dataLoading,
-  dataNotice
+  dataNotice,
+  onNavigate
 }: {
   dashboard: ReturnType<typeof summarizeDashboard>;
   categoryBreakdown: { category: string; amountCents: number }[];
@@ -2347,6 +2348,7 @@ function DashboardPage({
   loans: Loan[];
   dataLoading: boolean;
   dataNotice: string;
+  onNavigate: (page: Page) => void;
 }) {
   const stats = [
     ["目前總資產", dashboard.totalAssetsCents],
@@ -2365,7 +2367,8 @@ function DashboardPage({
     <div className="space-y-4">
       {dataLoading && <InlineNotice tone="neutral" message="正在讀取已儲存的財務資料..." />}
       {!dataLoading && dataNotice && <InlineNotice tone="warning" message={dataNotice} />}
-      <DashboardPulse dashboard={dashboard} monthlyTrend={monthlyTrend} />
+      <DashboardPulse dashboard={dashboard} monthlyTrend={monthlyTrend} onNavigate={onNavigate} />
+      <DashboardFinanceCenter dashboard={dashboard} onNavigate={onNavigate} />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {stats.map(([label, value]) => (
           <StatCard key={label} label={label} value={formatMoney(value)} />
@@ -2438,10 +2441,12 @@ function DashboardPage({
 
 function DashboardPulse({
   dashboard,
-  monthlyTrend
+  monthlyTrend,
+  onNavigate
 }: {
   dashboard: ReturnType<typeof summarizeDashboard>;
   monthlyTrend: { month: string; incomeCents: number; expenseCents: number }[];
+  onNavigate: (page: Page) => void;
 }) {
   const latest = monthlyTrend.at(-1);
   const prior = monthlyTrend.at(-2);
@@ -2449,42 +2454,77 @@ function DashboardPulse({
   const priorBalance = prior ? prior.incomeCents - prior.expenseCents : 0;
   const balanceDelta = latestBalance - priorBalance;
   const positiveBalance = dashboard.monthlyBalanceCents >= 0;
+  const hasBalance = dashboard.monthlyIncomeCents > 0 || dashboard.monthlyExpenseCents > 0;
+  const flowScore = hasBalance ? Math.round(Math.max(0, Math.min(100, 58 + (dashboard.monthlyBalanceCents >= 0 ? 24 : -18) + (dashboard.debtRatio < 0.35 ? 12 : -8) + Math.min(10, dashboard.emergencyFundMonths * 2)))) : 0;
   return (
-    <section className="overflow-hidden rounded-lg border border-slate-200 bg-slate-950 p-4 text-white shadow-lg dark:border-slate-800 sm:p-5">
-      <div className="grid gap-4 lg:grid-cols-[1.25fr_1fr] lg:items-center">
+    <section className="finance-today-hero overflow-hidden rounded-lg border border-emerald-100 p-4 shadow-subtle dark:border-emerald-900 sm:p-5">
+      <div className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr] lg:items-center">
         <div>
-          <p className="text-sm font-medium text-emerald-300">財務脈搏</p>
-          <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-2">
-            <div>
-              <p className="text-sm text-slate-300">淨資產</p>
-              <p className="break-words text-4xl font-bold tracking-normal text-white">{formatMoney(dashboard.netWorthCents)}</p>
-            </div>
-            <span
-              className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm font-semibold ${
-                positiveBalance
-                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-100"
-                  : "bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-100"
-              }`}
-            >
-              {positiveBalance ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />}
-              本月結餘 {formatMoney(dashboard.monthlyBalanceCents)}
-            </span>
+          <span className="inline-flex rounded-full bg-white/80 px-2.5 py-1 text-xs font-semibold text-rose-600 shadow-sm dark:bg-slate-900 dark:text-rose-200">今日狀態：{positiveBalance ? "資金節奏穩定" : "本月支出需要留意"}</span>
+          <h2 className="mt-3 text-2xl font-bold text-slate-950 dark:text-slate-50 sm:text-3xl">你的本月財務節奏已經整理好了</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">{hasBalance ? `本月收入 ${formatMoney(dashboard.monthlyIncomeCents)}，支出 ${formatMoney(dashboard.monthlyExpenseCents)}。` : "先新增一筆收入、支出或帳戶餘額，這裡就會自動整理你的資金狀態。"}</p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button className="btn-primary" onClick={() => onNavigate("transactions")}><Plus size={16} />記一筆</button>
+            <button className="btn-secondary bg-white/80 dark:bg-slate-900" onClick={() => onNavigate("budgets")}><Banknote size={16} />設定預算</button>
+            <button className="btn-secondary bg-white/80 dark:bg-slate-900" onClick={() => onNavigate("reminders")}><CalendarClock size={16} />查看提醒</button>
           </div>
-          <div className="mt-5 grid gap-3 sm:grid-cols-3">
-            <PulseMetric label="可動用現金" value={formatMoney(dashboard.availableCashCents)} accent="border-emerald-400" />
-            <PulseMetric label="負債比" value={formatPercent(dashboard.debtRatio)} accent="border-amber-300" />
-            <PulseMetric label="預備金" value={`${dashboard.emergencyFundMonths.toFixed(1)} 個月`} accent="border-sky-300" />
+          <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
+            <span>可動用現金 {formatMoney(dashboard.availableCashCents)}</span>
+            <span>信用卡待繳 {formatMoney(dashboard.monthlyCreditCardDueCents)}</span>
+            <span>本月結餘 {formatMoney(dashboard.monthlyBalanceCents)}</span>
           </div>
         </div>
-        <div className="rounded-lg border border-white/10 bg-white/10 p-3">
-          <div className="flex items-center justify-between gap-3">
-            <p className="font-semibold text-white">近月現金流</p>
-            <span className={`text-sm font-semibold ${balanceDelta >= 0 ? "text-emerald-700 dark:text-emerald-100" : "text-rose-700 dark:text-rose-100"}`}>
+        <div className="grid gap-3 sm:grid-cols-[132px_1fr] sm:items-center lg:grid-cols-[132px_1fr]">
+          <div className="mx-auto flex h-32 w-32 flex-col items-center justify-center rounded-full border-[10px] border-emerald-200 bg-white text-center shadow-sm dark:border-emerald-900 dark:bg-slate-900">
+            <strong className="text-3xl text-slate-950 dark:text-slate-50">{flowScore}</strong>
+            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">本月節奏</span>
+          </div>
+          <div className="rounded-lg border border-white/80 bg-white/60 p-3 dark:border-slate-700 dark:bg-slate-900/70">
+            <div className="flex items-center justify-between gap-3">
+              <p className="font-semibold text-slate-950 dark:text-slate-50">近月現金流</p>
+            <span
+              className={`text-sm font-semibold ${balanceDelta >= 0 ? "text-emerald-700 dark:text-emerald-200" : "text-rose-700 dark:text-rose-200"}`}
+            >
+              {positiveBalance ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />}
               {balanceDelta >= 0 ? "+" : ""}{formatMoney(balanceDelta)}
             </span>
           </div>
-          <CashFlowMiniChart data={monthlyTrend} />
+            <CashFlowMiniChart data={monthlyTrend} />
+          </div>
         </div>
+      </div>
+    </section>
+  );
+}
+
+function DashboardFinanceCenter({ dashboard, onNavigate }: { dashboard: ReturnType<typeof summarizeDashboard>; onNavigate: (page: Page) => void }) {
+  const tiles = [
+    { label: "可動用現金", value: formatMoney(dashboard.availableCashCents), className: "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-100", page: "accounts" as const },
+    { label: "本月結餘", value: formatMoney(dashboard.monthlyBalanceCents), className: "bg-sky-50 text-sky-800 dark:bg-sky-950/50 dark:text-sky-100", page: "transactions" as const },
+    { label: "信用卡待繳", value: formatMoney(dashboard.monthlyCreditCardDueCents), className: "bg-rose-50 text-rose-800 dark:bg-rose-950/50 dark:text-rose-100", page: "cards" as const },
+    { label: "預備金", value: `${dashboard.emergencyFundMonths.toFixed(1)} 個月`, className: "bg-violet-50 text-violet-800 dark:bg-violet-950/50 dark:text-violet-100", page: "budgets" as const }
+  ];
+  return (
+    <section className="finance-goal-panel rounded-lg border border-slate-200 p-4 shadow-subtle dark:border-slate-700 sm:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold text-slate-950 dark:text-slate-50">本月財務中心</h2>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">用資產、負債與預算，快速看懂現在的資金位置。</p>
+        </div>
+        <button className="btn-primary" onClick={() => onNavigate("budgets")}><Banknote size={16} />規劃預算</button>
+      </div>
+      <div className="mt-4 grid gap-3 lg:grid-cols-[1.35fr_repeat(4,minmax(0,1fr))]">
+        <button className="finance-focus-card min-h-[116px] rounded-lg p-4 text-left text-white shadow-md transition hover:-translate-y-0.5" onClick={() => onNavigate("reports")}>
+          <p className="text-xs font-semibold text-emerald-200">整體資產狀態</p>
+          <p className="mt-2 text-3xl font-bold">{formatMoney(dashboard.netWorthCents)}</p>
+          <p className="mt-3 text-xs leading-5 text-slate-300">總資產 {formatMoney(dashboard.totalAssetsCents)} · 總負債 {formatMoney(dashboard.totalLiabilitiesCents)}</p>
+        </button>
+        {tiles.map((tile) => (
+          <button key={tile.label} className={`finance-metric-tile rounded-lg p-4 text-left transition hover:-translate-y-0.5 ${tile.className}`} onClick={() => onNavigate(tile.page)}>
+            <p className="text-xs font-semibold opacity-70">{tile.label}</p>
+            <p className="mt-3 break-words text-xl font-bold">{tile.value}</p>
+          </button>
+        ))}
       </div>
     </section>
   );
@@ -2635,7 +2675,7 @@ function TrendChart({ data }: { data: { month: string; incomeCents: number; expe
                 <rect x={center + 3} y={Math.min(zeroY, yFor(item.expenseCents))} width={barWidth} height={Math.max(3, expenseHeight)} rx="4" fill="#0284c7">
                   <title>{`${item.month} 支出 ${formatMoney(item.expenseCents)}`}</title>
                 </rect>
-                <text x={center} y={height - 12} textAnchor="middle" className="fill-slate-500 text-xs">{item.month.slice(5)}</text>
+                <text x={center} y={height - 12} textAnchor="middle" className="fill-slate-500 text-xs dark:fill-slate-400">{item.month.slice(5)}</text>
               </g>
             );
           })}
