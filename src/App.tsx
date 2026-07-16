@@ -1318,12 +1318,13 @@ function LedgerHomePage({
   const totalMonthlyExpenseCents = ledgerChartRows.reduce((sum, row) => sum + row.expenseCents, 0);
   const sharedLedgerCount = ledgerBooks.filter((ledger) => ledger.isShared).length;
   const pendingInviteCount = invitations.filter((invite) => invite.status === "pending").length;
+  const primaryLedger = ledgerBooks[0] ?? null;
   const memberCode = profile ? formatMemberCode(profile.userId) : null;
 
   return (
-    <main className="min-h-screen overflow-hidden bg-slate-100 p-3 dark:bg-slate-950 sm:p-6">
+    <main className="min-h-screen overflow-hidden bg-[#f5f7fb] p-3 dark:bg-slate-950 sm:p-6">
       <div className="mx-auto max-w-7xl space-y-4">
-        <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white/95 p-3 shadow-subtle backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
+        <header className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white/95 p-3 shadow-subtle backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
           <Brand />
           <div className="flex items-center gap-2">
             {profile && <Badge>{getRoleLabel(profile)}</Badge>}
@@ -1335,70 +1336,53 @@ function LedgerHomePage({
           </div>
         </header>
 
-        <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-stretch">
-          <div className="screen-fade overflow-hidden rounded-2xl border border-slate-900 bg-slate-950 text-white shadow-card dark:border-slate-800">
-            <div className="tech-grid p-5 sm:p-6">
-              <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-                <div className="max-w-2xl">
-                  <div className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/10 px-3 py-1 text-sm font-semibold text-emerald-100">
-                    <BookOpen size={16} />
-                    帳本控制塔
-                  </div>
-                  <h1 className="mt-4 text-3xl font-bold tracking-normal text-white sm:text-4xl">選擇帳本，掌握完整財務版圖</h1>
-                  <p className="mt-3 max-w-xl text-sm leading-6 text-slate-300">每本帳本都是獨立工作區，理財、保險、投資、預算與報表分開管理，也能依權限邀請家人或夥伴共用。</p>
+        <section className="screen-fade overflow-hidden rounded-lg border border-slate-200 bg-white shadow-card dark:border-slate-800 dark:bg-slate-950">
+          <div className="grid gap-0 lg:grid-cols-[minmax(0,0.92fr)_minmax(420px,1.08fr)]">
+            <div className="flex flex-col justify-between p-5 sm:p-7">
+              <div>
+                <div className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-1 text-sm font-semibold text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
+                  <ShieldCheck size={16} />
+                  多帳本財務平台
                 </div>
-                <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:w-[420px]">
-                  <LedgerCommandMetric label="帳本數" value={`${ledgerBooks.length} 本`} subLabel={`${sharedLedgerCount} 本共用`} />
-                  <LedgerCommandMetric label="合計淨資產" value={formatMoney(totalNetWorthCents)} subLabel="跨帳本彙總" />
-                  <LedgerCommandMetric label="本月支出" value={formatMoney(totalMonthlyExpenseCents)} subLabel="全部帳本" />
-                  <LedgerCommandMetric label="保障額" value={formatMoney(totalInsuranceCoverageCents)} subLabel={`${pendingInviteCount} 個待處理邀請`} />
+                <h1 className="mt-5 max-w-2xl text-4xl font-bold tracking-normal text-slate-950 dark:text-slate-50 sm:text-5xl">
+                  像雲端服務一樣，管理你的每一本財務帳本。
+                </h1>
+                <p className="mt-4 max-w-xl text-base leading-7 text-slate-600 dark:text-slate-300">
+                  將家庭、個人、投資、副業與保險資料拆成獨立帳本，入口集中、權限清楚、數據即時彙整。登入後先選工作區，再處理每筆財務決策。
+                </p>
+                <div className="mt-6 flex flex-wrap gap-3">
+                  <a className="btn-primary h-11 px-4" href="#create-ledger">
+                    <Plus size={16} />
+                    建立新帳本
+                  </a>
+                  {primaryLedger && (
+                    <button className="btn-secondary h-11 px-4" onClick={() => onOpenLedger(primaryLedger.id)}>
+                      進入最近帳本
+                      <ArrowUpRight size={16} />
+                    </button>
+                  )}
+                </div>
+                <div className="mt-7 grid gap-3 sm:grid-cols-3">
+                  <LedgerOfficialMetric label="帳本數" value={`${ledgerBooks.length} 本`} detail={`${sharedLedgerCount} 本共用`} />
+                  <LedgerOfficialMetric label="淨資產總覽" value={formatMoney(totalNetWorthCents)} detail="跨帳本彙整" />
+                  <LedgerOfficialMetric label="本月支出" value={formatMoney(totalMonthlyExpenseCents)} detail="全部帳本合計" />
                 </div>
               </div>
-              <div className="mt-5 grid gap-3 lg:grid-cols-3">
-                <LedgerCommandChart title="淨資產分布" rows={ledgerChartRows.map((row) => ({ label: row.name, amountCents: row.netWorthCents, color: row.color }))} emptyLabel="尚無帳本資產資料" />
-                <LedgerCommandChart title="本月支出流向" rows={ledgerChartRows.map((row) => ({ label: row.name, amountCents: row.expenseCents, color: row.color }))} emptyLabel="尚無本月支出資料" />
-                <LedgerCommandChart title="保險保障配置" rows={ledgerChartRows.map((row) => ({ label: row.name, amountCents: row.coverageCents, color: row.color }))} emptyLabel="尚無保險保障資料" />
+              <div className="mt-7 flex flex-wrap items-center gap-3 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                <span className="rounded-md bg-emerald-50 px-3 py-1.5 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-100">RLS 權限隔離</span>
+                <span className="rounded-md bg-sky-50 px-3 py-1.5 text-sky-700 dark:bg-sky-950 dark:text-sky-100">Supabase 同步</span>
+                <span className="rounded-md bg-violet-50 px-3 py-1.5 text-violet-700 dark:bg-violet-950 dark:text-violet-100">多帳本共用</span>
               </div>
+            </div>
+
+            <div className="border-t border-slate-200 bg-slate-950 p-4 dark:border-slate-800 lg:border-l lg:border-t-0">
+              <LedgerProductPreview
+                ledgerChartRows={ledgerChartRows}
+                totalInsuranceCoverageCents={totalInsuranceCoverageCents}
+                pendingInviteCount={pendingInviteCount}
+              />
             </div>
           </div>
-
-          <form className="screen-fade rounded-2xl border border-slate-200 bg-white p-4 shadow-card dark:border-slate-800 dark:bg-slate-950" onSubmit={handleFormSubmit(onCreateLedger)}>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">快速建立帳本</p>
-                <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">新增家庭、投資、副業或自訂帳本。</p>
-              </div>
-              <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-100">
-                <Plus size={16} />
-              </span>
-            </div>
-            <div className="mt-4 grid gap-3">
-              <Field label="帳本名稱"><input className="input" name="name" placeholder="例如：家庭帳本" required /></Field>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="類型">
-                  <select className="input" name="purpose" defaultValue="custom">
-                    {Object.entries(ledgerPurposeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                  </select>
-                </Field>
-                <Field label="主題色">
-                  <select className="input" name="color" defaultValue={darkMode ? "sky" : "emerald"}>
-                    <option value="emerald">綠色</option>
-                    <option value="sky">藍色</option>
-                    <option value="violet">紫色</option>
-                    <option value="amber">金色</option>
-                    <option value="rose">紅色</option>
-                  </select>
-                </Field>
-              </div>
-              <Field label="擁有者"><input className="input" name="owner" defaultValue="自己" /></Field>
-              <Field label="備註"><input className="input" name="note" placeholder="用途或管理範圍" /></Field>
-              <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
-                <span>開啟共用邀請</span>
-                <input name="isShared" type="checkbox" />
-              </label>
-              <button className="btn-primary h-11 w-full" type="submit">建立並進入</button>
-            </div>
-          </form>
         </section>
 
         <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -1562,6 +1546,44 @@ function LedgerHomePage({
           </div>
 
           <aside className="space-y-4">
+            <form id="create-ledger" className="rounded-lg border border-slate-200 bg-white p-4 shadow-card dark:border-slate-800 dark:bg-slate-950" onSubmit={handleFormSubmit(onCreateLedger)}>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-bold text-slate-950 dark:text-slate-50">新增帳本</p>
+                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">建立新的財務工作區。</p>
+                </div>
+                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-100">
+                  <Plus size={16} />
+                </span>
+              </div>
+              <div className="mt-4 grid gap-3">
+                <Field label="帳本名稱"><input className="input" name="name" placeholder="例如：家庭帳本" required /></Field>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="類型">
+                    <select className="input" name="purpose" defaultValue="custom">
+                      {Object.entries(ledgerPurposeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="主題色">
+                    <select className="input" name="color" defaultValue={darkMode ? "sky" : "emerald"}>
+                      <option value="emerald">綠色</option>
+                      <option value="sky">藍色</option>
+                      <option value="violet">紫色</option>
+                      <option value="amber">金色</option>
+                      <option value="rose">紅色</option>
+                    </select>
+                  </Field>
+                </div>
+                <Field label="擁有者"><input className="input" name="owner" defaultValue="自己" /></Field>
+                <Field label="備註"><input className="input" name="note" placeholder="用途或管理範圍" /></Field>
+                <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
+                  <span>開啟共用邀請</span>
+                  <input name="isShared" type="checkbox" />
+                </label>
+                <button className="btn-primary h-11 w-full" type="submit">建立並進入</button>
+              </div>
+            </form>
+
             <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-card dark:border-slate-800 dark:bg-slate-950">
               <div className="flex items-center justify-between gap-3">
                 <div>
@@ -1625,12 +1647,102 @@ function TransitionOverlay({ label }: { label: string }) {
   );
 }
 
-function LedgerCommandMetric({ label, value, subLabel }: { label: string; value: string; subLabel: string }) {
+function LedgerOfficialMetric({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-white/10 p-3 shadow-subtle backdrop-blur">
-      <p className="text-xs font-semibold text-slate-300">{label}</p>
-      <p className="mt-2 break-words text-xl font-bold tracking-normal text-white">{value}</p>
-      <p className="mt-1 text-xs text-slate-400">{subLabel}</p>
+    <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-subtle dark:border-slate-800 dark:bg-slate-900">
+      <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">{label}</p>
+      <p className="mt-2 truncate text-lg font-bold text-slate-950 dark:text-slate-50">{value}</p>
+      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{detail}</p>
+    </div>
+  );
+}
+
+function LedgerProductPreview({
+  ledgerChartRows,
+  totalInsuranceCoverageCents,
+  pendingInviteCount
+}: {
+  ledgerChartRows: { id: string; name: string; color: LedgerBook["color"]; netWorthCents: number; expenseCents: number; coverageCents: number }[];
+  totalInsuranceCoverageCents: number;
+  pendingInviteCount: number;
+}) {
+  const visibleRows = ledgerChartRows.slice(0, 4);
+  const maxNetWorthCents = Math.max(...visibleRows.map((row) => row.netWorthCents), 1);
+  const totalNetWorthCents = ledgerChartRows.reduce((sum, row) => sum + row.netWorthCents, 0);
+
+  return (
+    <div className="mx-auto max-w-xl rounded-lg border border-white/10 bg-white p-3 shadow-card">
+      <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+        <div className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-red-400" />
+          <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
+          <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
+        </div>
+        <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-500">Ez2SaveMore Cloud</span>
+      </div>
+
+      <div className="mt-4 rounded-lg border border-slate-200 bg-[#f8fafc] p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase text-slate-500">Workspace Overview</p>
+            <p className="mt-1 text-xl font-bold text-slate-950">帳本總覽</p>
+          </div>
+          <span className="rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">Live sync</span>
+        </div>
+
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          <div className="rounded-lg bg-white p-3 shadow-subtle">
+            <p className="text-xs text-slate-500">淨資產</p>
+            <p className="mt-1 truncate text-sm font-bold text-slate-950">{formatMoney(totalNetWorthCents)}</p>
+          </div>
+          <div className="rounded-lg bg-white p-3 shadow-subtle">
+            <p className="text-xs text-slate-500">保障額</p>
+            <p className="mt-1 truncate text-sm font-bold text-slate-950">{formatMoney(totalInsuranceCoverageCents)}</p>
+          </div>
+          <div className="rounded-lg bg-white p-3 shadow-subtle">
+            <p className="text-xs text-slate-500">邀請</p>
+            <p className="mt-1 truncate text-sm font-bold text-slate-950">{pendingInviteCount} 個</p>
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-lg bg-slate-950 p-4 text-white">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-semibold">多帳本資產分布</p>
+            <BarChart3 size={16} className="text-slate-400" />
+          </div>
+          <div className="mt-4 space-y-3">
+            {visibleRows.length === 0 ? (
+              <p className="text-sm text-slate-400">建立帳本後會顯示資料預覽。</p>
+            ) : (
+              visibleRows.map((row) => (
+                <div key={row.id}>
+                  <div className="mb-1 flex items-center justify-between gap-3 text-xs">
+                    <span className="truncate text-slate-300">{row.name}</span>
+                    <span className="shrink-0 font-semibold">{formatMoney(row.netWorthCents)}</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-white/10">
+                    <div
+                      className={`h-2 rounded-full ${getLedgerToneClasses(row.color).bar}`}
+                      style={{ width: `${Math.max(8, (row.netWorthCents / maxNetWorthCents) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          <div className="rounded-lg border border-slate-200 bg-white p-3">
+            <p className="text-xs font-semibold text-slate-500">權限</p>
+            <p className="mt-1 text-sm font-bold text-slate-950">RLS 使用者隔離</p>
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-white p-3">
+            <p className="text-xs font-semibold text-slate-500">資料</p>
+            <p className="mt-1 text-sm font-bold text-slate-950">帳本獨立快照</p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1678,54 +1790,6 @@ function getLedgerToneClasses(color: LedgerBook["color"]) {
     soft: "bg-emerald-50 dark:bg-emerald-950",
     text: "text-emerald-700 dark:text-emerald-100"
   };
-}
-
-function LedgerCommandChart({
-  title,
-  rows,
-  emptyLabel
-}: {
-  title: string;
-  rows: { label: string; amountCents: number; color: LedgerBook["color"] }[];
-  emptyLabel: string;
-}) {
-  const activeRows = rows.filter((row) => row.amountCents > 0);
-  const total = activeRows.reduce((sum, row) => sum + row.amountCents, 0);
-  const max = Math.max(...activeRows.map((row) => row.amountCents), 1);
-
-  if (activeRows.length === 0) {
-    return (
-      <div className="rounded-xl border border-white/10 bg-white/10 p-4 shadow-subtle backdrop-blur">
-        <p className="text-sm font-semibold text-white">{title}</p>
-        <p className="mt-6 text-sm text-slate-400">{emptyLabel}</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded-xl border border-white/10 bg-white/10 p-4 shadow-subtle backdrop-blur">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm font-semibold text-white">{title}</p>
-        <span className="shrink-0 text-xs font-semibold text-slate-300">{formatMoney(total)}</span>
-      </div>
-      <div className="mt-4 space-y-3">
-        {activeRows.slice(0, 5).map((row) => (
-          <div key={row.label}>
-            <div className="mb-1 flex items-center justify-between gap-3 text-xs">
-              <span className="truncate text-slate-300">{row.label}</span>
-              <span className="shrink-0 font-semibold text-white">{formatPercent(row.amountCents / total)}</span>
-            </div>
-            <div className="h-2 rounded-full bg-white/10">
-              <div
-                className={`h-2 rounded-full ${getLedgerToneClasses(row.color).bar}`}
-                style={{ width: `${Math.max(6, (row.amountCents / max) * 100)}%` }}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 function Brand() {
