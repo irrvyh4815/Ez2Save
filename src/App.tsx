@@ -31,7 +31,7 @@ import {
   Upload,
   WalletCards
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import {
   calculateDeposit,
@@ -198,100 +198,100 @@ const navItems = navGroups.flatMap((group) => group.items);
 
 const pageIntros: Record<Page, { eyebrow: string; title: string; description: string; accent: string; tint: string }> = {
   dashboard: {
-    eyebrow: "Today at a glance",
+    eyebrow: "本月財務概覽",
     title: "你的財務全景已整理好",
     description: "快速掌握資產、負債、現金流與近期到期事項，先看方向，再處理細節。",
     accent: "#059669",
     tint: "#ecfdf5"
   },
   transactions: {
-    eyebrow: "Smart ledger",
+    eyebrow: "日常收支管理",
     title: "讓每筆收支都有清楚位置",
     description: "分類記憶、CSV 匯入與近期交易，協助你把資料整理成可分析的帳本。",
     accent: "#0284c7",
     tint: "#eff6ff"
   },
   accounts: {
-    eyebrow: "Portfolio base",
+    eyebrow: "資金帳戶管理",
     title: "整理所有帳戶與可動用資金",
     description: "從現金、活存到定存，建立你的資產底圖，後續報表才會更準。",
     accent: "#0f766e",
     tint: "#f0fdfa"
   },
   cards: {
-    eyebrow: "Debt clarity",
+    eyebrow: "信用與分期管理",
     title: "信用卡、帳單與分期一次看清",
     description: "追蹤本期帳款、未出帳、額度使用率與分期負債，降低漏繳與高使用率風險。",
     accent: "#7c3aed",
     tint: "#f5f3ff"
   },
   loans: {
-    eyebrow: "Payoff map",
+    eyebrow: "還款規劃",
     title: "把貸款變成可規劃的路線",
     description: "集中檢視本金、利率、期數與還款日，搭配試算器評估提前還款效果。",
     accent: "#d97706",
     tint: "#fffbeb"
   },
   deposits: {
-    eyebrow: "Savings growth",
+    eyebrow: "存款規劃",
     title: "掌握存款到期與預估收益",
     description: "整理活存、定存與定期儲蓄，讓資金配置更有節奏。",
     accent: "#16a34a",
     tint: "#f0fdf4"
   },
   insurance: {
-    eyebrow: "Protection map",
+    eyebrow: "保障規劃",
     title: "保費、保障與理賠一眼看懂",
     description: "集中管理壽險、醫療、意外、車險與其他保單，快速掌握保險費用與賠付狀態。",
     accent: "#0d9488",
     tint: "#f0fdfa"
   },
   investments: {
-    eyebrow: "Investment classes",
+    eyebrow: "投資分類",
     title: "管理股票與基金分類",
     description: "把台股、美股、ETF、基金與其他投資分類整理好，後續持倉與報表才有清楚架構。",
     accent: "#2563eb",
     tint: "#eff6ff"
   },
   calculators: {
-    eyebrow: "Scenario lab",
+    eyebrow: "財務試算",
     title: "把常用試算集中在計算機",
     description: "貸款、存款、淨資產、負債比與預備金月數都能快速試算，先模擬，再行動。",
     accent: "#0891b2",
     tint: "#ecfeff"
   },
   budgets: {
-    eyebrow: "Spending rhythm",
+    eyebrow: "開支規劃",
     title: "用預算掌握本月節奏",
     description: "追蹤已使用、剩餘與預估月底支出，及早看見超支風險。",
     accent: "#db2777",
     tint: "#fdf2f8"
   },
   reminders: {
-    eyebrow: "Never miss a due date",
+    eyebrow: "付款提醒",
     title: "重要扣款與帳單到期都在這裡",
     description: "固定帳單、信用卡與貸款提醒會集中顯示，讓付款節奏更穩。",
     accent: "#ea580c",
     tint: "#fff7ed"
   },
   reports: {
-    eyebrow: "Monthly review",
+    eyebrow: "財務回顧",
     title: "把你的總帳輸出成報表",
     description: "查看趨勢、分類、帳戶與負債報表，並匯出 CSV、Excel 或 PDF。",
     accent: "#4f46e5",
     tint: "#eef2ff"
   },
   ai: {
-    eyebrow: "Insight mode",
+    eyebrow: "財務洞察",
     title: "把數字轉成下一步行動",
     description: "AI 只在你主動點擊時分析彙總資料，協助整理風險、優先順序與建議。",
     accent: "#9333ea",
     tint: "#faf5ff"
   },
   settings: {
-    eyebrow: "Account settings",
-    title: "管理帳號與資料連線",
-    description: "只保留登入狀態、帳號權限與 Supabase 連線檢查。",
+    eyebrow: "帳號與資料",
+    title: "管理登入與雲端資料",
+    description: "確認帳號狀態、資料讀取與安全設定。",
     accent: "#475569",
     tint: "#f8fafc"
   }
@@ -464,10 +464,10 @@ export default function App() {
   const [csvPreview, setCsvPreview] = useState<ReturnType<typeof parseTransactionsCsv>>([]);
   const [aiReport, setAiReport] = useState<AiFinancialReport | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const refreshFinanceDataRef = useRef<() => Promise<void>>(async () => undefined);
 
   useEffect(() => {
-    void refreshFinanceData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    void refreshFinanceDataRef.current();
   }, []);
 
   function createEmptySnapshot(): FinanceSnapshot {
@@ -539,10 +539,10 @@ export default function App() {
       setSessionEmail(result.session?.user.email ?? null);
       setDataNotice(
         !isSupabaseConfigured
-          ? "尚未設定 Supabase 環境變數，已停用範例資料並顯示空資料。"
+          ? "雲端資料尚未完成設定，目前顯示空白帳本。"
           : result.session
             ? ""
-            : "登入或註冊後，即可讀取你儲存在 Supabase 的個人理財資料。"
+            : "登入或註冊後，即可讀取你已儲存的個人理財資料。"
       );
     } catch (error) {
       setDataNotice(error instanceof Error ? error.message : "資料讀取失敗");
@@ -551,6 +551,8 @@ export default function App() {
       setDataLoading(false);
     }
   }
+
+  refreshFinanceDataRef.current = refreshFinanceData;
 
   async function handlePasswordSignIn(email: string, password: string) {
     await signInWithPassword(email, password);
@@ -580,12 +582,12 @@ export default function App() {
       setSupabaseCheck(result);
       notify(result.ok ? "success" : "error", result.message);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Supabase 連線檢查失敗";
+      const message = error instanceof Error ? error.message : "雲端資料檢查失敗";
       setSupabaseCheck({
         ok: false,
         status: "schema_error",
         message,
-        details: ["請確認環境變數、登入狀態、migration 與 RLS policy"]
+        details: ["請確認登入狀態與雲端資料設定"]
       });
       notify("error", message);
     } finally {
@@ -737,7 +739,7 @@ export default function App() {
   function deleteLedger(ledgerId: string) {
     if (ledgerBooks.length <= 1) return notify("error", "至少需要保留一本帳本");
     const ledger = ledgerBooks.find((candidate) => candidate.id === ledgerId);
-    if (!window.confirm(`確定刪除「${ledger?.name ?? "此帳本"}」？此操作只會移除目前前端帳本與其快照。`)) return;
+    if (!window.confirm(`確定刪除「${ledger?.name ?? "此帳本"}」？刪除後無法復原。`)) return;
     setLedgerBooks((current) => current.filter((candidate) => candidate.id !== ledgerId));
     setLedgerSnapshots((current) => {
       const next = { ...current };
@@ -817,7 +819,7 @@ export default function App() {
     try {
       const saved = await createFinancialAccount(account);
       setAccounts((current) => [saved, ...current]);
-      notify("success", isSupabaseConfigured ? "帳戶已儲存到 Supabase" : "帳戶已新增");
+      notify("success", isSupabaseConfigured ? "帳戶已儲存" : "帳戶已新增");
     } catch (error) {
       notify("error", error instanceof Error ? error.message : "帳戶儲存失敗");
     }
@@ -987,7 +989,7 @@ export default function App() {
       notify("success", "AI 理財健檢已產生");
     } catch (error) {
       setAiReport(mockAiFinancialHealth(input));
-      notify("error", error instanceof Error ? error.message : "AI 暫時無法使用，已顯示 mock 分析");
+      notify("error", error instanceof Error ? error.message : "AI 暫時無法使用，已顯示預設分析");
     } finally {
       setAiLoading(false);
     }
@@ -1348,7 +1350,7 @@ function LedgerHomePage({
                   像雲端服務一樣，管理你的每一本財務帳本。
                 </h1>
                 <p className="mt-4 max-w-xl text-base leading-7 text-slate-600 dark:text-slate-300">
-                  將家庭、個人、投資、副業與保險資料拆成獨立帳本，入口集中、權限清楚、數據即時彙整。登入後先選工作區，再處理每筆財務決策。
+                  將家庭、個人、投資、副業與保險資料拆成獨立帳本，集中切換、清楚共用，讓每一筆財務決策都有正確歸屬。
                 </p>
                 <div className="mt-6 flex flex-wrap gap-3">
                   <a className="btn-primary h-11 px-4" href="#create-ledger">
@@ -1369,9 +1371,9 @@ function LedgerHomePage({
                 </div>
               </div>
               <div className="mt-7 flex flex-wrap items-center gap-3 text-xs font-semibold text-slate-500 dark:text-slate-400">
-                <span className="rounded-md bg-emerald-50 px-3 py-1.5 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-100">RLS 權限隔離</span>
-                <span className="rounded-md bg-sky-50 px-3 py-1.5 text-sky-700 dark:bg-sky-950 dark:text-sky-100">Supabase 同步</span>
-                <span className="rounded-md bg-violet-50 px-3 py-1.5 text-violet-700 dark:bg-violet-950 dark:text-violet-100">多帳本共用</span>
+                <span className="rounded-md bg-emerald-50 px-3 py-1.5 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-100">資料分帳管理</span>
+                <span className="rounded-md bg-sky-50 px-3 py-1.5 text-sky-700 dark:bg-sky-950 dark:text-sky-100">雲端安全保存</span>
+                <span className="rounded-md bg-violet-50 px-3 py-1.5 text-violet-700 dark:bg-violet-950 dark:text-violet-100">彈性成員共用</span>
               </div>
             </div>
 
@@ -1530,7 +1532,7 @@ function LedgerHomePage({
 
                           <details className="rounded-lg border border-red-200 bg-red-50/70 p-3 dark:border-red-900 dark:bg-red-950/30">
                             <summary className="cursor-pointer text-sm font-semibold text-red-700 dark:text-red-200">危險操作</summary>
-                            <p className="mt-2 text-xs leading-5 text-red-700 dark:text-red-200">刪除帳本會移除目前前端帳本與快照。正式雲端資料需由 Supabase RLS 與後端流程保護。</p>
+                            <p className="mt-2 text-xs leading-5 text-red-700 dark:text-red-200">刪除帳本後，帳本內容與成員邀請將一併移除，無法復原。</p>
                             <button className="btn-danger mt-3 w-full" onClick={() => onDeleteLedger(ledger.id)}>
                               <Trash2 size={16} />
                               刪除帳本
@@ -1588,7 +1590,7 @@ function LedgerHomePage({
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="font-bold text-slate-950 dark:text-slate-50">安全與共用中心</p>
-                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">所有帳本以使用者與成員權限隔離。</p>
+                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">你可掌握每本帳本的共用範圍與成員邀請。</p>
                 </div>
                 <ShieldCheck className="text-emerald-600 dark:text-emerald-300" size={24} />
               </div>
@@ -1678,16 +1680,16 @@ function LedgerProductPreview({
           <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
           <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
         </div>
-        <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-500">Ez2SaveMore Cloud</span>
+        <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-500">Ez2SaveMore</span>
       </div>
 
       <div className="mt-4 flex flex-1 flex-col rounded-lg border border-slate-200 bg-[#f8fafc] p-4 dark:border-slate-800 dark:bg-slate-900">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase text-slate-500">Workspace Overview</p>
+            <p className="text-xs font-semibold text-slate-500">帳本管理中心</p>
             <p className="mt-1 text-xl font-bold text-slate-950">帳本總覽</p>
           </div>
-          <span className="rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">Live sync</span>
+          <span className="rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">資料已更新</span>
         </div>
 
         <div className="mt-4 grid grid-cols-3 gap-2">
@@ -1739,7 +1741,7 @@ function LedgerProductPreview({
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-full bg-sky-500" />
-            帳本資料已同步
+            帳本資料已保存
           </span>
         </div>
       </div>
@@ -1854,7 +1856,7 @@ function PageExperience({
   const intro = pageIntros[page];
   return (
     <section
-      className="tech-grid overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:p-5"
+      className="overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-subtle dark:border-slate-800 dark:bg-slate-950 sm:p-5"
       style={{
         backgroundImage: `linear-gradient(115deg, ${intro.tint} 0%, rgba(255,255,255,0.96) 44%, rgba(255,255,255,0.98) 100%)`
       }}
@@ -1956,7 +1958,7 @@ function AuthPage({
   }
 
   return (
-    <main className="tech-grid min-h-screen bg-[#f6f8fb] text-slate-950 dark:bg-slate-950 dark:text-slate-50">
+    <main className="min-h-screen bg-[#f6f8fb] text-slate-950 dark:bg-slate-950 dark:text-slate-50">
       <section className="mx-auto grid min-h-screen w-full max-w-7xl gap-8 px-4 py-6 sm:px-6 lg:grid-cols-[1.08fr_0.92fr] lg:items-center lg:px-8">
         <div className="relative overflow-hidden rounded-lg border border-slate-200 bg-white p-5 shadow-lg dark:border-slate-800 dark:bg-slate-900 sm:p-8">
           <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-emerald-500 via-sky-500 to-amber-400" />
@@ -1969,7 +1971,7 @@ function AuthPage({
           <div className="mt-10 max-w-3xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
               <span className="h-2 w-2 rounded-full bg-emerald-500" />
-              Personal finance OS
+              個人財務管理服務
             </div>
             <h1 className="mt-4 text-4xl font-bold tracking-normal text-slate-950 dark:text-slate-50 sm:text-5xl">
               把你的總帳，整理成可以行動的財務決策。
@@ -1988,12 +1990,12 @@ function AuthPage({
           <div className="mt-8 rounded-lg border border-slate-200 bg-slate-950 p-4 text-white shadow-lg dark:border-slate-700">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-xs font-medium text-emerald-300">Live finance workspace</p>
+                <p className="text-xs font-medium text-emerald-300">清楚掌握每月財務狀態</p>
                 <p className="mt-1 text-lg font-semibold">本月財務指揮台</p>
               </div>
               <div className="flex items-center gap-2 rounded-md bg-white/10 px-3 py-1 text-xs text-slate-200">
                 <span className="h-2 w-2 rounded-full bg-emerald-300" />
-                已連接 Supabase
+                資料安全保存
               </div>
             </div>
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
@@ -2036,7 +2038,7 @@ function AuthPage({
             <p className="text-sm font-semibold text-brand-700 dark:text-brand-100">開始使用</p>
             <h2 className="mt-2 text-2xl font-bold tracking-normal">登入你的財務工作台</h2>
             <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">
-              {dataNotice || "登入或註冊後，系統會載入你儲存在 Supabase 的資料。"}
+              {dataNotice || "登入或註冊後，系統會載入你已儲存的個人財務資料。"}
             </p>
           </div>
           {message && <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">{message}</div>}
@@ -2062,7 +2064,7 @@ function AuthPage({
             <button className="btn-secondary h-11 w-full" type="submit" disabled={loading}>寄送 Magic Link</button>
           </form>
           <p className="mt-5 text-center text-xs leading-5 text-slate-500 dark:text-slate-400">
-            最高管理員帳號會由 Supabase profile role 判定；一般使用者無法自行提升權限。
+            帳號權限由系統管理；一般使用者無法自行調整管理權限。
           </p>
         </div>
       </section>
@@ -2361,7 +2363,7 @@ function DashboardPage({
 
   return (
     <div className="space-y-4">
-      {dataLoading && <InlineNotice tone="neutral" message="正在讀取 Supabase 已儲存資料..." />}
+      {dataLoading && <InlineNotice tone="neutral" message="正在讀取已儲存的財務資料..." />}
       {!dataLoading && dataNotice && <InlineNotice tone="warning" message={dataNotice} />}
       <DashboardPulse dashboard={dashboard} monthlyTrend={monthlyTrend} />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
@@ -3296,7 +3298,7 @@ function TransactionsPage({
                     <td>{transaction.merchant ?? "-"}</td>
                     <td className="font-semibold">{formatMoney(transaction.amountCents)}</td>
                     <td>{transaction.source}</td>
-                    <td><button className="btn-danger px-2 py-1" onClick={() => onDelete(transaction.id)}><Trash2 size={14} /></button></td>
+                    <td><button className="btn-danger px-2 py-1" onClick={() => onDelete(transaction.id)} title="刪除交易" aria-label="刪除交易"><Trash2 size={14} /></button></td>
                   </tr>
                 ))}
               </tbody>
@@ -4290,7 +4292,7 @@ function InvestmentsPage({ notify }: { notify: (type: ToastType, message: string
                         {investmentKindLabels[category.kind]} · {investmentMarketLabels[category.market]} · {investmentRiskLabels[category.risk]}
                       </p>
                     </div>
-                    <button className="rounded-md p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950" onClick={() => deleteCategory(category.id)} aria-label="刪除投資分類">
+                    <button className="rounded-md p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950" onClick={() => deleteCategory(category.id)} title="刪除投資分類" aria-label="刪除投資分類">
                       <Trash2 size={16} />
                     </button>
                   </div>
@@ -4983,11 +4985,12 @@ function SettingsPage({
         <div className="mt-4 grid gap-3 text-sm">
           <Info label="登入 Email" value={sessionEmail ?? "尚未登入"} />
           <Info label="帳號角色" value={profile ? getRoleLabel(profile) : "尚未建立 profile"} />
-          <Info label="資料來源" value={sessionEmail ? "Supabase 已登入帳號" : "尚未讀取雲端資料"} />
+          <Info label="資料狀態" value={sessionEmail ? "已連結雲端帳號" : "尚未讀取雲端資料"} />
         </div>
       </section>
       <section className="panel">
-        <h2 className="text-lg font-semibold">Supabase 資料連線</h2>
+        <h2 className="text-lg font-semibold">雲端資料</h2>
+        <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">登入後可安全讀取與保存個人財務資料。</p>
         {dataNotice && <div className="mt-3"><InlineNotice tone="warning" message={dataNotice} /></div>}
         {supabaseCheck && (
           <div className={`mt-3 rounded-md border p-3 text-sm ${
@@ -5002,18 +5005,18 @@ function SettingsPage({
           </div>
         )}
         <form className="mt-4 flex flex-col gap-3 sm:flex-row" onSubmit={handleFormSubmit((formData) => void onSendSignInLink(String(formData.get("email") ?? "")))}>
-          <input className="input mt-0" name="email" type="email" placeholder="輸入 Supabase Auth email" required disabled={!isSupabaseConfigured} />
+          <input className="input mt-0" name="email" type="email" placeholder="輸入 Email" required disabled={!isSupabaseConfigured} />
           <button className="btn-primary shrink-0" type="submit" disabled={!isSupabaseConfigured}>寄送登入連結</button>
         </form>
         <div className="mt-3 flex flex-wrap gap-2">
           <button className="btn-secondary" onClick={onCheckSupabase} disabled={supabaseChecking}>
-            {supabaseChecking ? "檢查中" : "檢查 Supabase 連線"}
+            {supabaseChecking ? "檢查中" : "檢查資料狀態"}
           </button>
           <button className="btn-secondary" onClick={onRefresh}>重新讀取資料</button>
           <button className="btn-danger" onClick={() => void onSignOut()} disabled={!sessionEmail}>登出</button>
         </div>
         <p className="mt-4 text-sm leading-6 text-slate-500 dark:text-slate-400">
-          目前狀態：{isSupabaseConfigured ? "已設定 Supabase 前端連線。" : "尚未設定 Supabase 前端連線。"}
+          目前狀態：{isSupabaseConfigured ? "雲端資料已準備完成。" : "雲端資料尚未完成設定。"}
         </p>
       </section>
     </div>
@@ -5022,7 +5025,7 @@ function SettingsPage({
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="block rounded-lg border border-slate-200/80 bg-white/70 p-3 shadow-subtle transition focus-within:border-emerald-300 focus-within:bg-white focus-within:shadow-md dark:border-slate-800 dark:bg-slate-950/60 dark:focus-within:border-emerald-800 dark:focus-within:bg-slate-950">
+    <label className="block">
       <span className="label">{label}</span>
       {children}
     </label>
