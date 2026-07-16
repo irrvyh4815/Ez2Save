@@ -1533,7 +1533,7 @@ function LedgerHomePage({
                           )}
 
                           <details className="rounded-lg border border-red-200 bg-red-50/70 p-3 dark:border-red-900 dark:bg-red-950/30">
-                            <summary className="cursor-pointer text-sm font-semibold text-red-700 dark:text-red-200">危險操作</summary>
+                            <summary className="cursor-pointer text-sm font-semibold text-red-700 dark:text-red-200">刪除</summary>
                             <p className="mt-2 text-xs leading-5 text-red-700 dark:text-red-200">刪除帳本後，帳本內容與成員邀請將一併移除，無法復原。</p>
                             <button className="btn-danger mt-3 w-full" onClick={() => onDeleteLedger(ledger.id)}>
                               <Trash2 size={16} />
