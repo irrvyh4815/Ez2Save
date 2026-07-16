@@ -1732,15 +1732,15 @@ function LedgerProductPreview({
           </div>
         </div>
 
-        <div className="mt-4 grid gap-2 sm:grid-cols-2">
-          <div className="rounded-lg border border-slate-200 bg-white p-3">
-            <p className="text-xs font-semibold text-slate-500">權限</p>
-            <p className="mt-1 text-sm font-bold text-slate-950">RLS 使用者隔離</p>
-          </div>
-          <div className="rounded-lg border border-slate-200 bg-white p-3">
-            <p className="text-xs font-semibold text-slate-500">資料</p>
-            <p className="mt-1 text-sm font-bold text-slate-950">帳本獨立快照</p>
-          </div>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+            權限保護已啟用
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-sky-500" />
+            帳本資料已同步
+          </span>
         </div>
       </div>
     </div>
