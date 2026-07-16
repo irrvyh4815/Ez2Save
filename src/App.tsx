@@ -1375,7 +1375,7 @@ function LedgerHomePage({
               </div>
             </div>
 
-            <div className="border-t border-slate-200 bg-slate-950 p-4 dark:border-slate-800 lg:border-l lg:border-t-0">
+            <div className="flex border-t border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900/60 lg:border-l lg:border-t-0">
               <LedgerProductPreview
                 ledgerChartRows={ledgerChartRows}
                 totalInsuranceCoverageCents={totalInsuranceCoverageCents}
@@ -1671,7 +1671,7 @@ function LedgerProductPreview({
   const totalNetWorthCents = ledgerChartRows.reduce((sum, row) => sum + row.netWorthCents, 0);
 
   return (
-    <div className="mx-auto max-w-xl rounded-lg border border-white/10 bg-white p-3 shadow-card">
+    <div className="flex h-full w-full flex-col rounded-lg border border-slate-200 bg-white p-3 shadow-subtle dark:border-slate-800 dark:bg-slate-950">
       <div className="flex items-center justify-between border-b border-slate-200 pb-3">
         <div className="flex items-center gap-1.5">
           <span className="h-2.5 w-2.5 rounded-full bg-red-400" />
@@ -1681,7 +1681,7 @@ function LedgerProductPreview({
         <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-500">Ez2SaveMore Cloud</span>
       </div>
 
-      <div className="mt-4 rounded-lg border border-slate-200 bg-[#f8fafc] p-4">
+      <div className="mt-4 flex flex-1 flex-col rounded-lg border border-slate-200 bg-[#f8fafc] p-4 dark:border-slate-800 dark:bg-slate-900">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase text-slate-500">Workspace Overview</p>
@@ -1705,22 +1705,22 @@ function LedgerProductPreview({
           </div>
         </div>
 
-        <div className="mt-4 rounded-lg bg-slate-950 p-4 text-white">
+        <div className="mt-4 rounded-lg border border-slate-200 bg-white p-4 text-slate-950 shadow-subtle dark:border-slate-800 dark:bg-slate-950 dark:text-slate-50">
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm font-semibold">多帳本資產分布</p>
-            <BarChart3 size={16} className="text-slate-400" />
+            <BarChart3 size={16} className="text-slate-400 dark:text-slate-500" />
           </div>
           <div className="mt-4 space-y-3">
             {visibleRows.length === 0 ? (
-              <p className="text-sm text-slate-400">建立帳本後會顯示資料預覽。</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">建立帳本後會顯示資料預覽。</p>
             ) : (
               visibleRows.map((row) => (
                 <div key={row.id}>
                   <div className="mb-1 flex items-center justify-between gap-3 text-xs">
-                    <span className="truncate text-slate-300">{row.name}</span>
+                    <span className="truncate text-slate-600 dark:text-slate-300">{row.name}</span>
                     <span className="shrink-0 font-semibold">{formatMoney(row.netWorthCents)}</span>
                   </div>
-                  <div className="h-2 rounded-full bg-white/10">
+                  <div className="h-2 rounded-full bg-slate-100 dark:bg-slate-800">
                     <div
                       className={`h-2 rounded-full ${getLedgerToneClasses(row.color).bar}`}
                       style={{ width: `${Math.max(8, (row.netWorthCents / maxNetWorthCents) * 100)}%` }}
