@@ -36,9 +36,18 @@ input[type="checkbox"] {
   color: #e2e8f0;
 }
 
+.dark .page-experience {
+  background-color: #0f172a !important;
+  background-image: none !important;
+}
+
 @layer components {
   .panel {
     @apply rounded-lg border border-slate-200 bg-white p-4 shadow-subtle transition-shadow hover:shadow-md dark:border-slate-800 dark:bg-slate-950;
+  }
+
+  .dark .panel {
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.28);
   }
 
   .dark .panel {

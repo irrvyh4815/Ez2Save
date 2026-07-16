@@ -1674,36 +1674,36 @@ function LedgerProductPreview({
 
   return (
     <div className="flex h-full w-full flex-col rounded-lg border border-slate-200 bg-white p-3 shadow-subtle dark:border-slate-800 dark:bg-slate-950">
-      <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+      <div className="flex items-center justify-between border-b border-slate-200 pb-3 dark:border-slate-800">
         <div className="flex items-center gap-1.5">
           <span className="h-2.5 w-2.5 rounded-full bg-red-400" />
           <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
           <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
         </div>
-        <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-500">Ez2SaveMore</span>
+        <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-500 dark:bg-slate-900 dark:text-slate-400">Ez2SaveMore</span>
       </div>
 
       <div className="mt-4 flex flex-1 flex-col rounded-lg border border-slate-200 bg-[#f8fafc] p-4 dark:border-slate-800 dark:bg-slate-900">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold text-slate-500">帳本管理中心</p>
-            <p className="mt-1 text-xl font-bold text-slate-950">帳本總覽</p>
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">帳本管理中心</p>
+            <p className="mt-1 text-xl font-bold text-slate-950 dark:text-slate-50">帳本總覽</p>
           </div>
-          <span className="rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">資料已更新</span>
+          <span className="rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-100">資料已更新</span>
         </div>
 
         <div className="mt-4 grid grid-cols-3 gap-2">
-          <div className="rounded-lg bg-white p-3 shadow-subtle">
-            <p className="text-xs text-slate-500">淨資產</p>
-            <p className="mt-1 truncate text-sm font-bold text-slate-950">{formatMoney(totalNetWorthCents)}</p>
+          <div className="rounded-lg bg-white p-3 shadow-subtle dark:bg-slate-950">
+            <p className="text-xs text-slate-500 dark:text-slate-400">淨資產</p>
+            <p className="mt-1 truncate text-sm font-bold text-slate-950 dark:text-slate-50">{formatMoney(totalNetWorthCents)}</p>
           </div>
-          <div className="rounded-lg bg-white p-3 shadow-subtle">
-            <p className="text-xs text-slate-500">保障額</p>
-            <p className="mt-1 truncate text-sm font-bold text-slate-950">{formatMoney(totalInsuranceCoverageCents)}</p>
+          <div className="rounded-lg bg-white p-3 shadow-subtle dark:bg-slate-950">
+            <p className="text-xs text-slate-500 dark:text-slate-400">保障額</p>
+            <p className="mt-1 truncate text-sm font-bold text-slate-950 dark:text-slate-50">{formatMoney(totalInsuranceCoverageCents)}</p>
           </div>
-          <div className="rounded-lg bg-white p-3 shadow-subtle">
-            <p className="text-xs text-slate-500">邀請</p>
-            <p className="mt-1 truncate text-sm font-bold text-slate-950">{pendingInviteCount} 個</p>
+          <div className="rounded-lg bg-white p-3 shadow-subtle dark:bg-slate-950">
+            <p className="text-xs text-slate-500 dark:text-slate-400">邀請</p>
+            <p className="mt-1 truncate text-sm font-bold text-slate-950 dark:text-slate-50">{pendingInviteCount} 個</p>
           </div>
         </div>
 
@@ -1856,7 +1856,7 @@ function PageExperience({
   const intro = pageIntros[page];
   return (
     <section
-      className="overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-subtle dark:border-slate-800 dark:bg-slate-950 sm:p-5"
+      className="page-experience overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-subtle dark:border-slate-800 sm:p-5"
       style={{
         backgroundImage: `linear-gradient(115deg, ${intro.tint} 0%, rgba(255,255,255,0.96) 44%, rgba(255,255,255,0.98) 100%)`
       }}
@@ -1867,8 +1867,8 @@ function PageExperience({
             <Sparkles size={14} style={{ color: intro.accent }} />
             {intro.eyebrow}
           </div>
-          <h2 className="mt-3 text-2xl font-bold tracking-normal text-slate-950">{intro.title}</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{intro.description}</p>
+          <h2 className="mt-3 text-2xl font-bold tracking-normal text-slate-950 dark:text-slate-50">{intro.title}</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300">{intro.description}</p>
         </div>
         <div className="grid grid-cols-3 gap-2">
           <PageMiniStat label="月份" value={month.replace("-", "/")} accent={intro.accent} />
@@ -1882,9 +1882,9 @@ function PageExperience({
 
 function PageMiniStat({ label, value, accent }: { label: string; value: string; accent: string }) {
   return (
-    <div className="rounded-md border border-white/80 bg-white/85 p-3 shadow-subtle">
-      <p className="text-xs text-slate-500">{label}</p>
-      <p className="mt-1 truncate text-lg font-bold text-slate-950" style={{ color: accent }}>{value}</p>
+    <div className="rounded-md border border-white/80 bg-white/85 p-3 shadow-subtle dark:border-slate-700 dark:bg-slate-900">
+      <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
+      <p className="mt-1 truncate text-lg font-bold text-slate-950 dark:text-slate-50" style={{ color: accent }}>{value}</p>
     </div>
   );
 }
@@ -2676,7 +2676,7 @@ function CategoryBars({ data }: { data: { category: string; amountCents: number 
           </div>
         </div>
       ))}
-      {data.length > topItems.length && <p className="text-xs text-slate-500">其餘 {data.length - topItems.length} 個分類合併保留在報表資料中。</p>}
+      {data.length > topItems.length && <p className="text-xs text-slate-500 dark:text-slate-400">其餘 {data.length - topItems.length} 個分類合併保留在報表資料中。</p>}
     </div>
   );
 }
@@ -2716,7 +2716,7 @@ function AccountBalanceChart({ accounts }: { accounts: FinancialAccount[] }) {
           <div className="h-3 rounded-full bg-slate-200 dark:bg-slate-800">
             <div className="h-3 rounded-full" style={{ width: `${Math.max(4, (account.balanceCents / max) * 100)}%`, backgroundColor: getChartColor(index) }} />
           </div>
-          <p className="mt-1 text-xs text-slate-500">{accountTypeLabels[account.type]} · {formatPercent(account.balanceCents / Math.max(total, 1))}</p>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{accountTypeLabels[account.type]} · {formatPercent(account.balanceCents / Math.max(total, 1))}</p>
         </div>
       ))}
       </div>
@@ -2835,7 +2835,7 @@ function InstallmentDebtTable({ cards, installments }: { cards: CreditCard[]; in
     <div className="mt-4 overflow-x-auto">
       <table className="w-full min-w-[860px] text-sm">
         <thead>
-          <tr className="text-left text-slate-500">
+          <tr className="text-left text-slate-500 dark:text-slate-400">
             <th>卡片</th>
             <th>項目</th>
             <th>總額</th>
@@ -2886,7 +2886,7 @@ function MiniBars({ data, emptyLabel }: { data: { label: string; amountCents: nu
           <div className="h-2 rounded-full bg-slate-200 dark:bg-slate-800">
             <div className="h-2 rounded-full" style={{ width: `${Math.max(4, (item.amountCents / Math.max(total, 1)) * 100)}%`, backgroundColor: getChartColor(index) }} />
           </div>
-          <p className="mt-1 text-xs text-slate-500">{formatPercent(item.amountCents / Math.max(total, 1))}</p>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{formatPercent(item.amountCents / Math.max(total, 1))}</p>
         </div>
       ))}
     </div>
@@ -2954,7 +2954,7 @@ function DepositMaturityBars({ data, total }: { data: { month: string; amountCen
             <div className="h-3 rounded-full bg-slate-200 dark:bg-slate-800">
               <div className="h-3 rounded-full" style={{ width: `${Math.max(4, (item.amountCents / max) * 100)}%`, backgroundColor: getChartColor(index) }} />
             </div>
-            <p className="mt-1 text-xs text-slate-500">{formatPercent(item.amountCents / Math.max(total, 1))}</p>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{formatPercent(item.amountCents / Math.max(total, 1))}</p>
           </div>
         ))}
       </div>
@@ -2987,7 +2987,7 @@ function BudgetPlanChart({
             </div>
             <div className="space-y-2">
               <div>
-                <div className="mb-1 flex justify-between text-xs text-slate-500">
+                <div className="mb-1 flex justify-between text-xs text-slate-500 dark:text-slate-400">
                   <span>預算</span>
                   <span>{formatMoney(row.budgetCents)}</span>
                 </div>
@@ -2996,7 +2996,7 @@ function BudgetPlanChart({
                 </div>
               </div>
               <div>
-                <div className="mb-1 flex justify-between text-xs text-slate-500">
+                <div className="mb-1 flex justify-between text-xs text-slate-500 dark:text-slate-400">
                   <span>已使用</span>
                   <span>{formatMoney(row.spentCents)}{overBudget ? ` · 超支 ${formatMoney(row.spentCents - row.budgetCents)}` : ""}</span>
                 </div>
@@ -3052,7 +3052,7 @@ function DonutChart({
         offset += dash;
         return element;
       })}
-      <text x="78" y="72" textAnchor="middle" className="fill-slate-500 text-xs">{centerLabel}</text>
+      <text x="78" y="72" textAnchor="middle" className="fill-slate-500 text-xs dark:fill-slate-400">{centerLabel}</text>
       <text x="78" y="92" textAnchor="middle" className="fill-slate-950 text-base font-bold dark:fill-slate-50">{centerValue}</text>
     </svg>
   );
@@ -3108,7 +3108,7 @@ function Legend({ color, label, value }: { color: string; label: string; value: 
   return (
     <div className="flex items-center gap-2">
       <span className="h-3 w-3 rounded" style={{ backgroundColor: color }} />
-      <span className="min-w-10 text-slate-500">{label}</span>
+      <span className="min-w-10 text-slate-500 dark:text-slate-400">{label}</span>
       <span className="font-semibold">{value}</span>
     </div>
   );
@@ -3266,7 +3266,7 @@ function TransactionsPage({
           {csvPreview.length > 0 && (
             <div className="mt-3 overflow-x-auto">
               <table className="w-full min-w-[640px] text-sm">
-                <thead><tr className="text-left text-slate-500"><th>列</th><th>狀態</th><th>分類</th><th>金額</th><th>錯誤</th></tr></thead>
+                <thead><tr className="text-left text-slate-500 dark:text-slate-400"><th>列</th><th>狀態</th><th>分類</th><th>金額</th><th>錯誤</th></tr></thead>
                 <tbody>
                   {csvPreview.slice(0, 8).map((row) => (
                     <tr key={row.rowNumber} className="border-t border-slate-200 dark:border-slate-800">
@@ -3288,7 +3288,7 @@ function TransactionsPage({
           <h2 className="text-lg font-semibold">最近交易</h2>
           <div className="mt-3 overflow-x-auto">
             <table className="hidden w-full min-w-[780px] text-sm md:table">
-              <thead><tr className="text-left text-slate-500"><th>日期</th><th>類型</th><th>分類</th><th>商家</th><th>金額</th><th>來源</th><th></th></tr></thead>
+              <thead><tr className="text-left text-slate-500 dark:text-slate-400"><th>日期</th><th>類型</th><th>分類</th><th>商家</th><th>金額</th><th>來源</th><th></th></tr></thead>
               <tbody>
                 {transactions.slice(0, 18).map((transaction) => (
                   <tr key={transaction.id} className="border-t border-slate-200 dark:border-slate-800">
@@ -3309,7 +3309,7 @@ function TransactionsPage({
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="font-semibold">{transaction.category}</p>
-                      <p className="text-sm text-slate-500">{formatDate(transaction.date)} · {transactionTypeLabels[transaction.type]}</p>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">{formatDate(transaction.date)} · {transactionTypeLabels[transaction.type]}</p>
                     </div>
                     <p className="font-bold">{formatMoney(transaction.amountCents)}</p>
                   </div>
@@ -3424,9 +3424,9 @@ function AccountsPage({ accounts, onAdd }: { accounts: FinancialAccount[]; onAdd
             <div key={account.id} className="panel">
               <div className="flex items-center justify-between">
                 <p className="font-semibold">{account.name}</p>
-                <span className="text-xs text-slate-500">{account.isActive ? "啟用" : "停用"}</span>
+                <span className="text-xs text-slate-500 dark:text-slate-400">{account.isActive ? "啟用" : "停用"}</span>
               </div>
-              <p className="mt-1 text-sm text-slate-500">{accountTypeLabels[account.type]} · {account.institution}</p>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{accountTypeLabels[account.type]} · {account.institution}</p>
               <p className="mt-4 text-2xl font-bold">{formatMoney(account.balanceCents)}</p>
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
                 {account.includeInAvailableCash && <Badge>可動用</Badge>}
@@ -3604,7 +3604,7 @@ function CardsPage({
           return (
             <div key={card.id} className="panel">
               <div className="flex items-start justify-between gap-3">
-                <div><p className="font-semibold">{card.name}</p><p className="text-sm text-slate-500">{card.issuer} · **** {card.last4}</p></div>
+                <div><p className="font-semibold">{card.name}</p><p className="text-sm text-slate-500 dark:text-slate-400">{card.issuer} · **** {card.last4}</p></div>
                 <Badge>{card.isActive ? "啟用" : "停用"}</Badge>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
@@ -3771,7 +3771,7 @@ function LoansPage({
           {loans.map((loan) => (
             <div key={loan.id} className="panel">
               <p className="font-semibold">{loan.name}</p>
-              <p className="text-sm text-slate-500">{loan.institution} · 年利率 {formatPercent(loan.annualRate)}</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">{loan.institution} · 年利率 {formatPercent(loan.annualRate)}</p>
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                 <Info label="剩餘本金" value={formatMoney(loan.remainingPrincipalCents)} />
                 <Info label="每期應繳" value={formatMoney(loan.paymentPerPeriodCents)} />
@@ -3972,7 +3972,7 @@ function DepositsPage({
           {deposits.map((deposit) => (
             <div key={deposit.id} className="panel">
               <p className="font-semibold">{deposit.name}</p>
-              <p className="text-sm text-slate-500">{deposit.institution} · {deposit.termMonths} 個月 · {formatPercent(deposit.annualRate)}</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">{deposit.institution} · {deposit.termMonths} 個月 · {formatPercent(deposit.annualRate)}</p>
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                 <Info label="本金" value={formatMoney(deposit.principalCents)} />
                 <Info label="預估利息" value={formatMoney(deposit.estimatedInterestCents)} />
@@ -4140,7 +4140,7 @@ function InsurancePage({ policies, onAdd }: { policies: InsurancePolicy[]; onAdd
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="font-semibold">{policy.name}</p>
-                      <p className="mt-1 text-sm text-slate-500">{policy.insurer} · {insuranceTypeLabels[policy.type]}{policy.policyNumberLast4 ? ` · **** ${policy.policyNumberLast4}` : ""}</p>
+                      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{policy.insurer} · {insuranceTypeLabels[policy.type]}{policy.policyNumberLast4 ? ` · **** ${policy.policyNumberLast4}` : ""}</p>
                     </div>
                     <Badge>{insuranceStatusLabels[policy.status]}</Badge>
                   </div>
@@ -4758,7 +4758,7 @@ function RemindersPage({
           <div key={reminder.id} className="panel">
             <div className="flex items-start justify-between gap-3"><p className="font-semibold">{reminder.name}</p><Badge>{reminder.status}</Badge></div>
             <p className="mt-2 text-2xl font-bold">{formatMoney(reminder.amountCents)}</p>
-          <p className="mt-2 text-sm text-slate-500">{reminder.frequency} · 每月 {reminder.debitDay} 日 · 提前 {reminder.remindDaysBefore} 天提醒</p>
+          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{reminder.frequency} · 每月 {reminder.debitDay} 日 · 提前 {reminder.remindDaysBefore} 天提醒</p>
         </div>
       ))}
         </section>
@@ -4845,7 +4845,7 @@ function ReportsPage({
       <div className="panel flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">財務報表</h2>
-          <p className="text-sm text-slate-500">查詢採期間資料，不一次載入全部年份。</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">查詢採期間資料，不一次載入全部年份。</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button className="btn-secondary" onClick={downloadCsv}><Download size={16} />CSV</button>
@@ -4922,7 +4922,7 @@ function AiPage({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold">AI 理財健檢</h2>
-            <p className="text-sm text-slate-500">只傳送彙總資料，不傳完整交易明細。頁面載入不會自動呼叫 AI。</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">只傳送彙總資料，不傳完整交易明細。頁面載入不會自動呼叫 AI。</p>
           </div>
           <button className="btn-primary" onClick={onGenerate} disabled={loading}><Bot size={16} />{loading ? "產生中" : "產生本月理財建議"}</button>
         </div>
@@ -5051,7 +5051,7 @@ function CalcInput({ label, value, onChange }: { label: string; value: number; o
 function Info({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md bg-slate-50 p-3 dark:bg-slate-900">
-      <p className="text-xs text-slate-500">{label}</p>
+      <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
       <p className="mt-1 break-words font-semibold">{value}</p>
     </div>
   );
