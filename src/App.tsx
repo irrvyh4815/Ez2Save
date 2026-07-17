@@ -29,6 +29,11 @@ import {
   Trash2,
   Umbrella,
   Upload,
+  UserCheck,
+  UserX,
+  Users,
+  KeyRound,
+  RefreshCw,
   WalletCards
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -46,6 +51,7 @@ import { combineValidations, validateAnnualRate, validateDateRange, validatePosi
 import { exportReportToExcel, exportReportToPdf } from "./lib/reportExport";
 import { isSupabaseConfigured } from "./services/supabaseClient";
 import { mockAiFinancialHealth, requestAiFinancialHealth } from "./services/aiFinancialHealth";
+import { listAdminUsers, manageAdminUser, type AdminManagedUser, type AdminAuditLog } from "./services/adminUsers";
 import {
   checkSupabaseConnection,
   createFinancialAccount,
@@ -88,7 +94,8 @@ type Page =
   | "reminders"
   | "reports"
   | "ai"
-  | "settings";
+  | "settings"
+  | "users";
 
 type ToastType = "success" | "error";
 type Toast = { type: ToastType; message: string } | null;
@@ -190,11 +197,12 @@ const navGroups: { title: "理財" | "投資" | "其他" | "設定"; items: { pa
   {
     title: "設定",
     items: [
-      { page: "settings", label: "設定", icon: Settings }
+      { page: "settings", label: "設定", icon: Settings },
+      { page: "users", label: "用戶管理", icon: Users }
     ]
   }
 ];
-const navItems = navGroups.flatMap((group) => group.items);
+type NavItem = (typeof navGroups)[number]["items"][number];
 
 const pageIntros: Record<Page, { eyebrow: string; title: string; description: string; accent: string; tint: string }> = {
   dashboard: {
@@ -294,6 +302,13 @@ const pageIntros: Record<Page, { eyebrow: string; title: string; description: st
     description: "確認帳號狀態、資料讀取與安全設定。",
     accent: "#475569",
     tint: "#f8fafc"
+  },
+  users: {
+    eyebrow: "平台管理",
+    title: "管理使用者與帳號權限",
+    description: "搜尋帳號、調整角色、停用帳號與查看近期管理紀錄，所有異動都會保留記錄。",
+    accent: "#0f766e",
+    tint: "#f0fdfa"
   }
 };
 
@@ -664,6 +679,11 @@ export default function App() {
 
   const rootClass = darkMode ? "dark min-h-screen" : "min-h-screen";
   const activeLedger = ledgerBooks.find((ledger) => ledger.id === activeLedgerId) ?? null;
+  const isPlatformAdmin = Boolean(currentProfile?.isSuperAdmin && currentProfile.role === "super_admin");
+  const visibleNavGroups = isPlatformAdmin
+    ? navGroups
+    : navGroups.map((group) => ({ ...group, items: group.items.filter((item) => item.page !== "users") }));
+  const visibleNavItems = visibleNavGroups.flatMap((group) => group.items);
 
   function notify(type: ToastType, message: string) {
     setToast({ type, message });
@@ -793,8 +813,22 @@ export default function App() {
   }
 
   function navigateToPage(nextPage: Page) {
+    if (nextPage === "users" && !isPlatformAdmin) {
+      notify("error", "你沒有用戶管理權限");
+      return;
+    }
     if (nextPage === page) return;
     setPage(nextPage);
+  }
+
+  function openUserManagement() {
+    if (!isPlatformAdmin) return notify("error", "你沒有用戶管理權限");
+    if (!activeLedgerId) {
+      const firstLedger = ledgerBooks[0];
+      if (!firstLedger) return notify("error", "請先建立帳本");
+      openLedger(firstLedger.id);
+    }
+    setPage("users");
   }
 
   async function addAccount(formData: FormData) {
@@ -1027,6 +1061,7 @@ export default function App() {
           onDeleteLedger={deleteLedger}
           onToggleSharing={toggleLedgerSharing}
           onInviteMember={inviteLedgerMember}
+          onOpenUserManagement={openUserManagement}
         />
         {toast && <div className="fixed right-4 top-4 z-50 max-w-sm"><ToastBanner toast={toast} /></div>}
       </div>
@@ -1062,7 +1097,7 @@ export default function App() {
             </div>
           )}
           <nav className="mt-6 space-y-5">
-            {navGroups.map((group) => (
+            {visibleNavGroups.map((group) => (
               <div key={group.title}>
                 <p className="mb-2 px-2 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">{group.title}</p>
                 <div className="space-y-1">
@@ -1080,7 +1115,7 @@ export default function App() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-[11px] font-bold tracking-[0.16em] text-brand-700 dark:text-brand-200">EZ2SAVEMORE</p>
-                <h1 className="text-xl font-bold text-slate-950 dark:text-slate-50">{navItems.find((item) => item.page === page)?.label}</h1>
+                <h1 className="text-xl font-bold text-slate-950 dark:text-slate-50">{visibleNavItems.find((item) => item.page === page)?.label ?? "理財總覽"}</h1>
                 <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{activeLedger?.name} · Asia/Taipei · TWD</p>
               </div>
               <div className="flex items-center gap-2">
@@ -1217,13 +1252,16 @@ export default function App() {
                 }}
               />
             )}
+            {page === "users" && isPlatformAdmin && (
+              <AdminUsersPage currentUserId={currentProfile?.userId ?? ""} notify={notify} />
+            )}
           </div>
         </main>
       </div>
 
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-700 dark:bg-slate-950/95 lg:hidden">
         <div className="grid grid-cols-6 gap-1 px-2 py-2">
-          {navItems.slice(0, 6).map((item) => (
+          {visibleNavItems.slice(0, 6).map((item) => (
             <MobileNavButton key={item.page} item={item} active={page === item.page} onClick={() => navigateToPage(item.page)} />
           ))}
         </div>
@@ -1232,11 +1270,11 @@ export default function App() {
             更多 <ChevronDown size={14} />
           </summary>
           <div className="space-y-2">
-            {navGroups.map((group) => (
+            {visibleNavGroups.map((group) => (
               <div key={group.title}>
                 <p className="px-1 pb-1 text-[10px] font-bold tracking-[0.16em] text-slate-400 dark:text-slate-500">{group.title}</p>
                 <div className="grid grid-cols-5 gap-1">
-                  {group.items.filter((item) => !navItems.slice(0, 6).some((primary) => primary.page === item.page)).map((item) => (
+                  {group.items.filter((item) => !visibleNavItems.slice(0, 6).some((primary) => primary.page === item.page)).map((item) => (
                     <MobileNavButton key={item.page} item={item} active={page === item.page} onClick={() => navigateToPage(item.page)} />
                   ))}
                 </div>
@@ -1263,7 +1301,8 @@ function LedgerHomePage({
   onUpdateLedger,
   onDeleteLedger,
   onToggleSharing,
-  onInviteMember
+  onInviteMember,
+  onOpenUserManagement
 }: {
   ledgerBooks: LedgerBook[];
   invitations: LedgerInvitation[];
@@ -1279,6 +1318,7 @@ function LedgerHomePage({
   onDeleteLedger: (ledgerId: string) => void;
   onToggleSharing: (ledgerId: string, enabled: boolean) => void;
   onInviteMember: (ledgerId: string, formData: FormData) => void;
+  onOpenUserManagement: () => void;
 }) {
   const summaryFor = (ledgerId: string) => {
     const snapshot = snapshots[ledgerId] ?? {
@@ -1332,6 +1372,7 @@ function LedgerHomePage({
           <Brand />
           <div className="flex items-center gap-2">
             {profile && <Badge>{getRoleLabel(profile)}</Badge>}
+            {profile?.isSuperAdmin && <button className="btn-secondary hidden h-10 px-3 sm:inline-flex" onClick={onOpenUserManagement}><Users size={16} />用戶管理</button>}
             {memberCode && <span className="hidden rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-800 shadow-subtle dark:border-sky-900 dark:bg-sky-950 dark:text-sky-100 sm:inline-flex">會員編號 {memberCode}</span>}
             {sessionEmail && <span className="hidden rounded-md border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-600 shadow-subtle dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 sm:inline-flex">{sessionEmail}</span>}
             <button className="btn-secondary h-10 w-10 px-0" title="切換深色模式" onClick={onToggleDarkMode}>
@@ -1810,7 +1851,7 @@ function Brand() {
   );
 }
 
-function NavButton({ item, active, onClick }: { item: (typeof navItems)[number]; active: boolean; onClick: () => void }) {
+function NavButton({ item, active, onClick }: { item: NavItem; active: boolean; onClick: () => void }) {
   const Icon = item.icon;
   return (
     <button
@@ -1829,7 +1870,7 @@ function NavButton({ item, active, onClick }: { item: (typeof navItems)[number];
   );
 }
 
-function MobileNavButton({ item, active, onClick }: { item: (typeof navItems)[number]; active: boolean; onClick: () => void }) {
+function MobileNavButton({ item, active, onClick }: { item: NavItem; active: boolean; onClick: () => void }) {
   const Icon = item.icon;
   return (
     <button
@@ -4993,6 +5034,204 @@ function AiPage({
       )}
     </div>
   );
+}
+
+function AdminUsersPage({ currentUserId, notify }: { currentUserId: string; notify: (type: ToastType, message: string) => void }) {
+  const [users, setUsers] = useState<AdminManagedUser[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AdminAuditLog[]>([]);
+  const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [pageNumber, setPageNumber] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [actionId, setActionId] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const notifyRef = useRef(notify);
+  const pageSize = 20;
+  notifyRef.current = notify;
+
+  useEffect(() => {
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        setLoading(true);
+        setLoadError("");
+        try {
+          const result = await listAdminUsers({ search, role: roleFilter, status: statusFilter, page: pageNumber, pageSize });
+          if (cancelled) return;
+          setUsers(result.users);
+          setAuditLogs(result.auditLogs);
+          setTotal(result.total);
+        } catch (error) {
+          if (!cancelled) {
+            const message = error instanceof Error ? error.message : "使用者清單讀取失敗";
+            setLoadError(message);
+            notifyRef.current("error", message);
+          }
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+      })();
+    }, search ? 280 : 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [pageNumber, refreshKey, roleFilter, search, statusFilter]);
+
+  async function runAction(action: Parameters<typeof manageAdminUser>[0], successMessage?: string) {
+    setActionId(`${action.action}-${action.targetUserId}`);
+    try {
+      const result = await manageAdminUser(action);
+      notify("success", successMessage ?? result.message);
+      setRefreshKey((value) => value + 1);
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "使用者操作失敗");
+    } finally {
+      setActionId(null);
+    }
+  }
+
+  const activeCount = users.filter((user) => user.isActive).length;
+  const adminCount = users.filter((user) => user.role === "admin" || user.isSuperAdmin).length;
+  const suspendedCount = users.filter((user) => !user.isActive).length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  return (
+    <div className="space-y-4">
+      <section className="finance-today-hero overflow-hidden rounded-lg border border-emerald-100 p-4 shadow-subtle dark:border-emerald-900 sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <span className="inline-flex items-center gap-2 rounded-full bg-white/80 px-2.5 py-1 text-xs font-semibold text-brand-700 shadow-sm dark:bg-slate-900 dark:text-brand-100"><Users size={14} />最高管理員專區</span>
+            <h2 className="mt-3 text-2xl font-bold text-slate-950 dark:text-slate-50">使用者管理</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">管理帳號角色、啟用狀態、重設密碼信與帳號刪除。每項異動都會保留管理紀錄。</p>
+          </div>
+          <button className="btn-secondary bg-white/80 dark:bg-slate-900" onClick={() => setRefreshKey((value) => value + 1)} disabled={loading} title="重新讀取使用者清單">
+            <RefreshCw size={16} className={loading ? "animate-spin" : ""} />重新整理
+          </button>
+        </div>
+      </section>
+
+      <section className="grid gap-3 sm:grid-cols-3">
+        <StatCard label="符合條件帳號" value={`${total} 位`} />
+        <StatCard label="本頁管理員" value={`${adminCount} 位`} />
+        <StatCard label="本頁已停用" value={`${suspendedCount} 位`} />
+      </section>
+
+      <section className="panel">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">帳號清單</h2>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">本頁啟用帳號 {activeCount} 位。搜尋會延後片刻執行，避免重複讀取。</p>
+          </div>
+          <span className="text-sm font-semibold text-slate-500 dark:text-slate-400">第 {pageNumber} / {totalPages} 頁</span>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_150px_150px]">
+          <input className="input mt-0" value={search} onChange={(event) => { setSearch(event.target.value); setPageNumber(1); }} placeholder="搜尋名稱、Email 或會員編號" />
+          <select className="input mt-0" value={roleFilter} onChange={(event) => { setRoleFilter(event.target.value); setPageNumber(1); }} aria-label="帳號角色篩選">
+            <option value="all">全部角色</option>
+            <option value="user">一般使用者</option>
+            <option value="admin">管理員</option>
+            <option value="super_admin">最高管理員</option>
+          </select>
+          <select className="input mt-0" value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setPageNumber(1); }} aria-label="帳號狀態篩選">
+            <option value="all">全部狀態</option>
+            <option value="active">啟用</option>
+            <option value="suspended">已停用</option>
+          </select>
+        </div>
+
+        {loadError && <div className="mt-4"><InlineNotice tone="warning" message={loadError} /></div>}
+
+        {loading ? (
+          <div className="mt-5"><InlineNotice tone="neutral" message="正在讀取使用者資料..." /></div>
+        ) : loadError ? (
+          <div className="mt-5"><EmptyState label="用戶管理服務尚未完成設定" /></div>
+        ) : users.length === 0 ? (
+          <div className="mt-5"><EmptyState label="找不到符合條件的使用者" /></div>
+        ) : (
+          <>
+            <div className="mt-5 hidden overflow-x-auto md:block">
+              <table className="w-full min-w-[940px] text-sm">
+                <thead><tr className="border-b border-slate-200 text-left text-slate-500 dark:border-slate-700 dark:text-slate-400"><th className="pb-3 font-medium">使用者</th><th className="pb-3 font-medium">帳本</th><th className="pb-3 font-medium">角色</th><th className="pb-3 font-medium">狀態</th><th className="pb-3 font-medium">註冊日期</th><th className="pb-3 font-medium text-right">操作</th></tr></thead>
+                <tbody>
+                  {users.map((user) => (
+                    <tr key={user.userId} className="border-b border-slate-100 align-top dark:border-slate-800">
+                      <td className="py-4 pr-3"><AdminUserIdentity user={user} /></td>
+                      <td className="py-4 pr-3 font-semibold text-slate-700 dark:text-slate-200">{user.ledgerCount} 本</td>
+                      <td className="py-4 pr-3"><AdminRoleControl user={user} disabled={user.userId === currentUserId || user.isSuperAdmin || actionId !== null} onChange={(role) => void runAction({ action: "role", targetUserId: user.userId, role })} /></td>
+                      <td className="py-4 pr-3"><AdminStatus user={user} /></td>
+                      <td className="py-4 pr-3 text-slate-500 dark:text-slate-400">{formatAdminDate(user.createdAt)}</td>
+                      <td className="py-4 text-right"><AdminUserActions user={user} disabled={user.userId === currentUserId || user.isSuperAdmin || actionId !== null} pending={actionId?.endsWith(user.userId) ?? false} onAction={runAction} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-5 space-y-3 md:hidden">
+              {users.map((user) => (
+                <article key={user.userId} className="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
+                  <div className="flex items-start justify-between gap-3"><AdminUserIdentity user={user} /><AdminStatus user={user} /></div>
+                  <div className="mt-3 grid grid-cols-2 gap-2"><Info label="帳本" value={`${user.ledgerCount} 本`} /><Info label="註冊日期" value={formatAdminDate(user.createdAt)} /></div>
+                  <div className="mt-3"><AdminRoleControl user={user} disabled={user.userId === currentUserId || user.isSuperAdmin || actionId !== null} onChange={(role) => void runAction({ action: "role", targetUserId: user.userId, role })} /></div>
+                  <div className="mt-3"><AdminUserActions user={user} disabled={user.userId === currentUserId || user.isSuperAdmin || actionId !== null} pending={actionId?.endsWith(user.userId) ?? false} onAction={runAction} /></div>
+                </article>
+              ))}
+            </div>
+          </>
+        )}
+        <div className="mt-5 flex items-center justify-between gap-3 border-t border-slate-200 pt-4 dark:border-slate-700">
+          <button className="btn-secondary" disabled={loading || pageNumber <= 1} onClick={() => setPageNumber((value) => Math.max(1, value - 1))}>上一頁</button>
+          <span className="text-sm text-slate-500 dark:text-slate-400">共 {total} 位使用者</span>
+          <button className="btn-secondary" disabled={loading || pageNumber >= totalPages} onClick={() => setPageNumber((value) => Math.min(totalPages, value + 1))}>下一頁</button>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="flex items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">近期管理紀錄</h2><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">保留最近的帳號管理操作，方便追查異動。</p></div><ShieldCheck className="text-brand-700 dark:text-brand-100" size={22} /></div>
+        <div className="mt-4 space-y-2">
+          {auditLogs.length === 0 ? <EmptyState label="目前尚無管理紀錄" /> : auditLogs.map((log) => <AdminAuditRow key={log.id} log={log} />)}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function AdminUserIdentity({ user }: { user: AdminManagedUser }) {
+  return <div className="min-w-0"><p className="truncate font-semibold text-slate-950 dark:text-slate-50">{user.displayName || user.email}</p><p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">{user.email}</p><p className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">{user.memberCode || "尚未建立會員編號"}</p></div>;
+}
+
+function AdminRoleControl({ user, disabled, onChange }: { user: AdminManagedUser; disabled: boolean; onChange: (role: "user" | "admin") => void }) {
+  if (user.isSuperAdmin) return <Badge>最高管理員</Badge>;
+  return <select className="input mt-0 min-w-32" value={user.role} disabled={disabled} onChange={(event) => { const role = event.target.value as "user" | "admin"; if (role !== user.role && window.confirm(`確定將 ${user.email} 設為${role === "admin" ? "管理員" : "一般使用者"}？`)) onChange(role); }} aria-label={`${user.email} 的角色`}><option value="user">一般使用者</option><option value="admin">管理員</option></select>;
+}
+
+function AdminStatus({ user }: { user: AdminManagedUser }) {
+  return <span className={`inline-flex rounded-md px-2 py-1 text-xs font-semibold ${user.isActive ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-100" : "bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-100"}`}>{user.isActive ? "啟用" : "已停用"}</span>;
+}
+
+function AdminUserActions({ user, disabled, pending, onAction }: { user: AdminManagedUser; disabled: boolean; pending: boolean; onAction: (action: Parameters<typeof manageAdminUser>[0], successMessage?: string) => Promise<void> }) {
+  const locked = disabled || pending;
+  return <div className="flex flex-wrap justify-end gap-2">
+    <button className="btn-secondary h-9 px-2" title="寄送重設密碼信" aria-label="寄送重設密碼信" disabled={locked} onClick={() => { if (window.confirm(`確定寄送重設密碼信給 ${user.email}？`)) void onAction({ action: "recovery", targetUserId: user.userId }); }}><KeyRound size={16} /></button>
+    <button className="btn-secondary h-9 px-2" title={user.isActive ? "停用帳號" : "恢復帳號"} aria-label={user.isActive ? "停用帳號" : "恢復帳號"} disabled={locked} onClick={() => { const label = user.isActive ? "停用" : "恢復"; if (window.confirm(`確定${label} ${user.email} 的帳號？`)) void onAction({ action: "status", targetUserId: user.userId, isActive: !user.isActive }, `帳號已${label}`); }}>{user.isActive ? <UserX size={16} /> : <UserCheck size={16} />}</button>
+    <button className="btn-danger h-9 px-2" title="刪除帳號" aria-label="刪除帳號" disabled={locked} onClick={() => { if (window.confirm(`確定永久刪除 ${user.email}？帳號與資料無法復原。`)) void onAction({ action: "delete", targetUserId: user.userId }); }}><Trash2 size={16} /></button>
+  </div>;
+}
+
+function AdminAuditRow({ log }: { log: AdminAuditLog }) {
+  const labels: Record<AdminAuditLog["action"], string> = { role_updated: "已更新帳號角色", status_updated: "已更新帳號狀態", recovery_sent: "已寄送重設密碼信", account_deleted: "已刪除帳號", note_updated: "已更新管理備註" };
+  const email = typeof log.metadata.email === "string" ? log.metadata.email : "指定使用者";
+  return <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-slate-50 p-3 text-sm dark:bg-slate-900"><div><p className="font-semibold text-slate-800 dark:text-slate-100">{labels[log.action]}</p><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{email}</p></div><span className="text-xs text-slate-500 dark:text-slate-400">{formatAdminDate(log.createdAt)}</span></div>;
+}
+
+function formatAdminDate(value: string) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
 }
 
 function SettingsPage({

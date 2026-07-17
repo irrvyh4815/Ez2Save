@@ -28,6 +28,7 @@ supabase db push
 - `irrvyh4815@gmail.com` profile is assigned `super_admin`
 - indexes exist
 - no service role key in frontend
+- `202607170005_admin_user_management.sql` 已套用
 
 ## Vercel
 
@@ -63,6 +64,14 @@ Server-only:
 - `AI_CACHE_TTL_SECONDS`
 - `MAX_CSV_ROWS`
 - `MAX_AI_SUMMARY_ITEMS`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `ADMIN_RATE_LIMIT_PER_MINUTE`
+
+## User Management
+
+`/api/admin/users` 只允許啟用中的 `super_admin` 使用。它會再次驗證 Supabase session，再以伺服器端 service role 執行帳號角色、停用狀態、重設密碼信與刪除操作。
+
+設定 `SUPABASE_SERVICE_ROLE_KEY` 後，必須確認它只出現在 Vercel server-side environment variables，不能使用 `VITE_` 前綴，也不可寫入 `.env.example` 的值或提交 Git。
 
 ## Verification
 
