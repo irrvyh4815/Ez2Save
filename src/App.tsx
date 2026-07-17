@@ -1097,16 +1097,35 @@ export default function App() {
             </div>
           )}
           <nav className="mt-6 space-y-5">
-            {visibleNavGroups.map((group) => (
-              <div key={group.title}>
-                <p className="mb-2 px-2 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">{group.title}</p>
-                <div className="space-y-1">
-                  {group.items.map((item) => (
-                    <NavButton key={item.page} item={item} active={page === item.page} onClick={() => navigateToPage(item.page)} />
-                  ))}
+            {visibleNavGroups.map((group) => {
+              const primaryItems = group.title === "理財" ? group.items.slice(0, 5) : group.items;
+              const secondaryItems = group.title === "理財" ? group.items.slice(5) : [];
+              const hasActiveSecondary = secondaryItems.some((item) => item.page === page);
+
+              return (
+                <div key={group.title}>
+                  <p className="mb-2 px-2 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">{group.title}</p>
+                  <div className="space-y-1">
+                    {primaryItems.map((item) => (
+                      <NavButton key={item.page} item={item} active={page === item.page} onClick={() => navigateToPage(item.page)} />
+                    ))}
+                  </div>
+                  {secondaryItems.length > 0 && (
+                    <details className="group mt-1" open={hasActiveSecondary}>
+                      <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg px-3 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-white">
+                        更多理財功能
+                        <ChevronDown size={16} className="transition group-open:rotate-180" />
+                      </summary>
+                      <div className="mt-1 space-y-1">
+                        {secondaryItems.map((item) => (
+                          <NavButton key={item.page} item={item} active={page === item.page} onClick={() => navigateToPage(item.page)} />
+                        ))}
+                      </div>
+                    </details>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </nav>
         </aside>
 
@@ -1151,7 +1170,7 @@ export default function App() {
           </header>
 
           <div key={`${activeLedgerId}-${page}`} className="route-transition mx-auto max-w-7xl space-y-4 p-4 sm:p-6">
-            {page !== "dashboard" && <PageExperience page={page} dashboard={dashboard} month={month} notifications={financeNotifications.length} />}
+            {page === "settings" && <PageExperience page={page} dashboard={dashboard} month={month} notifications={financeNotifications.length} />}
             {toast && <ToastBanner toast={toast} />}
             {page === "dashboard" && (
               <DashboardPage
@@ -2583,7 +2602,7 @@ function PulseMetric({ label, value, accent }: { label: string; value: string; a
 function StatCard({ label, value }: { label: string; value: string }) {
   const theme = getStatTheme(label);
   return (
-    <div className={`panel min-h-24 border-l-4 ${theme.border} bg-white/95`}>
+    <div className={`panel min-h-24 border-l-4 ${theme.border} bg-white/95 dark:bg-slate-900`}>
       <div className="flex items-start justify-between gap-3">
         <p className="text-sm text-slate-500 dark:text-slate-400">{label}</p>
         <span className={`h-2.5 w-2.5 rounded-full ${theme.dot}`} />
@@ -2632,7 +2651,7 @@ function FeatureHero({
     slate: "from-slate-950 via-slate-900 to-sky-950 border-slate-200 dark:border-slate-800 text-slate-200"
   }[tone];
   return (
-    <section className={`overflow-hidden rounded-xl border bg-gradient-to-br p-5 text-white shadow-card ${toneClass}`}>
+    <section className={`overflow-hidden rounded-lg border bg-gradient-to-br p-4 text-white shadow-card sm:p-5 ${toneClass}`}>
       <div className="grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">
         <div>
           <div className="flex items-center gap-2 text-sm font-semibold">
@@ -3313,23 +3332,31 @@ function TransactionsPage({
               ))}
             </div>
           )}
-          <Field label="子分類"><input className="input" name="subcategory" placeholder="可留空" /></Field>
           <Field label="支付帳戶">
             <select className="input" name="accountId">{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select>
           </Field>
-          <Field label="信用卡">
-            <select className="input" name="creditCardId">
-              <option value="">不適用</option>
-              {creditCards.map((card) => <option key={card.id} value={card.id}>{card.name}（{card.last4}）</option>)}
-            </select>
-          </Field>
-          <Field label="商家或對象"><input className="input" name="merchant" /></Field>
-          <Field label="標籤"><input className="input" name="tags" placeholder="以逗號分隔" /></Field>
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            <label className="flex items-center gap-2"><input name="necessary" type="checkbox" /> 必要支出</label>
-            <label className="flex items-center gap-2"><input name="recurring" type="checkbox" /> 固定支出</label>
-          </div>
-          <Field label="備註"><textarea className="input" name="note" rows={2} /></Field>
+          <details className="group border-t border-slate-200 pt-3 dark:border-slate-800">
+            <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-medium text-slate-500 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white">
+              更多資訊
+              <ChevronDown size={16} className="transition group-open:rotate-180" />
+            </summary>
+            <div className="mt-3 space-y-3">
+              <Field label="子分類"><input className="input" name="subcategory" placeholder="可留空" /></Field>
+              <Field label="信用卡">
+                <select className="input" name="creditCardId">
+                  <option value="">不適用</option>
+                  {creditCards.map((card) => <option key={card.id} value={card.id}>{card.name}（{card.last4}）</option>)}
+                </select>
+              </Field>
+              <Field label="商家或對象"><input className="input" name="merchant" /></Field>
+              <Field label="標籤"><input className="input" name="tags" placeholder="以逗號分隔" /></Field>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <label className="flex items-center gap-2"><input name="necessary" type="checkbox" /> 必要支出</label>
+                <label className="flex items-center gap-2"><input name="recurring" type="checkbox" /> 固定支出</label>
+              </div>
+              <Field label="備註"><textarea className="input" name="note" rows={2} /></Field>
+            </div>
+          </details>
           <button className="btn-primary w-full" type="submit"><Plus size={16} />新增</button>
         </form>
       </section>
@@ -3485,9 +3512,8 @@ function AccountsPage({ accounts, onAdd }: { accounts: FinancialAccount[]; onAdd
       </section>
 
       <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
-        <section className="panel">
-          <h2 className="text-lg font-semibold">新增帳戶</h2>
-          <form className="mt-4 space-y-3" onSubmit={handleFormSubmit(onAdd)}>
+        <FormDisclosure title="新增帳戶" description="建立新的資產帳戶，餘額會即時納入帳戶總覽。">
+          <form className="space-y-3" onSubmit={handleFormSubmit(onAdd)}>
             <Field label="帳戶名稱"><input className="input" name="name" required /></Field>
             <Field label="帳戶類型">
               <select className="input" name="type">{Object.entries(accountTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
@@ -3499,9 +3525,9 @@ function AccountsPage({ accounts, onAdd }: { accounts: FinancialAccount[]; onAdd
             <Field label="備註"><textarea className="input" name="note" rows={2} /></Field>
             <button className="btn-primary w-full" type="submit"><Plus size={16} />新增帳戶</button>
           </form>
-        </section>
+        </FormDisclosure>
         <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {accounts.map((account) => (
+          {accounts.length === 0 ? <div className="md:col-span-2 xl:col-span-3"><EmptyState label="尚未建立帳戶，從新增帳戶開始整理你的資產。" /></div> : accounts.map((account) => (
             <div key={account.id} className="panel">
               <div className="flex items-center justify-between">
                 <p className="font-semibold">{account.name}</p>
@@ -3660,9 +3686,8 @@ function CardsPage({
         <StatCard label="分期每月應繳" value={formatMoney(installmentMonthlyDue)} />
       </section>
       <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
-      <section className="panel">
-        <h2 className="text-lg font-semibold">新增信用卡</h2>
-        <form className="mt-4 space-y-3" onSubmit={handleFormSubmit(addCard)}>
+      <FormDisclosure title="新增信用卡" description="只需卡片辨識末四碼與帳務日期，不會儲存完整卡號。">
+        <form className="space-y-3" onSubmit={handleFormSubmit(addCard)}>
           <Field label="信用卡名稱"><input className="input" name="name" required /></Field>
           <Field label="發卡銀行"><input className="input" name="issuer" required /></Field>
           <Field label="末四碼"><input className="input" name="last4" inputMode="numeric" maxLength={4} required /></Field>
@@ -3676,9 +3701,9 @@ function CardsPage({
           <Field label="年費減免條件"><input className="input" name="waiver" /></Field>
           <button className="btn-primary w-full" type="submit"><Plus size={16} />新增信用卡</button>
         </form>
-      </section>
+      </FormDisclosure>
       <section className="grid gap-3 md:grid-cols-2">
-        {cards.map((card) => {
+        {cards.length === 0 ? <div className="md:col-span-2"><EmptyState label="尚未建立信用卡，可從新增信用卡開始管理帳單與分期。" /></div> : cards.map((card) => {
           const cardInstallmentDebt = getCardInstallmentDebt(card.id, installments, card.installmentBalanceCents);
           const used = card.unbilledAmountCents + card.currentStatementAmountCents + cardInstallmentDebt;
           const utilization = used / Math.max(card.creditLimitCents, 1);
@@ -3705,9 +3730,8 @@ function CardsPage({
       </section>
       </div>
       <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
-        <section className="panel">
-          <h2 className="text-lg font-semibold">新增分期款項</h2>
-          <form className="mt-4 space-y-3" onSubmit={handleFormSubmit(addInstallment)}>
+        <FormDisclosure title="新增分期款項" description="記錄利率、已繳金額與下次應繳，集中掌握信用卡負債。">
+          <form className="space-y-3" onSubmit={handleFormSubmit(addInstallment)}>
             <Field label="信用卡">
               <select className="input" name="creditCardId" required>
                 {cards.map((card) => <option key={card.id} value={card.id}>{card.name}（{card.last4}）</option>)}
@@ -3729,7 +3753,7 @@ function CardsPage({
             <Field label="備註"><textarea className="input" name="note" rows={2} /></Field>
             <button className="btn-primary w-full" type="submit"><Plus size={16} />新增分期</button>
           </form>
-        </section>
+        </FormDisclosure>
         <section className="panel">
           <h2 className="text-lg font-semibold">分期負債整理</h2>
           <InstallmentDebtTable cards={cards} installments={installments} />
@@ -3835,9 +3859,8 @@ function LoansPage({
         </div>
       </FeatureHero>
       <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
-        <section className="panel">
-          <h2 className="text-lg font-semibold">新增貸款</h2>
-          <form className="mt-4 space-y-3" onSubmit={handleFormSubmit(addLoan)}>
+        <FormDisclosure title="新增貸款" description="新增後可在下方試算器檢視還款壓力與提前清償效果。">
+          <form className="space-y-3" onSubmit={handleFormSubmit(addLoan)}>
             <Field label="貸款名稱"><input className="input" name="name" required /></Field>
             <Field label="金融機構"><input className="input" name="institution" /></Field>
             <Field label="原始本金"><input className="input" name="principal" inputMode="decimal" required /></Field>
@@ -3847,9 +3870,9 @@ function LoansPage({
             <Field label="起始日期"><input className="input" name="startDate" type="date" defaultValue={today} /></Field>
             <button className="btn-primary w-full" type="submit"><Plus size={16} />新增貸款</button>
           </form>
-        </section>
+        </FormDisclosure>
         <section className="grid gap-3 md:grid-cols-2">
-          {loans.map((loan) => (
+          {loans.length === 0 ? <div className="md:col-span-2"><EmptyState label="尚未建立貸款，新增後可直接試算每月還款與總利息。" /></div> : loans.map((loan) => (
             <div key={loan.id} className="panel">
               <p className="font-semibold">{loan.name}</p>
               <p className="text-sm text-slate-500 dark:text-slate-400">{loan.institution} · 年利率 {formatPercent(loan.annualRate)}</p>
@@ -4035,9 +4058,8 @@ function DepositsPage({
       </section>
 
       <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
-        <section className="panel">
-          <h2 className="text-lg font-semibold">新增定期存款</h2>
-          <form className="mt-4 space-y-3" onSubmit={handleFormSubmit(addDeposit)}>
+        <FormDisclosure title="新增定期存款" description="建立定存後，預估利息與到期金額會自動帶入總覽。">
+          <form className="space-y-3" onSubmit={handleFormSubmit(addDeposit)}>
             <Field label="存款名稱"><input className="input" name="name" required /></Field>
             <Field label="金融機構"><input className="input" name="institution" /></Field>
             <Field label="本金"><input className="input" name="principal" inputMode="decimal" required /></Field>
@@ -4048,9 +4070,9 @@ function DepositsPage({
             <label className="flex items-center gap-2 text-sm"><input name="autoRenew" type="checkbox" /> 自動續存</label>
             <button className="btn-primary w-full" type="submit"><Plus size={16} />新增存款</button>
           </form>
-        </section>
+        </FormDisclosure>
         <section className="grid gap-3 md:grid-cols-2">
-          {deposits.map((deposit) => (
+          {deposits.length === 0 ? <div className="md:col-span-2"><EmptyState label="尚未建立定期存款，新增後會顯示到期日與預估利息。" /></div> : deposits.map((deposit) => (
             <div key={deposit.id} className="panel">
               <p className="font-semibold">{deposit.name}</p>
               <p className="text-sm text-slate-500 dark:text-slate-400">{deposit.institution} · {deposit.termMonths} 個月 · {formatPercent(deposit.annualRate)}</p>
@@ -4175,9 +4197,8 @@ function InsurancePage({ policies, onAdd }: { policies: InsurancePolicy[]; onAdd
       </section>
 
       <div className="grid gap-4 xl:grid-cols-[380px_1fr]">
-        <section className="panel">
-          <h2 className="text-lg font-semibold">新增保單</h2>
-          <form className="mt-4 space-y-3" onSubmit={handleFormSubmit(onAdd)}>
+        <FormDisclosure title="新增保單" description="建立保單後，保障額、保費與理賠狀態會整理在同一處。">
+          <form className="space-y-3" onSubmit={handleFormSubmit(onAdd)}>
             <Field label="保單名稱"><input className="input" name="name" required /></Field>
             <Field label="保險類型">
               <select className="input" name="type" defaultValue="medical">
@@ -4208,7 +4229,7 @@ function InsurancePage({ policies, onAdd }: { policies: InsurancePolicy[]; onAdd
             <Field label="備註"><textarea className="input" name="note" rows={2} /></Field>
             <button className="btn-primary w-full" type="submit"><Plus size={16} />新增保單</button>
           </form>
-        </section>
+        </FormDisclosure>
 
         <section className="grid gap-3 md:grid-cols-2">
           {policies.length === 0 ? (
@@ -4699,9 +4720,8 @@ function BudgetsPage({
       </section>
 
       <div className="grid gap-4 xl:grid-cols-[340px_1fr]">
-        <section className="panel">
-          <h2 className="text-lg font-semibold">新增每月預算</h2>
-          <form className="mt-4 space-y-3" onSubmit={handleFormSubmit(addBudget)}>
+        <FormDisclosure title="新增每月預算" description="以分類建立月度額度，預算地圖會同步顯示使用進度。">
+          <form className="space-y-3" onSubmit={handleFormSubmit(addBudget)}>
             <Field label="分類">
               <input className="input" name="category" list="budget-categories" defaultValue="餐飲" />
               <datalist id="budget-categories">
@@ -4711,7 +4731,7 @@ function BudgetsPage({
             <Field label="預算金額"><input className="input" name="amount" inputMode="decimal" required /></Field>
             <button className="btn-primary w-full" type="submit"><Plus size={16} />新增預算</button>
           </form>
-        </section>
+        </FormDisclosure>
         <section className="grid gap-3 md:grid-cols-2">
           {budgetPlanRows.map((row) => (
             <div key={row.category} className="panel">
@@ -4819,9 +4839,8 @@ function RemindersPage({
       </FeatureHero>
 
       <div className="grid gap-4 xl:grid-cols-[340px_1fr]">
-        <section className="panel">
-        <h2 className="text-lg font-semibold">新增固定帳單</h2>
-        <form className="mt-4 space-y-3" onSubmit={handleFormSubmit(addReminder)}>
+        <FormDisclosure title="新增固定帳單" description="設定扣款日與提醒時間，通知中心會自動整理待辦。">
+        <form className="space-y-3" onSubmit={handleFormSubmit(addReminder)}>
           <Field label="名稱"><input className="input" name="name" required /></Field>
           <Field label="金額"><input className="input" name="amount" inputMode="decimal" required /></Field>
           <Field label="週期"><select className="input" name="frequency"><option value="monthly">每月</option><option value="weekly">每週</option><option value="quarterly">每季</option><option value="yearly">每年</option></select></Field>
@@ -4833,7 +4852,7 @@ function RemindersPage({
           <label className="flex items-center gap-2 text-sm"><input name="necessary" type="checkbox" defaultChecked /> 必要支出</label>
           <button className="btn-primary w-full" type="submit"><Plus size={16} />新增提醒</button>
         </form>
-      </section>
+      </FormDisclosure>
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {reminders.map((reminder) => (
           <div key={reminder.id} className="panel">
@@ -5308,6 +5327,35 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="label">{label}</span>
       {children}
     </label>
+  );
+}
+
+function FormDisclosure({
+  title,
+  description,
+  children,
+  defaultOpen = false
+}: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) {
+  return (
+    <details className="panel group" open={defaultOpen}>
+      <summary className="flex cursor-pointer list-none items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold">{title}</h2>
+          <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">{description}</p>
+        </div>
+        <span className="btn-secondary h-10 shrink-0 px-3" aria-hidden="true">
+          <Plus size={16} />
+          <span className="hidden sm:inline">新增</span>
+          <ChevronDown size={16} className="transition group-open:rotate-180" />
+        </span>
+      </summary>
+      <div className="mt-4 border-t border-slate-200 pt-4 dark:border-slate-800">{children}</div>
+    </details>
   );
 }
 
