@@ -9,7 +9,6 @@ import type {
   FinancialAccount,
   FinancialReminder,
   Loan,
-  NotificationPreference,
   Transaction,
   UserProfile
 } from "../types/finance";
@@ -485,42 +484,6 @@ export async function deleteLoan(id: string): Promise<void> {
   if (error) throw new Error("貸款刪除失敗");
 }
 
-export async function loadNotificationPreference(): Promise<NotificationPreference | null> {
-  if (!supabase) return null;
-  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-  if (sessionError || !sessionData.session) return null;
-  const { data, error } = await supabase
-    .from("notification_preferences")
-    .select("id,user_id,line_enabled,line_user_id,created_at,updated_at")
-    .eq("user_id", sessionData.session.user.id)
-    .maybeSingle();
-  if (error) {
-    if (error.code === "42P01") return null;
-    throw new Error("通知設定讀取失敗");
-  }
-  return data ? mapNotificationPreference(data) : null;
-}
-
-export async function saveNotificationPreference(preference: Omit<NotificationPreference, "id" | "createdAt" | "updatedAt">): Promise<NotificationPreference> {
-  if (!supabase) throw new Error("請先完成雲端設定後再儲存通知設定");
-  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-  if (sessionError || !sessionData.session) throw new Error("請先登入再儲存通知設定");
-  const { data, error } = await supabase
-    .from("notification_preferences")
-    .upsert({
-      user_id: sessionData.session.user.id,
-      line_enabled: preference.lineEnabled,
-      line_user_id: preference.lineUserId || null
-    }, { onConflict: "user_id" })
-    .select("id,user_id,line_enabled,line_user_id,created_at,updated_at")
-    .single();
-  if (error) {
-    if (error.code === "42P01") throw new Error("通知功能尚未完成資料庫更新");
-    throw new Error("通知設定儲存失敗");
-  }
-  return mapNotificationPreference(data);
-}
-
 export async function createTransactionWithCategory(transaction: Transaction): Promise<Transaction> {
   if (!supabase) return transaction;
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
@@ -787,17 +750,6 @@ function mapReminder(row: Record<string, unknown>): FinancialReminder {
     startDate: String(row.start_date),
     endDate: nullableString(row.end_date),
     status: String(row.status) as FinancialReminder["status"],
-    createdAt: String(row.created_at),
-    updatedAt: String(row.updated_at)
-  };
-}
-
-function mapNotificationPreference(row: Record<string, unknown>): NotificationPreference {
-  return {
-    id: String(row.id),
-    userId: String(row.user_id),
-    lineEnabled: Boolean(row.line_enabled),
-    lineUserId: nullableString(row.line_user_id),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)
   };

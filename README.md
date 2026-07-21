@@ -46,7 +46,6 @@ supabase db push
 
 - `supabase/migrations/202607130001_personal_finance_schema.sql`
 - `supabase/migrations/202607150004_ledgers_sharing_insurance_security.sql`
-- `supabase/migrations/202607210006_line_notifications.sql`
 
 所有個人理財表都啟用 RLS。新版安全模型以 `ledger_id` + `ledger_members` 隔離資料；使用者必須是帳本成員才可讀取，且只有 `owner`、`admin`、`editor` 可寫入。
 
@@ -75,20 +74,6 @@ supabase db push
 - `MAX_AI_SUMMARY_ITEMS`
 - `SUPABASE_SERVICE_ROLE_KEY`（僅 `/api/admin/users` 使用，絕不可加上 `VITE_`）
 - `ADMIN_RATE_LIMIT_PER_MINUTE`
-- `LINE_MESSAGING_CHANNEL_ACCESS_TOKEN`
-- `CRON_SECRET`
-
-## LINE 通知
-
-通知中心的信用卡結帳、繳款截止與貸款還款提醒可直接跳轉到對應功能頁。帳單標示已繳清或貸款標示已結清後，提醒會自動停止。
-
-LINE 需在 Vercel 的 Production 環境設定以下 server-only 值：
-
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `LINE_MESSAGING_CHANNEL_ACCESS_TOKEN`
-- `CRON_SECRET`
-
-GitHub Actions 會在台灣時間每日 09:00、21:00 呼叫提醒服務。請在 GitHub repository secrets 新增 `EZ2SAVE_CRON_SECRET`，值必須與 Vercel 的 `CRON_SECRET` 相同。LINE channel access token 永遠不可放在 GitHub secret、前端或使用者資料中。
 
 ## AI Mock Mode
 

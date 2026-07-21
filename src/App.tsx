@@ -65,10 +65,8 @@ import {
   deleteLoan,
   deleteTransaction,
   emptyFinanceData,
-  loadNotificationPreference,
   loadFinanceData,
   normalizeCategoryName,
-  saveNotificationPreference,
   sendSignInLink,
   signInWithPassword,
   signUpWithPassword,
@@ -87,7 +85,6 @@ import type {
   FinancialAccount,
   FinancialReminder,
   Loan,
-  NotificationPreference,
   Transaction,
   UserProfile
 } from "./types/finance";
@@ -486,7 +483,6 @@ export default function App() {
   const [dataNotice, setDataNotice] = useState("");
   const [supabaseCheck, setSupabaseCheck] = useState<Awaited<ReturnType<typeof checkSupabaseConnection>> | null>(null);
   const [supabaseChecking, setSupabaseChecking] = useState(false);
-  const [notificationPreference, setNotificationPreference] = useState<NotificationPreference | null>(null);
   const [sessionEmail, setSessionEmail] = useState<string | null>(null);
   const [currentProfile, setCurrentProfile] = useState<UserProfile | null>(null);
   const [csvPreview, setCsvPreview] = useState<ReturnType<typeof parseTransactionsCsv>>([]);
@@ -565,15 +561,6 @@ export default function App() {
       }
       setCurrentProfile(result.profile);
       setSessionEmail(result.session?.user.email ?? null);
-      if (result.session) {
-        try {
-          setNotificationPreference(await loadNotificationPreference());
-        } catch {
-          setNotificationPreference(null);
-        }
-      } else {
-        setNotificationPreference(null);
-      }
       setDataNotice(
         !isSupabaseConfigured
           ? "雲端資料尚未完成設定，目前顯示空白帳本。"
@@ -973,20 +960,6 @@ export default function App() {
       notify("success", "貸款已刪除");
     } catch (error) {
       notify("error", error instanceof Error ? error.message : "貸款刪除失敗");
-    }
-  }
-
-  async function saveLinePreference(lineEnabled: boolean, lineUserId: string) {
-    try {
-      const saved = await saveNotificationPreference({
-        userId: currentProfile?.userId ?? localUserId,
-        lineEnabled,
-        lineUserId: lineUserId.trim() || undefined
-      });
-      setNotificationPreference(saved);
-      notify("success", lineEnabled ? "LINE 通知已儲存" : "LINE 通知已關閉");
-    } catch (error) {
-      notify("error", error instanceof Error ? error.message : "LINE 通知設定儲存失敗");
     }
   }
 
@@ -1402,8 +1375,6 @@ export default function App() {
                     notify("error", error instanceof Error ? error.message : "登出失敗");
                   }
                 }}
-                notificationPreference={notificationPreference}
-                onSaveLinePreference={saveLinePreference}
               />
             )}
             {page === "users" && isPlatformAdmin && (
@@ -5499,9 +5470,7 @@ function SettingsPage({
   onRefresh,
   onCheckSupabase,
   onSendSignInLink,
-  onSignOut,
-  notificationPreference,
-  onSaveLinePreference
+  onSignOut
 }: {
   isSupabaseConfigured: boolean;
   sessionEmail: string | null;
@@ -5513,8 +5482,6 @@ function SettingsPage({
   onCheckSupabase: () => void;
   onSendSignInLink: (email: string) => Promise<void>;
   onSignOut: () => Promise<void>;
-  notificationPreference: NotificationPreference | null;
-  onSaveLinePreference: (lineEnabled: boolean, lineUserId: string) => Promise<void>;
 }) {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -5525,17 +5492,6 @@ function SettingsPage({
           <Info label="帳號角色" value={profile ? getRoleLabel(profile) : "尚未建立 profile"} />
           <Info label="資料狀態" value={sessionEmail ? "已連結雲端帳號" : "尚未讀取雲端資料"} />
         </div>
-      </section>
-      <section className="panel lg:col-span-2">
-        <h2 className="text-lg font-semibold">LINE 通知</h2>
-        <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">繳款、結帳與貸款到期提醒會每 12 小時提醒一次；完成繳款或結清後會自動停止。</p>
-        <form className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]" onSubmit={handleFormSubmit((formData) => void onSaveLinePreference(formData.get("lineEnabled") === "on", String(formData.get("lineUserId") ?? "")))}>
-          <Field label="LINE 使用者 ID"><input className="input" name="lineUserId" defaultValue={notificationPreference?.lineUserId ?? ""} placeholder="綁定 LINE 後取得的識別碼" disabled={!sessionEmail} /></Field>
-          <div className="flex flex-col justify-end gap-3">
-            <label className="flex min-h-11 items-center gap-2 text-sm"><input name="lineEnabled" type="checkbox" defaultChecked={notificationPreference?.lineEnabled} disabled={!sessionEmail} /> 啟用 LINE 通知</label>
-            <button className="btn-primary" type="submit" disabled={!sessionEmail}>儲存通知設定</button>
-          </div>
-        </form>
       </section>
       <section className="panel">
         <h2 className="text-lg font-semibold">雲端資料</h2>
