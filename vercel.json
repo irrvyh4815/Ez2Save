@@ -2,12 +2,6 @@
   "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "crons": [
-    {
-      "path": "/api/line-notifications",
-      "schedule": "0 1,13 * * *"
-    }
-  ],
   "rewrites": [
     {
       "source": "/((?!api/.*).*)",
