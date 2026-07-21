@@ -9,6 +9,7 @@ import type {
   FinancialAccount,
   FinancialReminder,
   Loan,
+  NotificationPreference,
   Transaction,
   UserProfile
 } from "../types/finance";
@@ -325,6 +326,201 @@ export async function createFinancialAccount(account: FinancialAccount): Promise
   return mapAccount(data);
 }
 
+export async function updateFinancialAccount(account: FinancialAccount): Promise<FinancialAccount> {
+  if (!supabase) return { ...account, updatedAt: new Date().toISOString() };
+  const { data, error } = await supabase
+    .from("financial_accounts")
+    .update({
+      name: account.name,
+      account_type: account.type,
+      institution: account.institution || null,
+      balance_cents: account.balanceCents,
+      include_in_available_cash: account.includeInAvailableCash,
+      include_in_emergency_fund: account.includeInEmergencyFund,
+      note: account.note || null,
+      is_active: account.isActive
+    })
+    .eq("id", account.id)
+    .select("id,user_id,name,account_type,institution,balance_cents,include_in_available_cash,include_in_emergency_fund,note,is_active,created_at,updated_at")
+    .single();
+  if (error) throw new Error("帳戶更新失敗");
+  return mapAccount(data);
+}
+
+export async function deleteFinancialAccount(id: string): Promise<void> {
+  if (!supabase) return;
+  const { error } = await supabase.from("financial_accounts").update({ deleted_at: new Date().toISOString(), is_active: false }).eq("id", id);
+  if (error) throw new Error("帳戶刪除失敗");
+}
+
+export async function createCreditCard(card: CreditCard): Promise<CreditCard> {
+  if (!supabase) return card;
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !sessionData.session) throw new Error("請先登入再新增信用卡");
+  const { data, error } = await supabase
+    .from("credit_cards")
+    .insert({
+      user_id: sessionData.session.user.id,
+      name: card.name,
+      issuer: card.issuer,
+      last4: card.last4,
+      credit_limit_cents: card.creditLimitCents,
+      statement_day: card.statementDay,
+      payment_due_day: card.paymentDueDay,
+      unbilled_amount_cents: card.unbilledAmountCents,
+      current_statement_amount_cents: card.currentStatementAmountCents,
+      minimum_payment_cents: card.minimumPaymentCents,
+      installment_balance_cents: card.installmentBalanceCents,
+      auto_pay_account_id: card.autoPayAccountId || null,
+      annual_fee_cents: card.annualFeeCents,
+      annual_fee_waiver: card.annualFeeWaiver || null,
+      note: card.note || null,
+      is_active: card.isActive,
+      recommended_utilization_rate: card.recommendedUtilizationRate
+    })
+    .select("id,user_id,name,issuer,last4,credit_limit_cents,statement_day,payment_due_day,unbilled_amount_cents,current_statement_amount_cents,minimum_payment_cents,installment_balance_cents,auto_pay_account_id,annual_fee_cents,annual_fee_waiver,note,is_active,recommended_utilization_rate,created_at,updated_at")
+    .single();
+  if (error) throw new Error("信用卡儲存失敗");
+  return mapCreditCard(data);
+}
+
+export async function updateCreditCard(card: CreditCard): Promise<CreditCard> {
+  if (!supabase) return { ...card, updatedAt: new Date().toISOString() };
+  const { data, error } = await supabase
+    .from("credit_cards")
+    .update({
+      name: card.name,
+      issuer: card.issuer,
+      last4: card.last4,
+      credit_limit_cents: card.creditLimitCents,
+      statement_day: card.statementDay,
+      payment_due_day: card.paymentDueDay,
+      unbilled_amount_cents: card.unbilledAmountCents,
+      current_statement_amount_cents: card.currentStatementAmountCents,
+      minimum_payment_cents: card.minimumPaymentCents,
+      installment_balance_cents: card.installmentBalanceCents,
+      auto_pay_account_id: card.autoPayAccountId || null,
+      annual_fee_cents: card.annualFeeCents,
+      annual_fee_waiver: card.annualFeeWaiver || null,
+      note: card.note || null,
+      is_active: card.isActive,
+      recommended_utilization_rate: card.recommendedUtilizationRate
+    })
+    .eq("id", card.id)
+    .select("id,user_id,name,issuer,last4,credit_limit_cents,statement_day,payment_due_day,unbilled_amount_cents,current_statement_amount_cents,minimum_payment_cents,installment_balance_cents,auto_pay_account_id,annual_fee_cents,annual_fee_waiver,note,is_active,recommended_utilization_rate,created_at,updated_at")
+    .single();
+  if (error) throw new Error("信用卡更新失敗");
+  return mapCreditCard(data);
+}
+
+export async function deleteCreditCard(id: string): Promise<void> {
+  if (!supabase) return;
+  const { error } = await supabase.from("credit_cards").update({ deleted_at: new Date().toISOString(), is_active: false }).eq("id", id);
+  if (error) throw new Error("信用卡刪除失敗");
+}
+
+export async function createLoan(loan: Loan): Promise<Loan> {
+  if (!supabase) return loan;
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !sessionData.session) throw new Error("請先登入再新增貸款");
+  const { data, error } = await supabase
+    .from("loans")
+    .insert({
+      user_id: sessionData.session.user.id,
+      name: loan.name,
+      loan_type: loan.type,
+      institution: loan.institution || null,
+      original_principal_cents: loan.originalPrincipalCents,
+      remaining_principal_cents: loan.remainingPrincipalCents,
+      annual_rate: loan.annualRate,
+      term_months: loan.termMonths,
+      paid_periods: loan.paidPeriods,
+      monthly_payment_day: loan.monthlyPaymentDay,
+      start_date: loan.startDate,
+      expected_payoff_date: loan.expectedPayoffDate || null,
+      repayment_method: loan.repaymentMethod,
+      payment_per_period_cents: loan.paymentPerPeriodCents,
+      prepayment_penalty_note: loan.prepaymentPenaltyNote || null,
+      note: loan.note || null,
+      status: loan.status
+    })
+    .select("id,user_id,name,loan_type,institution,original_principal_cents,remaining_principal_cents,annual_rate,term_months,paid_periods,monthly_payment_day,start_date,expected_payoff_date,repayment_method,payment_per_period_cents,prepayment_penalty_note,note,status,created_at,updated_at")
+    .single();
+  if (error) throw new Error("貸款儲存失敗");
+  return mapLoan(data);
+}
+
+export async function updateLoan(loan: Loan): Promise<Loan> {
+  if (!supabase) return { ...loan, updatedAt: new Date().toISOString() };
+  const { data, error } = await supabase
+    .from("loans")
+    .update({
+      name: loan.name,
+      loan_type: loan.type,
+      institution: loan.institution || null,
+      original_principal_cents: loan.originalPrincipalCents,
+      remaining_principal_cents: loan.remainingPrincipalCents,
+      annual_rate: loan.annualRate,
+      term_months: loan.termMonths,
+      paid_periods: loan.paidPeriods,
+      monthly_payment_day: loan.monthlyPaymentDay,
+      start_date: loan.startDate,
+      expected_payoff_date: loan.expectedPayoffDate || null,
+      repayment_method: loan.repaymentMethod,
+      payment_per_period_cents: loan.paymentPerPeriodCents,
+      prepayment_penalty_note: loan.prepaymentPenaltyNote || null,
+      note: loan.note || null,
+      status: loan.status
+    })
+    .eq("id", loan.id)
+    .select("id,user_id,name,loan_type,institution,original_principal_cents,remaining_principal_cents,annual_rate,term_months,paid_periods,monthly_payment_day,start_date,expected_payoff_date,repayment_method,payment_per_period_cents,prepayment_penalty_note,note,status,created_at,updated_at")
+    .single();
+  if (error) throw new Error("貸款更新失敗");
+  return mapLoan(data);
+}
+
+export async function deleteLoan(id: string): Promise<void> {
+  if (!supabase) return;
+  const { error } = await supabase.from("loans").update({ deleted_at: new Date().toISOString(), status: "paid_off" }).eq("id", id);
+  if (error) throw new Error("貸款刪除失敗");
+}
+
+export async function loadNotificationPreference(): Promise<NotificationPreference | null> {
+  if (!supabase) return null;
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !sessionData.session) return null;
+  const { data, error } = await supabase
+    .from("notification_preferences")
+    .select("id,user_id,line_enabled,line_user_id,created_at,updated_at")
+    .eq("user_id", sessionData.session.user.id)
+    .maybeSingle();
+  if (error) {
+    if (error.code === "42P01") return null;
+    throw new Error("通知設定讀取失敗");
+  }
+  return data ? mapNotificationPreference(data) : null;
+}
+
+export async function saveNotificationPreference(preference: Omit<NotificationPreference, "id" | "createdAt" | "updatedAt">): Promise<NotificationPreference> {
+  if (!supabase) throw new Error("請先完成雲端設定後再儲存通知設定");
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !sessionData.session) throw new Error("請先登入再儲存通知設定");
+  const { data, error } = await supabase
+    .from("notification_preferences")
+    .upsert({
+      user_id: sessionData.session.user.id,
+      line_enabled: preference.lineEnabled,
+      line_user_id: preference.lineUserId || null
+    }, { onConflict: "user_id" })
+    .select("id,user_id,line_enabled,line_user_id,created_at,updated_at")
+    .single();
+  if (error) {
+    if (error.code === "42P01") throw new Error("通知功能尚未完成資料庫更新");
+    throw new Error("通知設定儲存失敗");
+  }
+  return mapNotificationPreference(data);
+}
+
 export async function createTransactionWithCategory(transaction: Transaction): Promise<Transaction> {
   if (!supabase) return transaction;
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
@@ -591,6 +787,17 @@ function mapReminder(row: Record<string, unknown>): FinancialReminder {
     startDate: String(row.start_date),
     endDate: nullableString(row.end_date),
     status: String(row.status) as FinancialReminder["status"],
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
+  };
+}
+
+function mapNotificationPreference(row: Record<string, unknown>): NotificationPreference {
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    lineEnabled: Boolean(row.line_enabled),
+    lineUserId: nullableString(row.line_user_id),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)
   };

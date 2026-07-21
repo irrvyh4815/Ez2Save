@@ -33,6 +33,7 @@ import {
   UserX,
   Users,
   KeyRound,
+  Pencil,
   RefreshCw,
   WalletCards
 } from "lucide-react";
@@ -55,16 +56,26 @@ import { listAdminUsers, manageAdminUser, type AdminManagedUser, type AdminAudit
 import {
   checkSupabaseConnection,
   createFinancialAccount,
+  createCreditCard,
   createCreditCardInstallment,
+  createLoan,
   createTransactionWithCategory,
+  deleteCreditCard,
+  deleteFinancialAccount,
+  deleteLoan,
   deleteTransaction,
   emptyFinanceData,
+  loadNotificationPreference,
   loadFinanceData,
   normalizeCategoryName,
+  saveNotificationPreference,
   sendSignInLink,
   signInWithPassword,
   signUpWithPassword,
-  signOut
+  signOut,
+  updateCreditCard,
+  updateFinancialAccount,
+  updateLoan
 } from "./services/financeRepository";
 import type {
   AccountType,
@@ -76,6 +87,7 @@ import type {
   FinancialAccount,
   FinancialReminder,
   Loan,
+  NotificationPreference,
   Transaction,
   UserProfile
 } from "./types/finance";
@@ -474,6 +486,7 @@ export default function App() {
   const [dataNotice, setDataNotice] = useState("");
   const [supabaseCheck, setSupabaseCheck] = useState<Awaited<ReturnType<typeof checkSupabaseConnection>> | null>(null);
   const [supabaseChecking, setSupabaseChecking] = useState(false);
+  const [notificationPreference, setNotificationPreference] = useState<NotificationPreference | null>(null);
   const [sessionEmail, setSessionEmail] = useState<string | null>(null);
   const [currentProfile, setCurrentProfile] = useState<UserProfile | null>(null);
   const [csvPreview, setCsvPreview] = useState<ReturnType<typeof parseTransactionsCsv>>([]);
@@ -552,6 +565,15 @@ export default function App() {
       }
       setCurrentProfile(result.profile);
       setSessionEmail(result.session?.user.email ?? null);
+      if (result.session) {
+        try {
+          setNotificationPreference(await loadNotificationPreference());
+        } catch {
+          setNotificationPreference(null);
+        }
+      } else {
+        setNotificationPreference(null);
+      }
       setDataNotice(
         !isSupabaseConfigured
           ? "雲端資料尚未完成設定，目前顯示空白帳本。"
@@ -821,6 +843,18 @@ export default function App() {
     setPage(nextPage);
   }
 
+  function openNotification(item: FinanceNotification) {
+    const destination: Record<FinanceNotification["source"], Page> = {
+      credit_card: "cards",
+      installment: "cards",
+      loan: "loans",
+      reminder: "reminders",
+      insurance: "insurance"
+    };
+    setNotificationOpen(false);
+    navigateToPage(destination[item.source]);
+  }
+
   function openUserManagement() {
     if (!isPlatformAdmin) return notify("error", "你沒有用戶管理權限");
     if (!activeLedgerId) {
@@ -856,6 +890,103 @@ export default function App() {
       notify("success", isSupabaseConfigured ? "帳戶已儲存" : "帳戶已新增");
     } catch (error) {
       notify("error", error instanceof Error ? error.message : "帳戶儲存失敗");
+    }
+  }
+
+  async function saveAccount(account: FinancialAccount) {
+    try {
+      const saved = await updateFinancialAccount(account);
+      setAccounts((current) => current.map((item) => item.id === saved.id ? saved : item));
+      notify("success", "帳戶已更新");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "帳戶更新失敗");
+    }
+  }
+
+  async function removeAccount(account: FinancialAccount) {
+    if (!window.confirm(`確定刪除「${account.name}」？既有交易不會被刪除。`)) return;
+    try {
+      await deleteFinancialAccount(account.id);
+      setAccounts((current) => current.filter((item) => item.id !== account.id));
+      notify("success", "帳戶已刪除");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "帳戶刪除失敗");
+    }
+  }
+
+  async function saveCard(card: CreditCard) {
+    try {
+      const saved = await updateCreditCard(card);
+      setCreditCards((current) => current.map((item) => item.id === saved.id ? saved : item));
+      notify("success", "信用卡已更新");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "信用卡更新失敗");
+    }
+  }
+
+  async function addCard(card: CreditCard) {
+    try {
+      const saved = await createCreditCard(card);
+      setCreditCards((current) => [saved, ...current]);
+      notify("success", "信用卡已新增");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "信用卡儲存失敗");
+    }
+  }
+
+  async function removeCard(card: CreditCard) {
+    if (!window.confirm(`確定刪除「${card.name}」？既有消費與分期記錄不會被刪除。`)) return;
+    try {
+      await deleteCreditCard(card.id);
+      setCreditCards((current) => current.filter((item) => item.id !== card.id));
+      notify("success", "信用卡已刪除");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "信用卡刪除失敗");
+    }
+  }
+
+  async function saveLoan(loan: Loan) {
+    try {
+      const saved = await updateLoan(loan);
+      setLoans((current) => current.map((item) => item.id === saved.id ? saved : item));
+      notify("success", loan.status === "paid_off" ? "貸款已結清，提醒已停止" : "貸款已更新");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "貸款更新失敗");
+    }
+  }
+
+  async function addLoan(loan: Loan) {
+    try {
+      const saved = await createLoan(loan);
+      setLoans((current) => [saved, ...current]);
+      notify("success", "貸款已新增");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "貸款儲存失敗");
+    }
+  }
+
+  async function removeLoan(loan: Loan) {
+    if (!window.confirm(`確定刪除「${loan.name}」？既有還款記錄不會被刪除。`)) return;
+    try {
+      await deleteLoan(loan.id);
+      setLoans((current) => current.filter((item) => item.id !== loan.id));
+      notify("success", "貸款已刪除");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "貸款刪除失敗");
+    }
+  }
+
+  async function saveLinePreference(lineEnabled: boolean, lineUserId: string) {
+    try {
+      const saved = await saveNotificationPreference({
+        userId: currentProfile?.userId ?? localUserId,
+        lineEnabled,
+        lineUserId: lineUserId.trim() || undefined
+      });
+      setNotificationPreference(saved);
+      notify("success", lineEnabled ? "LINE 通知已儲存" : "LINE 通知已關閉");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "LINE 通知設定儲存失敗");
     }
   }
 
@@ -1160,7 +1291,7 @@ export default function App() {
                       </span>
                     )}
                   </button>
-                  {notificationOpen && <NotificationPanel notifications={financeNotifications} onClose={() => setNotificationOpen(false)} />}
+                  {notificationOpen && <NotificationPanel notifications={financeNotifications} onClose={() => setNotificationOpen(false)} onOpen={openNotification} />}
                 </div>
                 <button className="btn-secondary h-10 w-10 px-0" title="切換深色模式" onClick={() => setDarkMode((value) => !value)}>
                   <Moon size={18} />
@@ -1200,18 +1331,20 @@ export default function App() {
                 rememberedCategories={rememberedCategories}
               />
             )}
-            {page === "accounts" && <AccountsPage accounts={accounts} onAdd={addAccount} />}
+            {page === "accounts" && <AccountsPage accounts={accounts} onAdd={addAccount} onUpdate={saveAccount} onDelete={removeAccount} />}
             {page === "cards" && (
               <CardsPage
                 cards={creditCards}
                 accounts={accounts}
                 installments={creditCardInstallments}
-                setCards={setCreditCards}
                 setInstallments={setCreditCardInstallments}
+                onAdd={addCard}
+                onUpdate={saveCard}
+                onDelete={removeCard}
                 notify={notify}
               />
             )}
-            {page === "loans" && <LoansPage loans={loans} setLoans={setLoans} notify={notify} />}
+            {page === "loans" && <LoansPage loans={loans} onAdd={addLoan} onUpdate={saveLoan} onDelete={removeLoan} notify={notify} />}
             {page === "deposits" && <DepositsPage deposits={deposits} setDeposits={setDeposits} notify={notify} />}
             {page === "insurance" && <InsurancePage policies={insurancePolicies} onAdd={addInsurancePolicy} />}
             {page === "investments" && <InvestmentsPage notify={notify} />}
@@ -1269,6 +1402,8 @@ export default function App() {
                     notify("error", error instanceof Error ? error.message : "登出失敗");
                   }
                 }}
+                notificationPreference={notificationPreference}
+                onSaveLinePreference={saveLinePreference}
               />
             )}
             {page === "users" && isPlatformAdmin && (
@@ -2156,7 +2291,7 @@ function AuthPreviewRow({ label, value, color }: { label: string; value: string;
   );
 }
 
-function NotificationPanel({ notifications, onClose }: { notifications: FinanceNotification[]; onClose: () => void }) {
+function NotificationPanel({ notifications, onClose, onOpen }: { notifications: FinanceNotification[]; onClose: () => void; onOpen: (notification: FinanceNotification) => void }) {
   return (
     <div className="absolute right-0 top-12 z-40 w-[calc(100vw-2rem)] max-w-md rounded-lg border border-slate-200 bg-white p-3 shadow-lg dark:border-slate-800 dark:bg-slate-950">
       <div className="flex items-center justify-between gap-3">
@@ -2173,7 +2308,7 @@ function NotificationPanel({ notifications, onClose }: { notifications: FinanceN
           </div>
         ) : (
           notifications.map((item) => (
-            <div key={item.id} className={`rounded-md border p-3 ${getNotificationClass(item.status)}`}>
+            <button key={item.id} className={`w-full rounded-md border p-3 text-left transition hover:brightness-95 ${getNotificationClass(item.status)}`} onClick={() => onOpen(item)}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="font-semibold">{item.title}</p>
@@ -2186,7 +2321,7 @@ function NotificationPanel({ notifications, onClose }: { notifications: FinanceN
                 {item.amountCents !== undefined && <span>{formatMoney(item.amountCents)}</span>}
                 <span>{getNotificationSourceLabel(item.source)}</span>
               </div>
-            </div>
+            </button>
           ))
         )}
       </div>
@@ -2217,24 +2352,28 @@ function buildFinanceNotifications({
     .forEach((card) => {
       const statementDate = createMonthlyDate(month, card.statementDay);
       const dueDate = createMonthlyDate(month, card.paymentDueDay);
-      items.push({
-        id: `card-statement-${card.id}-${statementDate}`,
-        title: `${card.name} 結帳日`,
-        detail: `${card.issuer} **** ${card.last4}，本期帳款 ${formatMoney(card.currentStatementAmountCents)}，未出帳 ${formatMoney(card.unbilledAmountCents)}`,
-        date: statementDate,
-        amountCents: card.currentStatementAmountCents + card.unbilledAmountCents,
-        source: "credit_card",
-        status: getNotificationStatus(statementDate, todayIso, 5)
-      });
-      items.push({
-        id: `card-due-${card.id}-${dueDate}`,
-        title: `${card.name} 繳款截止`,
-        detail: `本期帳單 ${formatMoney(card.currentStatementAmountCents)}，最低應繳 ${formatMoney(card.minimumPaymentCents)}。最低應繳僅作提醒，不建議作為長期策略。`,
-        date: dueDate,
-        amountCents: card.currentStatementAmountCents,
-        source: "credit_card",
-        status: getNotificationStatus(dueDate, todayIso, 7)
-      });
+      if (card.unbilledAmountCents > 0) {
+        items.push({
+          id: `card-statement-${card.id}-${statementDate}`,
+          title: `${card.name} 結帳日`,
+          detail: `${card.issuer} **** ${card.last4}，本期帳款 ${formatMoney(card.currentStatementAmountCents)}，未出帳 ${formatMoney(card.unbilledAmountCents)}`,
+          date: statementDate,
+          amountCents: card.currentStatementAmountCents + card.unbilledAmountCents,
+          source: "credit_card",
+          status: getNotificationStatus(statementDate, todayIso, 5)
+        });
+      }
+      if (card.currentStatementAmountCents > 0) {
+        items.push({
+          id: `card-due-${card.id}-${dueDate}`,
+          title: `${card.name} 繳款截止`,
+          detail: `本期帳單 ${formatMoney(card.currentStatementAmountCents)}，最低應繳 ${formatMoney(card.minimumPaymentCents)}。最低應繳僅作提醒，不建議作為長期策略。`,
+          date: dueDate,
+          amountCents: card.currentStatementAmountCents,
+          source: "credit_card",
+          status: getNotificationStatus(dueDate, todayIso, 7)
+        });
+      }
     });
 
   installments
@@ -2256,6 +2395,7 @@ function buildFinanceNotifications({
 
   loans
     .filter((loan) => loan.status === "active")
+    .filter((loan) => loan.remainingPrincipalCents > 0)
     .forEach((loan) => {
       const date = createMonthlyDate(month, loan.monthlyPaymentDay);
       items.push({
@@ -3433,7 +3573,17 @@ function TransactionsPage({
   );
 }
 
-function AccountsPage({ accounts, onAdd }: { accounts: FinancialAccount[]; onAdd: (formData: FormData) => void }) {
+function AccountsPage({
+  accounts,
+  onAdd,
+  onUpdate,
+  onDelete
+}: {
+  accounts: FinancialAccount[];
+  onAdd: (formData: FormData) => void;
+  onUpdate: (account: FinancialAccount) => Promise<void>;
+  onDelete: (account: FinancialAccount) => Promise<void>;
+}) {
   const activeAccounts = accounts.filter((account) => account.isActive);
   const totalBalanceCents = activeAccounts.reduce((sum, account) => sum + account.balanceCents, 0);
   const availableCashCents = activeAccounts
@@ -3529,9 +3679,12 @@ function AccountsPage({ accounts, onAdd }: { accounts: FinancialAccount[]; onAdd
         <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {accounts.length === 0 ? <div className="md:col-span-2 xl:col-span-3"><EmptyState label="尚未建立帳戶，從新增帳戶開始整理你的資產。" /></div> : accounts.map((account) => (
             <div key={account.id} className="panel">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-3">
                 <p className="font-semibold">{account.name}</p>
-                <span className="text-xs text-slate-500 dark:text-slate-400">{account.isActive ? "啟用" : "停用"}</span>
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-slate-500 dark:text-slate-400">{account.isActive ? "啟用" : "停用"}</span>
+                  <button className="btn-danger h-8 w-8 px-0" onClick={() => void onDelete(account)} title="刪除帳戶" aria-label={`刪除 ${account.name}`}><Trash2 size={15} /></button>
+                </div>
               </div>
               <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{accountTypeLabels[account.type]} · {account.institution}</p>
               <p className="mt-4 text-2xl font-bold">{formatMoney(account.balanceCents)}</p>
@@ -3539,6 +3692,34 @@ function AccountsPage({ accounts, onAdd }: { accounts: FinancialAccount[]; onAdd
                 {account.includeInAvailableCash && <Badge>可動用</Badge>}
                 {account.includeInEmergencyFund && <Badge>預備金</Badge>}
               </div>
+              <details className="group mt-4 border-t border-slate-200 pt-3 dark:border-slate-800">
+                <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-brand-700 dark:text-brand-100"><Pencil size={15} />編輯帳戶</summary>
+                <form className="mt-3 space-y-3" onSubmit={handleFormSubmit((formData) => {
+                  const balanceCents = parseMoneyToCents(String(formData.get("balance") ?? ""));
+                  if (balanceCents < 0) return;
+                  void onUpdate({
+                    ...account,
+                    name: String(formData.get("name") ?? "").trim() || account.name,
+                    type: String(formData.get("type") ?? account.type) as AccountType,
+                    institution: String(formData.get("institution") ?? "").trim() || undefined,
+                    balanceCents,
+                    includeInAvailableCash: formData.get("available") === "on",
+                    includeInEmergencyFund: formData.get("emergency") === "on",
+                    isActive: formData.get("active") === "on",
+                    note: String(formData.get("note") ?? "").trim() || undefined
+                  });
+                })}>
+                  <Field label="帳戶名稱"><input className="input" name="name" defaultValue={account.name} required /></Field>
+                  <Field label="帳戶類型"><select className="input" name="type" defaultValue={account.type}>{Object.entries(accountTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
+                  <Field label="金融機構"><input className="input" name="institution" defaultValue={account.institution ?? ""} /></Field>
+                  <Field label="目前餘額"><input className="input" name="balance" defaultValue={account.balanceCents / 100} inputMode="decimal" required /></Field>
+                  <label className="flex items-center gap-2 text-sm"><input name="available" type="checkbox" defaultChecked={account.includeInAvailableCash} /> 列入可動用現金</label>
+                  <label className="flex items-center gap-2 text-sm"><input name="emergency" type="checkbox" defaultChecked={account.includeInEmergencyFund} /> 列入緊急預備金</label>
+                  <label className="flex items-center gap-2 text-sm"><input name="active" type="checkbox" defaultChecked={account.isActive} /> 啟用帳戶</label>
+                  <Field label="備註"><textarea className="input" name="note" rows={2} defaultValue={account.note ?? ""} /></Field>
+                  <button className="btn-primary w-full" type="submit">儲存變更</button>
+                </form>
+              </details>
             </div>
           ))}
         </section>
@@ -3551,15 +3732,19 @@ function CardsPage({
   cards,
   accounts,
   installments,
-  setCards,
   setInstallments,
+  onAdd,
+  onUpdate,
+  onDelete,
   notify
 }: {
   cards: CreditCard[];
   accounts: FinancialAccount[];
   installments: CreditCardInstallment[];
-  setCards: React.Dispatch<React.SetStateAction<CreditCard[]>>;
   setInstallments: React.Dispatch<React.SetStateAction<CreditCardInstallment[]>>;
+  onAdd: (card: CreditCard) => Promise<void>;
+  onUpdate: (card: CreditCard) => Promise<void>;
+  onDelete: (card: CreditCard) => Promise<void>;
   notify: (type: ToastType, message: string) => void;
 }) {
   function addCard(formData: FormData) {
@@ -3567,8 +3752,7 @@ function CardsPage({
     const validation = validatePositiveAmount(limit, "信用額度");
     if (!validation.valid) return notify("error", validation.errors[0]);
     const now = new Date().toISOString();
-    setCards((current) => [
-      {
+    void onAdd({
         id: crypto.randomUUID(),
         userId: localUserId,
         name: String(formData.get("name")),
@@ -3589,10 +3773,7 @@ function CardsPage({
         recommendedUtilizationRate: 0.3,
         createdAt: now,
         updatedAt: now
-      },
-      ...current
-    ]);
-    notify("success", "信用卡已新增");
+      });
   }
 
   async function addInstallment(formData: FormData) {
@@ -3711,7 +3892,7 @@ function CardsPage({
             <div key={card.id} className="panel">
               <div className="flex items-start justify-between gap-3">
                 <div><p className="font-semibold">{card.name}</p><p className="text-sm text-slate-500 dark:text-slate-400">{card.issuer} · **** {card.last4}</p></div>
-                <Badge>{card.isActive ? "啟用" : "停用"}</Badge>
+                <div className="flex items-center gap-2"><Badge>{card.isActive ? "啟用" : "停用"}</Badge><button className="btn-danger h-8 w-8 px-0" onClick={() => void onDelete(card)} title="刪除信用卡" aria-label={`刪除 ${card.name}`}><Trash2 size={15} /></button></div>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                 <Info label="本期帳單" value={formatMoney(card.currentStatementAmountCents)} />
@@ -3724,6 +3905,35 @@ function CardsPage({
               {utilization > card.recommendedUtilizationRate && (
                 <p className="mt-3 rounded-md bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-100">已超過建議額度使用率 {formatPercent(card.recommendedUtilizationRate)}。</p>
               )}
+              {card.currentStatementAmountCents > 0 && <button className="btn-primary mt-4 w-full" onClick={() => { if (window.confirm(`確認 ${card.name} 本期帳單已繳清？`)) void onUpdate({ ...card, currentStatementAmountCents: 0, minimumPaymentCents: 0 }); }}>標示本期已繳清</button>}
+              <details className="group mt-4 border-t border-slate-200 pt-3 dark:border-slate-800">
+                <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-brand-700 dark:text-brand-100"><Pencil size={15} />編輯信用卡</summary>
+                <form className="mt-3 space-y-3" onSubmit={handleFormSubmit((formData) => {
+                  const creditLimitCents = parseMoneyToCents(String(formData.get("limit") ?? ""));
+                  if (creditLimitCents <= 0) return;
+                  void onUpdate({
+                    ...card,
+                    name: String(formData.get("name") ?? "").trim() || card.name,
+                    issuer: String(formData.get("issuer") ?? "").trim() || card.issuer,
+                    last4: String(formData.get("last4") ?? "").slice(-4) || card.last4,
+                    creditLimitCents,
+                    statementDay: Number(formData.get("statementDay") ?? card.statementDay),
+                    paymentDueDay: Number(formData.get("paymentDueDay") ?? card.paymentDueDay),
+                    currentStatementAmountCents: Math.max(0, parseMoneyToCents(String(formData.get("statementAmount") ?? "0"))),
+                    minimumPaymentCents: Math.max(0, parseMoneyToCents(String(formData.get("minimumPayment") ?? "0"))),
+                    recommendedUtilizationRate: Math.min(1, Math.max(0.01, Number(formData.get("utilizationRate") ?? 30) / 100)),
+                    isActive: formData.get("active") === "on"
+                  });
+                })}>
+                  <div className="grid grid-cols-2 gap-3"><Field label="信用卡名稱"><input className="input" name="name" defaultValue={card.name} required /></Field><Field label="發卡銀行"><input className="input" name="issuer" defaultValue={card.issuer} required /></Field></div>
+                  <div className="grid grid-cols-2 gap-3"><Field label="末四碼"><input className="input" name="last4" defaultValue={card.last4} maxLength={4} inputMode="numeric" required /></Field><Field label="信用額度"><input className="input" name="limit" defaultValue={card.creditLimitCents / 100} inputMode="decimal" required /></Field></div>
+                  <div className="grid grid-cols-2 gap-3"><Field label="結帳日"><input className="input" name="statementDay" type="number" min={1} max={31} defaultValue={card.statementDay} /></Field><Field label="繳款截止日"><input className="input" name="paymentDueDay" type="number" min={1} max={31} defaultValue={card.paymentDueDay} /></Field></div>
+                  <div className="grid grid-cols-2 gap-3"><Field label="本期帳單"><input className="input" name="statementAmount" defaultValue={card.currentStatementAmountCents / 100} inputMode="decimal" /></Field><Field label="最低應繳"><input className="input" name="minimumPayment" defaultValue={card.minimumPaymentCents / 100} inputMode="decimal" /></Field></div>
+                  <Field label="建議額度使用率 %"><input className="input" name="utilizationRate" type="number" min={1} max={100} defaultValue={Math.round(card.recommendedUtilizationRate * 100)} /></Field>
+                  <label className="flex items-center gap-2 text-sm"><input name="active" type="checkbox" defaultChecked={card.isActive} /> 啟用信用卡</label>
+                  <button className="btn-primary w-full" type="submit">儲存變更</button>
+                </form>
+              </details>
             </div>
           );
         })}
@@ -3765,11 +3975,15 @@ function CardsPage({
 
 function LoansPage({
   loans,
-  setLoans,
+  onAdd,
+  onUpdate,
+  onDelete,
   notify
 }: {
   loans: Loan[];
-  setLoans: React.Dispatch<React.SetStateAction<Loan[]>>;
+  onAdd: (loan: Loan) => Promise<void>;
+  onUpdate: (loan: Loan) => Promise<void>;
+  onDelete: (loan: Loan) => Promise<void>;
   notify: (type: ToastType, message: string) => void;
 }) {
   const [calcInput, setCalcInput] = useState<LoanCalculationInput>({
@@ -3803,8 +4017,7 @@ function LoansPage({
     const termMonths = Number(formData.get("termMonths"));
     const payment = calculateLoan({ principalCents: principal, annualRate, termMonths, method: "equal_payment" }).monthlyPaymentCents;
     const now = new Date().toISOString();
-    setLoans((current) => [
-      {
+    void onAdd({
         id: crypto.randomUUID(),
         userId: localUserId,
         name: String(formData.get("name")),
@@ -3822,10 +4035,7 @@ function LoansPage({
         status: "active",
         createdAt: now,
         updatedAt: now
-      },
-      ...current
-    ]);
-    notify("success", "貸款已新增");
+      });
   }
 
   return (
@@ -3874,7 +4084,7 @@ function LoansPage({
         <section className="grid gap-3 md:grid-cols-2">
           {loans.length === 0 ? <div className="md:col-span-2"><EmptyState label="尚未建立貸款，新增後可直接試算每月還款與總利息。" /></div> : loans.map((loan) => (
             <div key={loan.id} className="panel">
-              <p className="font-semibold">{loan.name}</p>
+              <div className="flex items-start justify-between gap-3"><p className="font-semibold">{loan.name}</p><div className="flex items-center gap-2"><Badge>{loan.status === "paid_off" ? "已結清" : loan.status === "active" ? "進行中" : "已暫停"}</Badge><button className="btn-danger h-8 w-8 px-0" onClick={() => void onDelete(loan)} title="刪除貸款" aria-label={`刪除 ${loan.name}`}><Trash2 size={15} /></button></div></div>
               <p className="text-sm text-slate-500 dark:text-slate-400">{loan.institution} · 年利率 {formatPercent(loan.annualRate)}</p>
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                 <Info label="剩餘本金" value={formatMoney(loan.remainingPrincipalCents)} />
@@ -3882,6 +4092,32 @@ function LoansPage({
                 <Info label="已繳期數" value={`${loan.paidPeriods}/${loan.termMonths}`} />
                 <Info label="還款日" value={`每月 ${loan.monthlyPaymentDay} 日`} />
               </div>
+              {loan.status === "active" && <button className="btn-primary mt-4 w-full" onClick={() => { if (window.confirm(`確認 ${loan.name} 已結清？結清後不再顯示繳款提醒。`)) void onUpdate({ ...loan, remainingPrincipalCents: 0, paidPeriods: loan.termMonths, status: "paid_off" }); }}>標示已結清</button>}
+              <details className="group mt-4 border-t border-slate-200 pt-3 dark:border-slate-800">
+                <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-brand-700 dark:text-brand-100"><Pencil size={15} />編輯貸款</summary>
+                <form className="mt-3 space-y-3" onSubmit={handleFormSubmit((formData) => {
+                  const remainingPrincipalCents = Math.max(0, parseMoneyToCents(String(formData.get("remaining") ?? "0")));
+                  const annualRate = Math.max(0, Number(formData.get("annualRate") ?? 0) / 100);
+                  void onUpdate({
+                    ...loan,
+                    name: String(formData.get("name") ?? "").trim() || loan.name,
+                    institution: String(formData.get("institution") ?? "").trim() || undefined,
+                    remainingPrincipalCents,
+                    annualRate,
+                    paidPeriods: Math.min(loan.termMonths, Math.max(0, Number(formData.get("paidPeriods") ?? loan.paidPeriods))),
+                    monthlyPaymentDay: Math.min(31, Math.max(1, Number(formData.get("paymentDay") ?? loan.monthlyPaymentDay))),
+                    paymentPerPeriodCents: Math.max(0, parseMoneyToCents(String(formData.get("payment") ?? "0"))),
+                    status: String(formData.get("status") ?? loan.status) as Loan["status"]
+                  });
+                })}>
+                  <div className="grid grid-cols-2 gap-3"><Field label="貸款名稱"><input className="input" name="name" defaultValue={loan.name} required /></Field><Field label="金融機構"><input className="input" name="institution" defaultValue={loan.institution ?? ""} /></Field></div>
+                  <div className="grid grid-cols-2 gap-3"><Field label="剩餘本金"><input className="input" name="remaining" defaultValue={loan.remainingPrincipalCents / 100} inputMode="decimal" required /></Field><Field label="年利率 %"><input className="input" name="annualRate" defaultValue={loan.annualRate * 100} inputMode="decimal" required /></Field></div>
+                  <div className="grid grid-cols-2 gap-3"><Field label="已繳期數"><input className="input" name="paidPeriods" type="number" min={0} max={loan.termMonths} defaultValue={loan.paidPeriods} /></Field><Field label="每月還款日"><input className="input" name="paymentDay" type="number" min={1} max={31} defaultValue={loan.monthlyPaymentDay} /></Field></div>
+                  <Field label="每期應繳"><input className="input" name="payment" defaultValue={loan.paymentPerPeriodCents / 100} inputMode="decimal" required /></Field>
+                  <Field label="狀態"><select className="input" name="status" defaultValue={loan.status}><option value="active">進行中</option><option value="paid_off">已結清</option><option value="paused">已暫停</option></select></Field>
+                  <button className="btn-primary w-full" type="submit">儲存變更</button>
+                </form>
+              </details>
             </div>
           ))}
         </section>
@@ -5167,7 +5403,7 @@ function AdminUsersPage({ currentUserId, notify }: { currentUserId: string; noti
         {loading ? (
           <div className="mt-5"><InlineNotice tone="neutral" message="正在讀取使用者資料..." /></div>
         ) : loadError ? (
-          <div className="mt-5"><EmptyState label="用戶管理服務尚未完成設定" /></div>
+          <div className="mt-5"><EmptyState label="目前無法讀取帳號清單，請重新整理後再試。" /></div>
         ) : users.length === 0 ? (
           <div className="mt-5"><EmptyState label="找不到符合條件的使用者" /></div>
         ) : (
@@ -5263,7 +5499,9 @@ function SettingsPage({
   onRefresh,
   onCheckSupabase,
   onSendSignInLink,
-  onSignOut
+  onSignOut,
+  notificationPreference,
+  onSaveLinePreference
 }: {
   isSupabaseConfigured: boolean;
   sessionEmail: string | null;
@@ -5275,6 +5513,8 @@ function SettingsPage({
   onCheckSupabase: () => void;
   onSendSignInLink: (email: string) => Promise<void>;
   onSignOut: () => Promise<void>;
+  notificationPreference: NotificationPreference | null;
+  onSaveLinePreference: (lineEnabled: boolean, lineUserId: string) => Promise<void>;
 }) {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -5285,6 +5525,17 @@ function SettingsPage({
           <Info label="帳號角色" value={profile ? getRoleLabel(profile) : "尚未建立 profile"} />
           <Info label="資料狀態" value={sessionEmail ? "已連結雲端帳號" : "尚未讀取雲端資料"} />
         </div>
+      </section>
+      <section className="panel lg:col-span-2">
+        <h2 className="text-lg font-semibold">LINE 通知</h2>
+        <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">繳款、結帳與貸款到期提醒會每 12 小時提醒一次；完成繳款或結清後會自動停止。</p>
+        <form className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]" onSubmit={handleFormSubmit((formData) => void onSaveLinePreference(formData.get("lineEnabled") === "on", String(formData.get("lineUserId") ?? "")))}>
+          <Field label="LINE 使用者 ID"><input className="input" name="lineUserId" defaultValue={notificationPreference?.lineUserId ?? ""} placeholder="綁定 LINE 後取得的識別碼" disabled={!sessionEmail} /></Field>
+          <div className="flex flex-col justify-end gap-3">
+            <label className="flex min-h-11 items-center gap-2 text-sm"><input name="lineEnabled" type="checkbox" defaultChecked={notificationPreference?.lineEnabled} disabled={!sessionEmail} /> 啟用 LINE 通知</label>
+            <button className="btn-primary" type="submit" disabled={!sessionEmail}>儲存通知設定</button>
+          </div>
+        </form>
       </section>
       <section className="panel">
         <h2 className="text-lg font-semibold">雲端資料</h2>

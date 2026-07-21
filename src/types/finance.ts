@@ -180,6 +180,11 @@ export interface FinancialReminder extends BaseEntity {
   status: ReminderStatus;
 }
 
+export interface NotificationPreference extends BaseEntity {
+  lineEnabled: boolean;
+  lineUserId?: string;
+}
+
 export interface DashboardSummary {
   totalAssetsCents: number;
   totalLiabilitiesCents: number;
