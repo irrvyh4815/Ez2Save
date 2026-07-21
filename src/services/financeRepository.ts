@@ -8,6 +8,9 @@ import type {
   Deposit,
   FinancialAccount,
   FinancialReminder,
+  InsurancePolicy,
+  LedgerBook,
+  LedgerInvitation,
   Loan,
   Transaction,
   UserProfile
@@ -22,6 +25,7 @@ export interface FinanceData {
   deposits: Deposit[];
   budgets: Budget[];
   reminders: FinancialReminder[];
+  insurancePolicies: InsurancePolicy[];
   categories: string[];
 }
 
@@ -47,6 +51,7 @@ export const emptyFinanceData: FinanceData = {
   deposits: [],
   budgets: [],
   reminders: [],
+  insurancePolicies: [],
   categories: []
 };
 
@@ -188,12 +193,39 @@ export async function signOut(): Promise<void> {
   if (error) throw new Error("登出失敗");
 }
 
-export async function loadFinanceData(): Promise<LoadFinanceResult> {
+export async function updateOwnProfile(input: { displayName: string; locale?: string; timezone?: string }): Promise<UserProfile> {
+  if (!supabase) throw new Error("請先完成雲端設定");
+  const session = await getCurrentSession();
+  if (!session) throw new Error("請先登入再更新個人設定");
+  const displayName = input.displayName.trim();
+  if (!displayName || displayName.length > 80) throw new Error("暱稱請輸入 1 至 80 個字");
+  const { data, error } = await supabase
+    .from("profiles")
+    .update({ display_name: displayName, locale: input.locale ?? "zh-Hant-TW", timezone: input.timezone ?? "Asia/Taipei" })
+    .eq("user_id", session.user.id)
+    .select("id,user_id,email,display_name,locale,currency,timezone,role,is_super_admin,created_at,updated_at")
+    .single();
+  if (error) throw new Error("個人設定儲存失敗");
+  return mapProfile(data);
+}
+
+export async function updateOwnPassword(password: string): Promise<void> {
+  if (!supabase) throw new Error("請先完成雲端設定");
+  if (password.length < 8) throw new Error("密碼至少需要 8 碼");
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) throw new Error("密碼更新失敗，請重新登入後再試");
+}
+
+export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceResult> {
   if (!supabase) return { data: emptyFinanceData, session: null, profile: null };
   const session = await getCurrentSession();
   if (!session) return { data: emptyFinanceData, session: null, profile: null };
   const userId = session.user.id;
   const profile = await ensureUserProfile();
+
+  const scoped = <T>(query: T): T => ledgerId
+    ? (query as { eq: (column: string, value: string) => T }).eq("ledger_id", ledgerId)
+    : (query as { eq: (column: string, value: string) => T }).eq("user_id", userId);
 
   const [
     accounts,
@@ -204,69 +236,67 @@ export async function loadFinanceData(): Promise<LoadFinanceResult> {
     deposits,
     budgets,
     reminders,
-    categories
+    categories,
+    insurancePolicies
   ] = await Promise.all([
-    supabase
+    scoped(supabase
       .from("financial_accounts")
-      .select("id,user_id,name,account_type,institution,balance_cents,include_in_available_cash,include_in_emergency_fund,note,is_active,created_at,updated_at")
-      .eq("user_id", userId)
+      .select("id,user_id,name,account_type,institution,balance_cents,include_in_available_cash,include_in_emergency_fund,note,is_active,created_at,updated_at"))
       .is("deleted_at", null)
       .order("created_at", { ascending: false }),
-    supabase
+    scoped(supabase
       .from("transactions")
-      .select("id,user_id,transaction_date,transaction_type,amount_cents,category_name,subcategory_name,account_id,transfer_account_id,credit_card_id,loan_id,merchant,note,is_necessary,is_recurring,tags,source,created_at,updated_at")
-      .eq("user_id", userId)
+      .select("id,user_id,transaction_date,transaction_type,amount_cents,category_name,subcategory_name,account_id,transfer_account_id,credit_card_id,loan_id,merchant,note,is_necessary,is_recurring,tags,source,created_at,updated_at"))
       .is("deleted_at", null)
       .order("transaction_date", { ascending: false })
       .limit(500),
-    supabase
+    scoped(supabase
       .from("credit_cards")
-      .select("id,user_id,name,issuer,last4,credit_limit_cents,statement_day,payment_due_day,unbilled_amount_cents,current_statement_amount_cents,minimum_payment_cents,installment_balance_cents,auto_pay_account_id,annual_fee_cents,annual_fee_waiver,note,is_active,recommended_utilization_rate,created_at,updated_at")
-      .eq("user_id", userId)
+      .select("id,user_id,name,issuer,last4,credit_limit_cents,statement_day,payment_due_day,unbilled_amount_cents,current_statement_amount_cents,minimum_payment_cents,installment_balance_cents,auto_pay_account_id,annual_fee_cents,annual_fee_waiver,note,is_active,recommended_utilization_rate,created_at,updated_at"))
       .is("deleted_at", null)
       .order("created_at", { ascending: false }),
-    supabase
+    scoped(supabase
       .from("credit_card_installments")
-      .select("id,user_id,credit_card_id,transaction_id,merchant,total_amount_cents,annual_rate,periods,paid_periods,monthly_payment_cents,paid_amount_cents,remaining_amount_cents,started_on,next_due_date,status,note,created_at,updated_at")
-      .eq("user_id", userId)
+      .select("id,user_id,credit_card_id,transaction_id,merchant,total_amount_cents,annual_rate,periods,paid_periods,monthly_payment_cents,paid_amount_cents,remaining_amount_cents,started_on,next_due_date,status,note,created_at,updated_at"))
       .is("deleted_at", null)
       .order("next_due_date", { ascending: true }),
-    supabase
+    scoped(supabase
       .from("loans")
-      .select("id,user_id,name,loan_type,institution,original_principal_cents,remaining_principal_cents,annual_rate,term_months,paid_periods,monthly_payment_day,start_date,expected_payoff_date,repayment_method,payment_per_period_cents,prepayment_penalty_note,note,status,created_at,updated_at")
-      .eq("user_id", userId)
+      .select("id,user_id,name,loan_type,institution,original_principal_cents,remaining_principal_cents,annual_rate,term_months,paid_periods,monthly_payment_day,start_date,expected_payoff_date,repayment_method,payment_per_period_cents,prepayment_penalty_note,note,status,created_at,updated_at"))
       .is("deleted_at", null)
       .order("created_at", { ascending: false }),
-    supabase
+    scoped(supabase
       .from("deposits")
-      .select("id,user_id,name,institution,principal_cents,annual_rate,start_date,maturity_date,term_months,interest_type,interest_payout,auto_renew,maturity_instruction,estimated_interest_cents,estimated_maturity_amount_cents,include_in_available_cash,note,is_active,created_at,updated_at")
-      .eq("user_id", userId)
+      .select("id,user_id,name,institution,principal_cents,annual_rate,start_date,maturity_date,term_months,interest_type,interest_payout,auto_renew,maturity_instruction,estimated_interest_cents,estimated_maturity_amount_cents,include_in_available_cash,note,is_active,created_at,updated_at"))
       .is("deleted_at", null)
       .order("maturity_date", { ascending: true }),
-    supabase
+    scoped(supabase
       .from("budgets")
-      .select("id,user_id,budget_month,total_budget_cents,budget_cents,thresholds,created_at,updated_at,metadata")
-      .eq("user_id", userId)
+      .select("id,user_id,budget_month,total_budget_cents,budget_cents,thresholds,created_at,updated_at,metadata"))
       .is("deleted_at", null)
       .order("budget_month", { ascending: false }),
-    supabase
+    scoped(supabase
       .from("financial_reminders")
-      .select("id,user_id,name,amount_cents,frequency,debit_day,account_id,remind_days_before,auto_create_transaction,is_necessary,start_date,end_date,status,created_at,updated_at")
-      .eq("user_id", userId)
+      .select("id,user_id,name,amount_cents,frequency,debit_day,account_id,remind_days_before,auto_create_transaction,is_necessary,start_date,end_date,status,created_at,updated_at"))
       .is("deleted_at", null)
       .order("debit_day", { ascending: true }),
-    supabase
+    scoped(supabase
       .from("transaction_categories")
-      .select("name")
-      .eq("user_id", userId)
+      .select("name"))
       .eq("is_active", true)
       .is("deleted_at", null)
-      .order("name", { ascending: true })
+      .order("name", { ascending: true }),
+    scoped(supabase
+      .from("insurance_policies")
+      .select("id,user_id,name,policy_type,insurer,policy_number_last4,insured_person,annual_premium_cents,coverage_amount_cents,paid_claim_amount_cents,pending_claim_amount_cents,payment_day,renewal_date,beneficiary,note,status,created_at,updated_at"))
+      .is("deleted_at", null)
+      .order("renewal_date", { ascending: true })
   ]);
 
   const responses = [accounts, transactions, creditCards, creditCardInstallments, loans, deposits, budgets, reminders, categories];
   const failed = responses.find((response) => response.error);
   if (failed?.error) throw new Error("Supabase 資料讀取失敗，請確認 migration 與 RLS 設定");
+  if (insurancePolicies.error && insurancePolicies.error.code !== "42P01") throw new Error("保險資料讀取失敗");
 
   return {
     session,
@@ -280,9 +310,74 @@ export async function loadFinanceData(): Promise<LoadFinanceResult> {
       deposits: (deposits.data ?? []).map(mapDeposit),
       budgets: (budgets.data ?? []).map(mapBudget),
       reminders: (reminders.data ?? []).map(mapReminder),
+      insurancePolicies: (insurancePolicies.data ?? []).map(mapInsurancePolicy),
       categories: [...new Set((categories.data ?? []).map((row) => String(row.name)).filter(Boolean))]
     }
   };
+}
+
+export async function loadLedgerBooks(): Promise<LedgerBook[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from("ledger_books")
+    .select("id,owner_user_id,name,purpose,color,note,is_default,is_shared,created_at,updated_at")
+    .is("deleted_at", null)
+    .order("is_default", { ascending: false })
+    .order("created_at", { ascending: true });
+  if (error) throw new Error("帳本資料讀取失敗，請確認帳本 migration 與 RLS 設定");
+  return (data ?? []).map(mapLedgerBook);
+}
+
+export async function loadLedgerInvitations(): Promise<LedgerInvitation[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from("ledger_invitations")
+    .select("id,ledger_id,invitee_email,invitee_member_code,role,status,expires_at,created_at,updated_at")
+    .order("created_at", { ascending: false });
+  if (error) throw new Error("帳本邀請讀取失敗");
+  return (data ?? []).map(mapLedgerInvitation);
+}
+
+export async function createLedgerBook(ledger: Omit<LedgerBook, "id" | "createdAt" | "updatedAt">): Promise<LedgerBook> {
+  if (!supabase) throw new Error("請先登入再建立帳本");
+  const { data, error } = await supabase
+    .from("ledger_books")
+    .insert({ owner_user_id: ledger.ownerUserId, name: ledger.name, purpose: ledger.purpose, color: ledger.color, note: ledger.note || null, is_default: ledger.isDefault, is_shared: ledger.isShared })
+    .select("id,owner_user_id,name,purpose,color,note,is_default,is_shared,created_at,updated_at")
+    .single();
+  if (error) throw new Error("帳本建立失敗");
+  return mapLedgerBook(data);
+}
+
+export async function updateLedgerBook(ledger: LedgerBook): Promise<LedgerBook> {
+  if (!supabase) throw new Error("請先登入再更新帳本");
+  const { data, error } = await supabase
+    .from("ledger_books")
+    .update({ name: ledger.name, purpose: ledger.purpose, color: ledger.color, note: ledger.note || null, is_shared: ledger.isShared })
+    .eq("id", ledger.id)
+    .select("id,owner_user_id,name,purpose,color,note,is_default,is_shared,created_at,updated_at")
+    .single();
+  if (error) throw new Error("帳本更新失敗");
+  return mapLedgerBook(data);
+}
+
+export async function deleteLedgerBook(id: string): Promise<void> {
+  if (!supabase) throw new Error("請先登入再刪除帳本");
+  const { error } = await supabase.from("ledger_books").update({ deleted_at: new Date().toISOString() }).eq("id", id);
+  if (error) throw new Error("帳本刪除失敗");
+}
+
+export async function createLedgerInvitation(invitation: Omit<LedgerInvitation, "id" | "userId" | "createdAt" | "updatedAt">): Promise<LedgerInvitation> {
+  if (!supabase) throw new Error("請先登入再邀請成員");
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !sessionData.session) throw new Error("請先登入再邀請成員");
+  const { data, error } = await supabase
+    .from("ledger_invitations")
+    .insert({ ledger_id: invitation.ledgerId, inviter_user_id: sessionData.session.user.id, invitee_email: invitation.inviteeEmail || null, invitee_member_code: invitation.inviteeMemberCode || null, role: invitation.role })
+    .select("id,ledger_id,invitee_email,invitee_member_code,role,status,expires_at,created_at,updated_at")
+    .single();
+  if (error) throw new Error("帳本邀請建立失敗");
+  return mapLedgerInvitation(data);
 }
 
 function mapProfile(row: Record<string, unknown>): UserProfile {
@@ -301,7 +396,7 @@ function mapProfile(row: Record<string, unknown>): UserProfile {
   };
 }
 
-export async function createFinancialAccount(account: FinancialAccount): Promise<FinancialAccount> {
+export async function createFinancialAccount(account: FinancialAccount, ledgerId?: string): Promise<FinancialAccount> {
   if (!supabase) return account;
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   if (sessionError || !sessionData.session) throw new Error("請先登入再新增帳戶");
@@ -310,6 +405,7 @@ export async function createFinancialAccount(account: FinancialAccount): Promise
     .from("financial_accounts")
     .insert({
       user_id: userId,
+      ...(ledgerId ? { ledger_id: ledgerId } : {}),
       name: account.name,
       account_type: account.type,
       institution: account.institution || null,
@@ -352,7 +448,7 @@ export async function deleteFinancialAccount(id: string): Promise<void> {
   if (error) throw new Error("帳戶刪除失敗");
 }
 
-export async function createCreditCard(card: CreditCard): Promise<CreditCard> {
+export async function createCreditCard(card: CreditCard, ledgerId?: string): Promise<CreditCard> {
   if (!supabase) return card;
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   if (sessionError || !sessionData.session) throw new Error("請先登入再新增信用卡");
@@ -360,6 +456,7 @@ export async function createCreditCard(card: CreditCard): Promise<CreditCard> {
     .from("credit_cards")
     .insert({
       user_id: sessionData.session.user.id,
+      ...(ledgerId ? { ledger_id: ledgerId } : {}),
       name: card.name,
       issuer: card.issuer,
       last4: card.last4,
@@ -418,7 +515,7 @@ export async function deleteCreditCard(id: string): Promise<void> {
   if (error) throw new Error("信用卡刪除失敗");
 }
 
-export async function createLoan(loan: Loan): Promise<Loan> {
+export async function createLoan(loan: Loan, ledgerId?: string): Promise<Loan> {
   if (!supabase) return loan;
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   if (sessionError || !sessionData.session) throw new Error("請先登入再新增貸款");
@@ -426,6 +523,7 @@ export async function createLoan(loan: Loan): Promise<Loan> {
     .from("loans")
     .insert({
       user_id: sessionData.session.user.id,
+      ...(ledgerId ? { ledger_id: ledgerId } : {}),
       name: loan.name,
       loan_type: loan.type,
       institution: loan.institution || null,
@@ -484,7 +582,7 @@ export async function deleteLoan(id: string): Promise<void> {
   if (error) throw new Error("貸款刪除失敗");
 }
 
-export async function createTransactionWithCategory(transaction: Transaction): Promise<Transaction> {
+export async function createTransactionWithCategory(transaction: Transaction, ledgerId?: string): Promise<Transaction> {
   if (!supabase) return transaction;
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   if (sessionError || !sessionData.session) throw new Error("請先登入再新增交易");
@@ -497,6 +595,7 @@ export async function createTransactionWithCategory(transaction: Transaction): P
     .upsert(
       {
         user_id: userId,
+        ...(ledgerId ? { ledger_id: ledgerId } : {}),
         name: normalizedCategory,
         transaction_type: categoryType,
         is_necessary_default: transaction.isNecessary,
@@ -512,6 +611,7 @@ export async function createTransactionWithCategory(transaction: Transaction): P
     .from("transactions")
     .insert({
       user_id: userId,
+      ...(ledgerId ? { ledger_id: ledgerId } : {}),
       transaction_date: transaction.date,
       transaction_type: transaction.type,
       amount_cents: transaction.amountCents,
@@ -535,7 +635,7 @@ export async function createTransactionWithCategory(transaction: Transaction): P
   return mapTransaction(data);
 }
 
-export async function createCreditCardInstallment(installment: CreditCardInstallment): Promise<CreditCardInstallment> {
+export async function createCreditCardInstallment(installment: CreditCardInstallment, ledgerId?: string): Promise<CreditCardInstallment> {
   if (!supabase) return installment;
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   if (sessionError || !sessionData.session) throw new Error("請先登入再新增分期");
@@ -544,6 +644,7 @@ export async function createCreditCardInstallment(installment: CreditCardInstall
     .from("credit_card_installments")
     .insert({
       user_id: userId,
+      ...(ledgerId ? { ledger_id: ledgerId } : {}),
       credit_card_id: installment.creditCardId,
       transaction_id: installment.transactionId || null,
       merchant: installment.merchant || null,
@@ -750,6 +851,60 @@ function mapReminder(row: Record<string, unknown>): FinancialReminder {
     startDate: String(row.start_date),
     endDate: nullableString(row.end_date),
     status: String(row.status) as FinancialReminder["status"],
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
+  };
+}
+
+function mapInsurancePolicy(row: Record<string, unknown>): InsurancePolicy {
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    name: String(row.name),
+    type: String(row.policy_type) as InsurancePolicy["type"],
+    insurer: String(row.insurer),
+    policyNumberLast4: nullableString(row.policy_number_last4),
+    insuredPerson: nullableString(row.insured_person),
+    annualPremiumCents: toNumber(row.annual_premium_cents),
+    coverageAmountCents: toNumber(row.coverage_amount_cents),
+    paidClaimAmountCents: toNumber(row.paid_claim_amount_cents),
+    pendingClaimAmountCents: toNumber(row.pending_claim_amount_cents),
+    paymentDay: toNumber(row.payment_day),
+    renewalDate: String(row.renewal_date),
+    beneficiary: nullableString(row.beneficiary),
+    note: nullableString(row.note),
+    status: String(row.status) as InsurancePolicy["status"],
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
+  };
+}
+
+function mapLedgerBook(row: Record<string, unknown>): LedgerBook {
+  return {
+    id: String(row.id),
+    userId: String(row.owner_user_id),
+    ownerUserId: String(row.owner_user_id),
+    name: String(row.name),
+    purpose: String(row.purpose) as LedgerBook["purpose"],
+    color: String(row.color) as LedgerBook["color"],
+    note: nullableString(row.note),
+    isDefault: Boolean(row.is_default),
+    isShared: Boolean(row.is_shared),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
+  };
+}
+
+function mapLedgerInvitation(row: Record<string, unknown>): LedgerInvitation {
+  return {
+    id: String(row.id),
+    userId: "",
+    ledgerId: String(row.ledger_id),
+    inviteeEmail: nullableString(row.invitee_email),
+    inviteeMemberCode: nullableString(row.invitee_member_code),
+    role: String(row.role) as LedgerInvitation["role"],
+    status: String(row.status) as LedgerInvitation["status"],
+    expiresAt: String(row.expires_at),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)
   };

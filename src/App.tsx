@@ -55,6 +55,8 @@ import { mockAiFinancialHealth, requestAiFinancialHealth } from "./services/aiFi
 import { listAdminUsers, manageAdminUser, type AdminManagedUser, type AdminAuditLog } from "./services/adminUsers";
 import {
   checkSupabaseConnection,
+  createLedgerBook,
+  createLedgerInvitation,
   createFinancialAccount,
   createCreditCard,
   createCreditCardInstallment,
@@ -65,15 +67,21 @@ import {
   deleteLoan,
   deleteTransaction,
   emptyFinanceData,
+  loadLedgerBooks,
+  loadLedgerInvitations,
   loadFinanceData,
   normalizeCategoryName,
   sendSignInLink,
   signInWithPassword,
   signUpWithPassword,
   signOut,
+  deleteLedgerBook,
+  updateLedgerBook,
   updateCreditCard,
   updateFinancialAccount,
-  updateLoan
+  updateLoan,
+  updateOwnPassword,
+  updateOwnProfile
 } from "./services/financeRepository";
 import type {
   AccountType,
@@ -84,6 +92,9 @@ import type {
   Deposit,
   FinancialAccount,
   FinancialReminder,
+  InsurancePolicy,
+  LedgerBook as PersistedLedgerBook,
+  LedgerInvitation as PersistedLedgerInvitation,
   Loan,
   Transaction,
   UserProfile
@@ -105,6 +116,15 @@ type Page =
   | "ai"
   | "settings"
   | "users";
+
+type PeriodMode = "month" | "year" | "range";
+
+type DatePeriod = {
+  mode: PeriodMode;
+  startDate: string;
+  endDate: string;
+  label: string;
+};
 
 type ToastType = "success" | "error";
 type Toast = { type: ToastType; message: string } | null;
@@ -136,29 +156,8 @@ type LedgerInvitation = {
   target: string;
   method: "email" | "member_code";
   role: "viewer" | "editor" | "admin";
-  status: "pending" | "accepted" | "revoked";
+  status: "pending" | "accepted" | "revoked" | "expired";
   createdAt: string;
-};
-
-type InsurancePolicy = {
-  id: string;
-  userId: string;
-  name: string;
-  type: "life" | "medical" | "accident" | "car" | "home" | "travel" | "investment" | "other";
-  insurer: string;
-  policyNumberLast4: string;
-  insuredPerson: string;
-  annualPremiumCents: number;
-  coverageAmountCents: number;
-  paidClaimAmountCents: number;
-  pendingClaimAmountCents: number;
-  paymentDay: number;
-  renewalDate: string;
-  beneficiary: string;
-  note: string;
-  status: "active" | "paused" | "expired";
-  createdAt: string;
-  updatedAt: string;
 };
 
 type FinanceSnapshot = {
@@ -418,57 +417,58 @@ const budgetCategoryOptions = [
   "其他"
 ];
 
-const today = "2026-07-13";
+const today = getTaipeiTodayIso();
 const localUserId = "local-user";
 const chartPalette = ["#059669", "#0284c7", "#d97706", "#7c3aed", "#dc2626", "#0f766e", "#be123c", "#4f46e5"];
+const legacyLedgerId = "legacy-personal";
 
-const defaultLedgerBooks: LedgerBook[] = [
-  {
-    id: "personal",
-    name: "個人主帳本",
-    owner: "自己",
-    purpose: "personal",
-    color: "emerald",
-    note: "日常理財、保險、投資與現金流",
-    isShared: false,
-    createdAt: "2026-07-15T00:00:00.000Z",
-    updatedAt: "2026-07-15T00:00:00.000Z"
-  },
-  {
-    id: "family",
-    name: "家庭共同帳本",
-    owner: "家庭",
-    purpose: "family",
-    color: "sky",
-    note: "家庭開支、保單與共同帳戶規劃",
-    isShared: true,
-    createdAt: "2026-07-15T00:00:00.000Z",
-    updatedAt: "2026-07-15T00:00:00.000Z"
-  },
-  {
-    id: "investment",
-    name: "投資觀察帳本",
-    owner: "自己",
-    purpose: "investment",
-    color: "violet",
-    note: "股票、基金與長期配置分類",
-    isShared: false,
-    createdAt: "2026-07-15T00:00:00.000Z",
-    updatedAt: "2026-07-15T00:00:00.000Z"
-  }
-];
+function mapLedgerForUi(ledger: PersistedLedgerBook, currentUserId: string): LedgerBook {
+  return {
+    id: ledger.id,
+    name: ledger.name,
+    owner: ledger.ownerUserId === currentUserId ? "自己" : "共用帳本",
+    purpose: ledger.purpose,
+    color: ledger.color,
+    note: ledger.note ?? "",
+    isShared: ledger.isShared,
+    createdAt: ledger.createdAt,
+    updatedAt: ledger.updatedAt
+  };
+}
+
+function mapInvitationForUi(invitation: PersistedLedgerInvitation): LedgerInvitation {
+  const target = invitation.inviteeEmail ?? invitation.inviteeMemberCode ?? "";
+  return {
+    id: invitation.id,
+    ledgerId: invitation.ledgerId,
+    target,
+    method: invitation.inviteeEmail ? "email" : "member_code",
+    role: invitation.role,
+    status: invitation.status,
+    createdAt: invitation.createdAt
+  };
+}
+
+function isPersistedLedgerId(value: string | null): value is string {
+  return Boolean(value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value));
+}
 
 export default function App() {
   const [activeLedgerId, setActiveLedgerId] = useState<string | null>(null);
-  const [ledgerBooks, setLedgerBooks] = useState<LedgerBook[]>(defaultLedgerBooks);
+  const [ledgerBooks, setLedgerBooks] = useState<LedgerBook[]>([]);
   const [ledgerInvitations, setLedgerInvitations] = useState<LedgerInvitation[]>([]);
   const [ledgerSnapshots, setLedgerSnapshots] = useState<Record<string, FinanceSnapshot>>({});
   const [ledgerTransitioning, setLedgerTransitioning] = useState(false);
   const [page, setPage] = useState<Page>("dashboard");
   const [month, setMonth] = useState(currentTaipeiMonth());
+  const [periodMode, setPeriodMode] = useState<PeriodMode>("month");
+  const [periodYear, setPeriodYear] = useState(currentTaipeiMonth().slice(0, 4));
+  const [rangeStart, setRangeStart] = useState(`${currentTaipeiMonth()}-01`);
+  const [rangeEnd, setRangeEnd] = useState(getTaipeiTodayIso());
   const [darkMode, setDarkMode] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
   const [notificationOpen, setNotificationOpen] = useState(false);
+  const notificationAreaRef = useRef<HTMLDivElement>(null);
   const [accounts, setAccounts] = useState(emptyFinanceData.accounts);
   const [transactions, setTransactions] = useState(emptyFinanceData.transactions);
   const [creditCards, setCreditCards] = useState(emptyFinanceData.creditCards);
@@ -494,20 +494,21 @@ export default function App() {
     void refreshFinanceDataRef.current();
   }, []);
 
-  function createEmptySnapshot(): FinanceSnapshot {
-    return {
-      accounts: [],
-      transactions: [],
-      creditCards: [],
-      creditCardInstallments: [],
-      loans: [],
-      deposits: [],
-      budgets: [],
-      reminders: [],
-      rememberedCategories: [],
-      insurancePolicies: []
+  useEffect(() => {
+    if (!notificationOpen) return;
+    const closeOnOutsideInteraction = (event: PointerEvent) => {
+      if (!notificationAreaRef.current?.contains(event.target as Node)) setNotificationOpen(false);
     };
-  }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setNotificationOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutsideInteraction);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideInteraction);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [notificationOpen]);
 
   function captureCurrentSnapshot(): FinanceSnapshot {
     return {
@@ -542,7 +543,41 @@ export default function App() {
   async function refreshFinanceData() {
     setDataLoading(true);
     try {
-      const result = await loadFinanceData();
+      let result = await loadFinanceData();
+      const userId = result.session?.user.id ?? localUserId;
+      let nextLedgerBooks: LedgerBook[] = [];
+      let nextInvitations: LedgerInvitation[] = [];
+
+      if (result.session) {
+        try {
+          const [persistedLedgers, persistedInvitations] = await Promise.all([loadLedgerBooks(), loadLedgerInvitations()]);
+          nextLedgerBooks = persistedLedgers.map((ledger) => mapLedgerForUi(ledger, userId));
+          nextInvitations = persistedInvitations.map(mapInvitationForUi);
+        } catch {
+          nextLedgerBooks = [];
+        }
+        if (nextLedgerBooks.length === 0) {
+          nextLedgerBooks = [{
+            id: legacyLedgerId,
+            name: "我的帳本",
+            owner: "自己",
+            purpose: "personal",
+            color: "emerald",
+            note: "",
+            isShared: false,
+            createdAt: result.profile?.createdAt ?? new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          }];
+        }
+      }
+
+      const selectedLedgerId = nextLedgerBooks.some((ledger) => ledger.id === activeLedgerId)
+        ? activeLedgerId
+        : nextLedgerBooks[0]?.id ?? null;
+      if (isPersistedLedgerId(selectedLedgerId)) {
+        result = await loadFinanceData(selectedLedgerId);
+      }
+
       const personalSnapshot: FinanceSnapshot = {
         accounts: result.data.accounts,
         transactions: result.data.transactions,
@@ -553,14 +588,27 @@ export default function App() {
         budgets: result.data.budgets,
         reminders: result.data.reminders,
         rememberedCategories: result.data.categories,
-        insurancePolicies: ledgerSnapshots.personal?.insurancePolicies ?? []
+        insurancePolicies: result.data.insurancePolicies
       };
-      setLedgerSnapshots((current) => ({ ...current, personal: personalSnapshot }));
-      if (!activeLedgerId || activeLedgerId === "personal") {
-        applySnapshot(personalSnapshot);
-      }
+      setLedgerBooks(nextLedgerBooks);
+      setLedgerInvitations(nextInvitations);
+      setLedgerSnapshots(selectedLedgerId ? { [selectedLedgerId]: personalSnapshot } : {});
+      setActiveLedgerId(selectedLedgerId);
+      applySnapshot(personalSnapshot);
       setCurrentProfile(result.profile);
       setSessionEmail(result.session?.user.email ?? null);
+      if (result.session) {
+        setSupabaseChecking(true);
+        try {
+          setSupabaseCheck(await checkSupabaseConnection());
+        } catch {
+          setSupabaseCheck({ ok: false, status: "schema_error", message: "雲端資料無法連線", details: [] });
+        } finally {
+          setSupabaseChecking(false);
+        }
+      } else {
+        setSupabaseCheck(null);
+      }
       setDataNotice(
         !isSupabaseConfigured
           ? "雲端資料尚未完成設定，目前顯示空白帳本。"
@@ -571,6 +619,7 @@ export default function App() {
     } catch (error) {
       setDataNotice(error instanceof Error ? error.message : "資料讀取失敗");
       setCurrentProfile(null);
+      setSupabaseCheck({ ok: false, status: "schema_error", message: "雲端資料無法連線", details: [] });
     } finally {
       setDataLoading(false);
     }
@@ -599,6 +648,26 @@ export default function App() {
     notify("success", "認證登入連結已寄出，請到信箱完成登入");
   }
 
+  async function savePersonalProfile(displayName: string) {
+    try {
+      const profile = await updateOwnProfile({ displayName });
+      setCurrentProfile(profile);
+      notify("success", "個人設定已儲存");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "個人設定儲存失敗");
+    }
+  }
+
+  async function savePassword(password: string, confirmation: string) {
+    if (password !== confirmation) return notify("error", "兩次輸入的密碼不一致");
+    try {
+      await updateOwnPassword(password);
+      notify("success", "密碼已更新");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "密碼更新失敗");
+    }
+  }
+
   async function runSupabaseConnectionCheck() {
     setSupabaseChecking(true);
     try {
@@ -619,14 +688,33 @@ export default function App() {
     }
   }
 
+  const period = useMemo<DatePeriod>(() => {
+    if (periodMode === "year") {
+      return { mode: periodMode, startDate: `${periodYear}-01-01`, endDate: `${periodYear}-12-31`, label: `${periodYear} 年` };
+    }
+    if (periodMode === "range") {
+      const startDate = rangeStart || `${month}-01`;
+      const endDate = rangeEnd && rangeEnd >= startDate ? rangeEnd : startDate;
+      return { mode: periodMode, startDate, endDate, label: `${formatDate(startDate)} - ${formatDate(endDate)}` };
+    }
+    const [year, monthNumber] = month.split("-").map(Number);
+    const endDay = new Date(year, monthNumber, 0).getDate();
+    return { mode: periodMode, startDate: `${month}-01`, endDate: `${month}-${String(endDay).padStart(2, "0")}`, label: month.replace("-", "/") };
+  }, [month, periodMode, periodYear, rangeEnd, rangeStart]);
+
+  const periodTransactions = useMemo(
+    () => transactions.filter((transaction) => transaction.date >= period.startDate && transaction.date <= period.endDate),
+    [period, transactions]
+  );
+
   const recentNecessaryAverage = useMemo(() => {
-    const months = ["2026-05", "2026-06", "2026-07"];
+    const months = getRecentMonthKeys(period.endDate.slice(0, 7), 3);
     const total = transactions
       .filter((transaction) => months.some((candidate) => transaction.date.startsWith(candidate)))
       .filter((transaction) => transaction.isNecessary && ["expense", "credit_card_purchase", "loan_payment"].includes(transaction.type))
       .reduce((sum, transaction) => sum + transaction.amountCents, 0);
     return Math.round(total / Math.max(months.length, 1));
-  }, [transactions]);
+  }, [period.endDate, transactions]);
 
   const creditCardsForSummary = useMemo(
     () =>
@@ -645,22 +733,22 @@ export default function App() {
         loans,
         transactions,
         month,
+        dateRange: period,
         averageNecessaryExpenseCents: recentNecessaryAverage
       }),
-    [accounts, creditCardsForSummary, loans, month, recentNecessaryAverage, transactions]
+    [accounts, creditCardsForSummary, loans, month, period, recentNecessaryAverage, transactions]
   );
 
   const categoryBreakdown = useMemo(() => {
     const map = new Map<string, number>();
-    transactions
-      .filter((transaction) => transaction.date.startsWith(month))
+    periodTransactions
       .filter((transaction) => transaction.type === "expense" || transaction.type === "credit_card_purchase")
       .forEach((transaction) => map.set(transaction.category, (map.get(transaction.category) ?? 0) + transaction.amountCents));
     return [...map.entries()].map(([category, amountCents]) => ({ category, amountCents })).sort((a, b) => b.amountCents - a.amountCents);
-  }, [month, transactions]);
+  }, [periodTransactions]);
 
   const monthlyTrend = useMemo(() => {
-    const months = ["2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07"];
+    const months = getMonthsInPeriod(period, month);
     return months.map((candidate) => {
       const items = transactions.filter((transaction) => transaction.date.startsWith(candidate));
       return {
@@ -671,7 +759,7 @@ export default function App() {
           .reduce((sum, item) => sum + item.amountCents, 0)
       };
     });
-  }, [transactions]);
+  }, [month, period, transactions]);
 
   const financeNotifications = useMemo(
     () =>
@@ -688,6 +776,7 @@ export default function App() {
 
   const rootClass = darkMode ? "dark min-h-screen" : "min-h-screen";
   const activeLedger = ledgerBooks.find((ledger) => ledger.id === activeLedgerId) ?? null;
+  const activePersistedLedgerId = isPersistedLedgerId(activeLedgerId) ? activeLedgerId : undefined;
   const isPlatformAdmin = Boolean(currentProfile?.isSuperAdmin && currentProfile.role === "super_admin");
   const visibleNavGroups = isPlatformAdmin
     ? navGroups
@@ -704,72 +793,97 @@ export default function App() {
     window.setTimeout(() => setLedgerTransitioning(false), 720);
   }
 
-  function openLedger(ledgerId: string) {
+  async function openLedger(ledgerId: string) {
     if (activeLedgerId === ledgerId) return;
     if (activeLedgerId) {
       setLedgerSnapshots((current) => ({ ...current, [activeLedgerId]: captureCurrentSnapshot() }));
     }
-    const nextSnapshot = ledgerSnapshots[ledgerId] ?? (ledgerId === "personal" ? captureCurrentSnapshot() : createEmptySnapshot());
-    applySnapshot(nextSnapshot);
-    setActiveLedgerId(ledgerId);
-    setPage("dashboard");
-    startLedgerTransition();
-  }
-
-  function createLedger(formData: FormData) {
-    const name = String(formData.get("name") ?? "").trim();
-    if (!name) return notify("error", "請輸入帳本名稱");
-    const now = new Date().toISOString();
-    const ledger: LedgerBook = {
-      id: crypto.randomUUID(),
-      name,
-      owner: String(formData.get("owner") ?? "自己"),
-      purpose: String(formData.get("purpose") ?? "custom") as LedgerBook["purpose"],
-      color: String(formData.get("color") ?? "emerald") as LedgerBook["color"],
-      note: String(formData.get("note") ?? ""),
-      isShared: formData.get("isShared") === "on",
-      createdAt: now,
-      updatedAt: now
-    };
-    if (activeLedgerId) {
-      setLedgerSnapshots((current) => ({ ...current, [activeLedgerId]: captureCurrentSnapshot(), [ledger.id]: createEmptySnapshot() }));
-    } else {
-      setLedgerSnapshots((current) => ({ ...current, [ledger.id]: createEmptySnapshot() }));
+    setDataLoading(true);
+    try {
+      const result = await loadFinanceData(isPersistedLedgerId(ledgerId) ? ledgerId : undefined);
+      const nextSnapshot: FinanceSnapshot = {
+        accounts: result.data.accounts,
+        transactions: result.data.transactions,
+        creditCards: result.data.creditCards,
+        creditCardInstallments: result.data.creditCardInstallments,
+        loans: result.data.loans,
+        deposits: result.data.deposits,
+        budgets: result.data.budgets,
+        reminders: result.data.reminders,
+        rememberedCategories: result.data.categories,
+        insurancePolicies: result.data.insurancePolicies
+      };
+      applySnapshot(nextSnapshot);
+      setLedgerSnapshots((current) => ({ ...current, [ledgerId]: nextSnapshot }));
+      setActiveLedgerId(ledgerId);
+      setPage("dashboard");
+      startLedgerTransition();
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "帳本資料讀取失敗");
+    } finally {
+      setDataLoading(false);
     }
-    setLedgerBooks((current) => [ledger, ...current]);
-    applySnapshot(createEmptySnapshot());
-    setActiveLedgerId(ledger.id);
-    setPage("dashboard");
-    startLedgerTransition();
-    notify("success", "帳本已建立");
   }
 
-  function updateLedger(ledgerId: string, formData: FormData) {
+  async function createLedger(formData: FormData) {
     const name = String(formData.get("name") ?? "").trim();
     if (!name) return notify("error", "請輸入帳本名稱");
-    setLedgerBooks((current) =>
-      current.map((ledger) =>
-        ledger.id === ledgerId
-          ? {
-              ...ledger,
-              name,
-              owner: String(formData.get("owner") ?? "自己"),
-              purpose: String(formData.get("purpose") ?? "custom") as LedgerBook["purpose"],
-              color: String(formData.get("color") ?? "emerald") as LedgerBook["color"],
-              note: String(formData.get("note") ?? ""),
-              updatedAt: new Date().toISOString()
-            }
-          : ledger
-      )
-    );
-    notify("success", "帳本已更新");
+    if (!currentProfile?.userId) return notify("error", "請先登入再建立帳本");
+    try {
+      const saved = await createLedgerBook({
+        userId: currentProfile.userId,
+        ownerUserId: currentProfile.userId,
+        name,
+        purpose: String(formData.get("purpose") ?? "custom") as PersistedLedgerBook["purpose"],
+        color: String(formData.get("color") ?? "emerald") as PersistedLedgerBook["color"],
+        note: String(formData.get("note") ?? "").trim() || undefined,
+        isDefault: false,
+        isShared: formData.get("isShared") === "on"
+      });
+      const ledger = mapLedgerForUi(saved, currentProfile.userId);
+      setLedgerBooks((current) => [...current.filter((item) => item.id !== legacyLedgerId), ledger]);
+      notify("success", "帳本已建立");
+      await openLedger(ledger.id);
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "帳本建立失敗");
+    }
   }
 
-  function deleteLedger(ledgerId: string) {
+  async function updateLedger(ledgerId: string, formData: FormData) {
+    const name = String(formData.get("name") ?? "").trim();
+    if (!name) return notify("error", "請輸入帳本名稱");
+    const current = ledgerBooks.find((ledger) => ledger.id === ledgerId);
+    if (!currentProfile?.userId || !current || !isPersistedLedgerId(ledgerId)) return notify("error", "此帳本尚未完成雲端設定");
+    try {
+      const saved = await updateLedgerBook({
+        id: current.id,
+        userId: currentProfile.userId,
+        ownerUserId: current.owner === "自己" ? currentProfile.userId : "",
+        name,
+        purpose: String(formData.get("purpose") ?? current.purpose) as PersistedLedgerBook["purpose"],
+        color: String(formData.get("color") ?? current.color) as PersistedLedgerBook["color"],
+        note: String(formData.get("note") ?? "").trim() || undefined,
+        isDefault: false,
+        isShared: current.isShared,
+        createdAt: current.createdAt,
+        updatedAt: current.updatedAt
+      });
+      const ledger = mapLedgerForUi(saved, currentProfile.userId);
+      setLedgerBooks((items) => items.map((item) => item.id === ledgerId ? ledger : item));
+      notify("success", "帳本已更新");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "帳本更新失敗");
+    }
+  }
+
+  async function deleteLedger(ledgerId: string) {
     if (ledgerBooks.length <= 1) return notify("error", "至少需要保留一本帳本");
     const ledger = ledgerBooks.find((candidate) => candidate.id === ledgerId);
     if (!window.confirm(`確定刪除「${ledger?.name ?? "此帳本"}」？刪除後無法復原。`)) return;
-    setLedgerBooks((current) => current.filter((candidate) => candidate.id !== ledgerId));
+    try {
+      if (!isPersistedLedgerId(ledgerId)) return notify("error", "此帳本尚未完成雲端設定");
+      await deleteLedgerBook(ledgerId);
+      setLedgerBooks((current) => current.filter((candidate) => candidate.id !== ledgerId));
     setLedgerSnapshots((current) => {
       const next = { ...current };
       delete next[ledgerId];
@@ -779,20 +893,38 @@ export default function App() {
     if (activeLedgerId === ledgerId) {
       setActiveLedgerId(null);
     }
-    notify("success", "帳本已刪除");
-  }
-
-  function toggleLedgerSharing(ledgerId: string, enabled: boolean) {
-    setLedgerBooks((current) =>
-      current.map((ledger) => ledger.id === ledgerId ? { ...ledger, isShared: enabled, updatedAt: new Date().toISOString() } : ledger)
-    );
-    if (!enabled) {
-      setLedgerInvitations((current) => current.map((invite) => invite.ledgerId === ledgerId && invite.status === "pending" ? { ...invite, status: "revoked" } : invite));
+      notify("success", "帳本已刪除");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "帳本刪除失敗");
     }
-    notify("success", enabled ? "帳本共用已開啟" : "帳本共用已關閉，待接受邀請已撤銷");
   }
 
-  function inviteLedgerMember(ledgerId: string, formData: FormData) {
+  async function toggleLedgerSharing(ledgerId: string, enabled: boolean) {
+    const current = ledgerBooks.find((ledger) => ledger.id === ledgerId);
+    if (!currentProfile?.userId || !current || !isPersistedLedgerId(ledgerId)) return notify("error", "此帳本尚未完成雲端設定");
+    try {
+      const saved = await updateLedgerBook({
+        id: current.id,
+        userId: currentProfile.userId,
+        ownerUserId: current.owner === "自己" ? currentProfile.userId : "",
+        name: current.name,
+        purpose: current.purpose,
+        color: current.color,
+        note: current.note || undefined,
+        isDefault: false,
+        isShared: enabled,
+        createdAt: current.createdAt,
+        updatedAt: current.updatedAt
+      });
+      const ledger = mapLedgerForUi(saved, currentProfile.userId);
+      setLedgerBooks((items) => items.map((item) => item.id === ledgerId ? ledger : item));
+      notify("success", enabled ? "帳本共用已開啟" : "帳本共用已關閉");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "帳本共用設定失敗");
+    }
+  }
+
+  async function inviteLedgerMember(ledgerId: string, formData: FormData) {
     const ledger = ledgerBooks.find((candidate) => candidate.id === ledgerId);
     if (!ledger?.isShared) return notify("error", "請先開啟帳本共用功能");
     const method = String(formData.get("method") ?? "email") as LedgerInvitation["method"];
@@ -800,17 +932,21 @@ export default function App() {
     if (!target) return notify("error", "請輸入會員編號或電子信箱");
     if (method === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(target)) return notify("error", "電子信箱格式不正確");
     if (method === "member_code" && !/^M[0-9A-Z]{6,16}$/i.test(target)) return notify("error", "會員編號格式需為 M 開頭的 6-16 碼英數字");
-    const invite: LedgerInvitation = {
-      id: crypto.randomUUID(),
-      ledgerId,
-      target: method === "email" ? target.toLowerCase() : target.toUpperCase(),
-      method,
-      role: String(formData.get("role") ?? "viewer") as LedgerInvitation["role"],
-      status: "pending",
-      createdAt: new Date().toISOString()
-    };
-    setLedgerInvitations((current) => [invite, ...current]);
-    notify("success", "邀請已建立");
+    if (!isPersistedLedgerId(ledgerId)) return notify("error", "此帳本尚未完成雲端設定");
+    try {
+      const saved = await createLedgerInvitation({
+        ledgerId,
+        inviteeEmail: method === "email" ? target.toLowerCase() : undefined,
+        inviteeMemberCode: method === "member_code" ? target.toUpperCase() : undefined,
+        role: String(formData.get("role") ?? "viewer") as PersistedLedgerInvitation["role"],
+        status: "pending",
+        expiresAt: ""
+      });
+      setLedgerInvitations((current) => [mapInvitationForUi(saved), ...current]);
+      notify("success", "邀請已建立");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "帳本邀請建立失敗");
+    }
   }
 
   function returnToLedgerHome() {
@@ -818,6 +954,7 @@ export default function App() {
       setLedgerSnapshots((current) => ({ ...current, [activeLedgerId]: captureCurrentSnapshot() }));
     }
     setActiveLedgerId(null);
+    setNotificationOpen(false);
     startLedgerTransition();
   }
 
@@ -827,6 +964,7 @@ export default function App() {
       return;
     }
     if (nextPage === page) return;
+    setNotificationOpen(false);
     setPage(nextPage);
   }
 
@@ -872,7 +1010,7 @@ export default function App() {
       updatedAt: now
     };
     try {
-      const saved = await createFinancialAccount(account);
+      const saved = await createFinancialAccount(account, activePersistedLedgerId);
       setAccounts((current) => [saved, ...current]);
       notify("success", isSupabaseConfigured ? "帳戶已儲存" : "帳戶已新增");
     } catch (error) {
@@ -913,7 +1051,7 @@ export default function App() {
 
   async function addCard(card: CreditCard) {
     try {
-      const saved = await createCreditCard(card);
+      const saved = await createCreditCard(card, activePersistedLedgerId);
       setCreditCards((current) => [saved, ...current]);
       notify("success", "信用卡已新增");
     } catch (error) {
@@ -944,7 +1082,7 @@ export default function App() {
 
   async function addLoan(loan: Loan) {
     try {
-      const saved = await createLoan(loan);
+      const saved = await createLoan(loan, activePersistedLedgerId);
       setLoans((current) => [saved, ...current]);
       notify("success", "貸款已新增");
     } catch (error) {
@@ -990,7 +1128,7 @@ export default function App() {
       updatedAt: now
     };
     try {
-      const saved = await createTransactionWithCategory(transaction);
+      const saved = await createTransactionWithCategory(transaction, activePersistedLedgerId);
       setTransactions((current) => [saved, ...current]);
       setRememberedCategories((current) => [...new Set([saved.category, ...current])].sort((a, b) => a.localeCompare(b, "zh-Hant")));
       notify("success", isSupabaseConfigured ? "交易與分類記憶已儲存" : "交易已新增");
@@ -1089,7 +1227,7 @@ export default function App() {
     try {
       const saved: Transaction[] = [];
       for (const transaction of imported) {
-        saved.push(await createTransactionWithCategory(transaction));
+        saved.push(await createTransactionWithCategory(transaction, activePersistedLedgerId));
       }
       setTransactions((current) => [...saved, ...current]);
       setRememberedCategories((current) => [...new Set([...saved.map((transaction) => transaction.category), ...current])].sort((a, b) => a.localeCompare(b, "zh-Hant")));
@@ -1246,11 +1384,7 @@ export default function App() {
                   <BookOpen size={16} />
                   <span className="hidden sm:inline">切換帳本</span>
                 </button>
-                <label className="label hidden sm:block" htmlFor="month">
-                  月份
-                </label>
-                <input id="month" className="input mt-0 w-36" type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
-                <div className="relative">
+                <div className="relative" ref={notificationAreaRef}>
                   <button
                     className="btn-secondary relative h-10 w-10 px-0"
                     title="通知中心"
@@ -1274,7 +1408,7 @@ export default function App() {
           </header>
 
           <div key={`${activeLedgerId}-${page}`} className="route-transition mx-auto max-w-7xl space-y-4 p-4 sm:p-6">
-            {page === "settings" && <PageExperience page={page} dashboard={dashboard} month={month} notifications={financeNotifications.length} />}
+            {page !== "users" && <PageExperience page={page} dashboard={dashboard} period={period} month={month} periodYear={periodYear} rangeStart={rangeStart} rangeEnd={rangeEnd} onMonthChange={setMonth} onPeriodModeChange={setPeriodMode} onPeriodYearChange={setPeriodYear} onRangeStartChange={setRangeStart} onRangeEndChange={setRangeEnd} notifications={financeNotifications.length} />}
             {toast && <ToastBanner toast={toast} />}
             {page === "dashboard" && (
               <DashboardPage
@@ -1295,7 +1429,7 @@ export default function App() {
               <TransactionsPage
                 accounts={accounts}
                 creditCards={creditCards}
-                transactions={transactions}
+                transactions={periodTransactions}
                 onAdd={addTransaction}
                 onDelete={softDeleteTransaction}
                 onCsvUpload={handleCsvUpload}
@@ -1310,6 +1444,7 @@ export default function App() {
                 cards={creditCards}
                 accounts={accounts}
                 installments={creditCardInstallments}
+                ledgerId={activePersistedLedgerId}
                 setInstallments={setCreditCardInstallments}
                 onAdd={addCard}
                 onUpdate={saveCard}
@@ -1323,13 +1458,13 @@ export default function App() {
             {page === "investments" && <InvestmentsPage notify={notify} />}
             {page === "calculators" && <CalculatorsPage />}
             {page === "budgets" && (
-              <BudgetsPage budgets={budgets} transactions={transactions} month={month} setBudgets={setBudgets} notify={notify} />
+              <BudgetsPage budgets={budgets} transactions={periodTransactions} month={month} setBudgets={setBudgets} notify={notify} />
             )}
             {page === "reminders" && <RemindersPage reminders={reminders} accounts={accounts} setReminders={setReminders} notify={notify} />}
             {page === "reports" && (
               <ReportsPage
                 month={month}
-                transactions={transactions}
+                transactions={periodTransactions}
                 loans={loans}
                 creditCards={creditCards}
                 creditCardInstallments={creditCardInstallments}
@@ -1375,6 +1510,8 @@ export default function App() {
                     notify("error", error instanceof Error ? error.message : "登出失敗");
                   }
                 }}
+                onSaveProfile={savePersonalProfile}
+                onChangePassword={savePassword}
               />
             )}
             {page === "users" && isPlatformAdmin && (
@@ -2013,12 +2150,30 @@ function MobileNavButton({ item, active, onClick }: { item: NavItem; active: boo
 function PageExperience({
   page,
   dashboard,
+  period,
   month,
+  periodYear,
+  rangeStart,
+  rangeEnd,
+  onMonthChange,
+  onPeriodModeChange,
+  onPeriodYearChange,
+  onRangeStartChange,
+  onRangeEndChange,
   notifications
 }: {
   page: Page;
   dashboard: ReturnType<typeof summarizeDashboard>;
+  period: DatePeriod;
   month: string;
+  periodYear: string;
+  rangeStart: string;
+  rangeEnd: string;
+  onMonthChange: (value: string) => void;
+  onPeriodModeChange: (value: PeriodMode) => void;
+  onPeriodYearChange: (value: string) => void;
+  onRangeStartChange: (value: string) => void;
+  onRangeEndChange: (value: string) => void;
   notifications: number;
 }) {
   const intro = pageIntros[page];
@@ -2037,12 +2192,63 @@ function PageExperience({
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300">{intro.description}</p>
         </div>
         <div className="grid grid-cols-3 gap-2">
-          <PageMiniStat label="月份" value={month.replace("-", "/")} accent={intro.accent} />
-          <PageMiniStat label="本月結餘" value={formatCompactMoney(dashboard.monthlyBalanceCents)} accent={dashboard.monthlyBalanceCents >= 0 ? "#059669" : "#dc2626"} />
+          <PageMiniStat label="期間" value={period.label} accent={intro.accent} />
+          <PageMiniStat label="期間結餘" value={formatCompactMoney(dashboard.monthlyBalanceCents)} accent={dashboard.monthlyBalanceCents >= 0 ? "#059669" : "#dc2626"} />
           <PageMiniStat label="提醒" value={`${notifications}`} accent={notifications > 0 ? "#dc2626" : "#64748b"} />
         </div>
       </div>
+      {!["settings", "users", "calculators", "investments"].includes(page) && (
+        <PeriodSelector
+          mode={period.mode}
+          month={month}
+          year={periodYear}
+          rangeStart={rangeStart}
+          rangeEnd={rangeEnd}
+          onModeChange={onPeriodModeChange}
+          onMonthChange={onMonthChange}
+          onYearChange={onPeriodYearChange}
+          onRangeStartChange={onRangeStartChange}
+          onRangeEndChange={onRangeEndChange}
+        />
+      )}
     </section>
+  );
+}
+
+function PeriodSelector({
+  mode,
+  month,
+  year,
+  rangeStart,
+  rangeEnd,
+  onModeChange,
+  onMonthChange,
+  onYearChange,
+  onRangeStartChange,
+  onRangeEndChange
+}: {
+  mode: PeriodMode;
+  month: string;
+  year: string;
+  rangeStart: string;
+  rangeEnd: string;
+  onModeChange: (value: PeriodMode) => void;
+  onMonthChange: (value: string) => void;
+  onYearChange: (value: string) => void;
+  onRangeStartChange: (value: string) => void;
+  onRangeEndChange: (value: string) => void;
+}) {
+  return (
+    <div className="mt-4 flex flex-wrap items-end gap-2 border-t border-slate-200 pt-4 dark:border-slate-700">
+      <div className="inline-flex rounded-md border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-950">
+        {(["month", "year", "range"] as const).map((item) => (
+          <button key={item} className={`rounded px-3 py-1.5 text-sm font-semibold ${mode === item ? "bg-emerald-600 text-white" : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"}`} onClick={() => onModeChange(item)}>{item === "month" ? "月份" : item === "year" ? "年份" : "指定區間"}</button>
+        ))}
+      </div>
+      {mode === "month" && <input className="input mt-0 w-36" type="month" value={month} onChange={(event) => onMonthChange(event.target.value)} aria-label="選擇月份" />}
+      {mode === "year" && <input className="input mt-0 w-28" type="number" min="2000" max="2100" value={year} onChange={(event) => onYearChange(event.target.value)} aria-label="選擇年份" />}
+      {mode === "range" && <><input className="input mt-0 w-40" type="date" value={rangeStart} onChange={(event) => onRangeStartChange(event.target.value)} aria-label="開始日期" /><span className="pb-2 text-sm text-slate-500 dark:text-slate-400">至</span><input className="input mt-0 w-40" type="date" min={rangeStart} value={rangeEnd} onChange={(event) => onRangeEndChange(event.target.value)} aria-label="結束日期" /></>}
+    </div>
   );
 }
 
@@ -2148,16 +2354,16 @@ function AuthPage({
           </div>
 
           <div className="mt-8 grid gap-3 sm:grid-cols-3">
-            <AuthMetric label="可視化總帳" value="15+" helper="核心財務指標" />
-            <AuthMetric label="負債追蹤" value="3 層" helper="卡費、分期、貸款" />
-            <AuthMetric label="報表輸出" value="PDF" helper="Excel / CSV 同步支援" />
+            <AuthMetric label="帳本管理" value="即時" helper="依帳本分開整理" />
+            <AuthMetric label="負債追蹤" value="集中" helper="卡費、分期、貸款" />
+            <AuthMetric label="報表輸出" value="可用" helper="PDF / Excel / CSV" />
           </div>
 
           <div className="mt-8 rounded-lg border border-slate-200 bg-slate-950 p-4 text-white shadow-lg dark:border-slate-700">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-medium text-emerald-300">清楚掌握每月財務狀態</p>
-                <p className="mt-1 text-lg font-semibold">本月財務指揮台</p>
+                <p className="mt-1 text-lg font-semibold">登入後建立你的財務指揮台</p>
               </div>
               <div className="flex items-center gap-2 rounded-md bg-white/10 px-3 py-1 text-xs text-slate-200">
                 <span className="h-2 w-2 rounded-full bg-emerald-300" />
@@ -2166,16 +2372,16 @@ function AuthPage({
             </div>
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
               <div className="rounded-md bg-white/10 p-3">
-                <p className="text-xs text-slate-300">淨資產</p>
-                <p className="mt-2 text-2xl font-bold">+NT$842K</p>
+                <p className="text-xs text-slate-300">帳戶總覽</p>
+                <p className="mt-2 text-2xl font-bold">即時整理</p>
               </div>
               <div className="rounded-md bg-white/10 p-3">
-                <p className="text-xs text-slate-300">本月結餘</p>
-                <p className="mt-2 text-2xl font-bold text-emerald-300">+NT$18K</p>
+                <p className="text-xs text-slate-300">收支趨勢</p>
+                <p className="mt-2 text-2xl font-bold text-emerald-300">清楚呈現</p>
               </div>
               <div className="rounded-md bg-white/10 p-3">
-                <p className="text-xs text-slate-300">負債壓力</p>
-                <p className="mt-2 text-2xl font-bold text-amber-300">32%</p>
+                <p className="text-xs text-slate-300">負債規劃</p>
+                <p className="mt-2 text-2xl font-bold text-amber-300">自主掌握</p>
               </div>
             </div>
             <div className="mt-5 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
@@ -2190,9 +2396,9 @@ function AuthPage({
                 </div>
               </div>
               <div className="space-y-3 rounded-md bg-white/10 p-4">
-                <AuthPreviewRow label="信用卡待繳" value="NT$26,300" color="bg-sky-400" />
-                <AuthPreviewRow label="貸款應繳" value="NT$18,900" color="bg-amber-300" />
-                <AuthPreviewRow label="固定帳單" value="NT$12,480" color="bg-rose-300" />
+                <AuthPreviewRow label="信用卡與分期" value="集中追蹤" color="bg-sky-400" />
+                <AuthPreviewRow label="貸款規劃" value="清楚安排" color="bg-amber-300" />
+                <AuthPreviewRow label="固定帳單" value="即時提醒" color="bg-rose-300" />
               </div>
             </div>
           </div>
@@ -2449,6 +2655,27 @@ function getTaipeiTodayIso(date = new Date()) {
   const month = parts.find((part) => part.type === "month")?.value ?? "01";
   const day = parts.find((part) => part.type === "day")?.value ?? "01";
   return `${year}-${month}-${day}`;
+}
+
+function getRecentMonthKeys(anchorMonth: string, count: number): string[] {
+  const [anchorYear, anchorMonthNumber] = anchorMonth.split("-").map(Number);
+  return Array.from({ length: Math.max(1, count) }, (_, index) => {
+    const date = new Date(anchorYear, anchorMonthNumber - 1 - index, 1);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+  });
+}
+
+function getMonthsInPeriod(period: DatePeriod, fallbackMonth: string): string[] {
+  if (period.mode === "month") return getRecentMonthKeys(fallbackMonth, 6).reverse();
+  const start = new Date(`${period.startDate.slice(0, 7)}-01T00:00:00+08:00`);
+  const end = new Date(`${period.endDate.slice(0, 7)}-01T00:00:00+08:00`);
+  const months: string[] = [];
+  const cursor = new Date(start);
+  while (cursor <= end && months.length < 24) {
+    months.push(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`);
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  return months.length > 0 ? months : [fallbackMonth];
 }
 
 function getNotificationStatus(date: string, todayIso: string, remindDaysBefore: number): FinanceNotification["status"] {
@@ -3703,6 +3930,7 @@ function CardsPage({
   cards,
   accounts,
   installments,
+  ledgerId,
   setInstallments,
   onAdd,
   onUpdate,
@@ -3712,6 +3940,7 @@ function CardsPage({
   cards: CreditCard[];
   accounts: FinancialAccount[];
   installments: CreditCardInstallment[];
+  ledgerId?: string;
   setInstallments: React.Dispatch<React.SetStateAction<CreditCardInstallment[]>>;
   onAdd: (card: CreditCard) => Promise<void>;
   onUpdate: (card: CreditCard) => Promise<void>;
@@ -3778,7 +4007,7 @@ function CardsPage({
       updatedAt: now
     };
     try {
-      const saved = await createCreditCardInstallment(installment);
+      const saved = await createCreditCardInstallment(installment, ledgerId);
       setInstallments((current) => [saved, ...current]);
       notify("success", "信用卡分期已加入負債整理");
     } catch (error) {
@@ -4621,30 +4850,30 @@ function InvestmentsPage({ notify }: { notify: (type: ToastType, message: string
 
 function CalculatorsPage() {
   const [loanInput, setLoanInput] = useState<LoanCalculationInput>({
-    principalCents: 800_000_00,
-    annualRate: 0.0288,
-    termMonths: 84,
+    principalCents: 0,
+    annualRate: 0,
+    termMonths: 12,
     method: "equal_payment",
     extraMonthlyPaymentCents: 0,
     oneTimePrepaymentCents: 0,
     oneTimePrepaymentMonth: 1
   });
   const [depositInput, setDepositInput] = useState<DepositCalculationInput>({
-    principalCents: 200_000_00,
-    annualRate: 0.018,
-    months: 24,
+    principalCents: 0,
+    annualRate: 0,
+    months: 12,
     interestType: "compound",
-    monthlyContributionCents: 5_000_00,
+    monthlyContributionCents: 0,
     taxRate: 0
   });
-  const [totalAssetsCents, setTotalAssetsCents] = useState(1_200_000_00);
-  const [totalLiabilitiesCents, setTotalLiabilitiesCents] = useState(360_000_00);
-  const [availableCashCents, setAvailableCashCents] = useState(180_000_00);
-  const [necessaryExpenseCents, setNecessaryExpenseCents] = useState(45_000_00);
-  const [investmentPrincipalCents, setInvestmentPrincipalCents] = useState(100_000_00);
-  const [monthlyInvestmentCents, setMonthlyInvestmentCents] = useState(8_000_00);
-  const [investmentAnnualRate, setInvestmentAnnualRate] = useState(0.05);
-  const [investmentYears, setInvestmentYears] = useState(10);
+  const [totalAssetsCents, setTotalAssetsCents] = useState(0);
+  const [totalLiabilitiesCents, setTotalLiabilitiesCents] = useState(0);
+  const [availableCashCents, setAvailableCashCents] = useState(0);
+  const [necessaryExpenseCents, setNecessaryExpenseCents] = useState(0);
+  const [investmentPrincipalCents, setInvestmentPrincipalCents] = useState(0);
+  const [monthlyInvestmentCents, setMonthlyInvestmentCents] = useState(0);
+  const [investmentAnnualRate, setInvestmentAnnualRate] = useState(0);
+  const [investmentYears, setInvestmentYears] = useState(1);
 
   const loanResult = calculateLoan(loanInput);
   const depositResult = calculateDeposit(depositInput);
@@ -5435,14 +5664,14 @@ function AdminRoleControl({ user, disabled, onChange }: { user: AdminManagedUser
 }
 
 function AdminStatus({ user }: { user: AdminManagedUser }) {
-  return <span className={`inline-flex rounded-md px-2 py-1 text-xs font-semibold ${user.isActive ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-100" : "bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-100"}`}>{user.isActive ? "啟用" : "已停用"}</span>;
+  return <span className={`inline-flex rounded-md px-2 py-1 text-xs font-semibold ${user.isActive ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-100" : "bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-100"}`}>{user.isActive ? "啟用" : "已封鎖"}</span>;
 }
 
 function AdminUserActions({ user, disabled, pending, onAction }: { user: AdminManagedUser; disabled: boolean; pending: boolean; onAction: (action: Parameters<typeof manageAdminUser>[0], successMessage?: string) => Promise<void> }) {
   const locked = disabled || pending;
   return <div className="flex flex-wrap justify-end gap-2">
     <button className="btn-secondary h-9 px-2" title="寄送重設密碼信" aria-label="寄送重設密碼信" disabled={locked} onClick={() => { if (window.confirm(`確定寄送重設密碼信給 ${user.email}？`)) void onAction({ action: "recovery", targetUserId: user.userId }); }}><KeyRound size={16} /></button>
-    <button className="btn-secondary h-9 px-2" title={user.isActive ? "停用帳號" : "恢復帳號"} aria-label={user.isActive ? "停用帳號" : "恢復帳號"} disabled={locked} onClick={() => { const label = user.isActive ? "停用" : "恢復"; if (window.confirm(`確定${label} ${user.email} 的帳號？`)) void onAction({ action: "status", targetUserId: user.userId, isActive: !user.isActive }, `帳號已${label}`); }}>{user.isActive ? <UserX size={16} /> : <UserCheck size={16} />}</button>
+    <button className="btn-secondary h-9 px-2" title={user.isActive ? "封鎖帳號" : "解除封鎖"} aria-label={user.isActive ? "封鎖帳號" : "解除封鎖"} disabled={locked} onClick={() => { const label = user.isActive ? "封鎖" : "解除封鎖"; if (window.confirm(`確定${label} ${user.email} 的帳號？`)) void onAction({ action: "status", targetUserId: user.userId, isActive: !user.isActive }, `帳號已${label}`); }}>{user.isActive ? <UserX size={16} /> : <UserCheck size={16} />}</button>
     <button className="btn-danger h-9 px-2" title="刪除帳號" aria-label="刪除帳號" disabled={locked} onClick={() => { if (window.confirm(`確定永久刪除 ${user.email}？帳號與資料無法復原。`)) void onAction({ action: "delete", targetUserId: user.userId }); }}><Trash2 size={16} /></button>
   </div>;
 }
@@ -5470,7 +5699,9 @@ function SettingsPage({
   onRefresh,
   onCheckSupabase,
   onSendSignInLink,
-  onSignOut
+  onSignOut,
+  onSaveProfile,
+  onChangePassword
 }: {
   isSupabaseConfigured: boolean;
   sessionEmail: string | null;
@@ -5482,47 +5713,42 @@ function SettingsPage({
   onCheckSupabase: () => void;
   onSendSignInLink: (email: string) => Promise<void>;
   onSignOut: () => Promise<void>;
+  onSaveProfile: (displayName: string) => Promise<void>;
+  onChangePassword: (password: string, confirmation: string) => Promise<void>;
 }) {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <section className="panel">
-        <h2 className="text-lg font-semibold">帳號狀態</h2>
+        <h2 className="text-lg font-semibold">個人帳號</h2>
         <div className="mt-4 grid gap-3 text-sm">
           <Info label="登入 Email" value={sessionEmail ?? "尚未登入"} />
-          <Info label="帳號角色" value={profile ? getRoleLabel(profile) : "尚未建立 profile"} />
-          <Info label="資料狀態" value={sessionEmail ? "已連結雲端帳號" : "尚未讀取雲端資料"} />
+          <Info label="帳號角色" value={profile ? getRoleLabel(profile) : "一般使用者"} />
         </div>
+        <form className="mt-4 flex flex-col gap-3 sm:flex-row" onSubmit={handleFormSubmit((formData) => void onSaveProfile(String(formData.get("displayName") ?? "")))}>
+          <Field label="暱稱"><input className="input mt-0" name="displayName" defaultValue={profile?.displayName ?? ""} required maxLength={80} /></Field>
+          <button className="btn-primary shrink-0 self-end" type="submit" disabled={!sessionEmail}>儲存暱稱</button>
+        </form>
       </section>
       <section className="panel">
-        <h2 className="text-lg font-semibold">雲端資料</h2>
-        <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">登入後可安全讀取與保存個人財務資料。</p>
-        {dataNotice && <div className="mt-3"><InlineNotice tone="warning" message={dataNotice} /></div>}
-        {supabaseCheck && (
-          <div className={`mt-3 rounded-md border p-3 text-sm ${
-            supabaseCheck.ok
-              ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-100"
-              : "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
-          }`}>
-            <p className="font-semibold">{supabaseCheck.message}</p>
-            <ul className="mt-2 list-disc space-y-1 pl-5">
-              {supabaseCheck.details.map((detail) => <li key={detail}>{detail}</li>)}
-            </ul>
-          </div>
-        )}
-        <form className="mt-4 flex flex-col gap-3 sm:flex-row" onSubmit={handleFormSubmit((formData) => void onSendSignInLink(String(formData.get("email") ?? "")))}>
-          <input className="input mt-0" name="email" type="email" placeholder="輸入 Email" required disabled={!isSupabaseConfigured} />
-          <button className="btn-primary shrink-0" type="submit" disabled={!isSupabaseConfigured}>寄送登入連結</button>
-        </form>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button className="btn-secondary" onClick={onCheckSupabase} disabled={supabaseChecking}>
-            {supabaseChecking ? "檢查中" : "檢查資料狀態"}
-          </button>
-          <button className="btn-secondary" onClick={onRefresh}>重新讀取資料</button>
-          <button className="btn-danger" onClick={() => void onSignOut()} disabled={!sessionEmail}>登出</button>
+        <h2 className="text-lg font-semibold">資料連線</h2>
+        <div className={`mt-4 flex items-center justify-between gap-3 rounded-md border px-3 py-3 text-sm ${supabaseCheck?.ok ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-100" : "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-100"}`}>
+          <span className="inline-flex items-center gap-2 font-semibold"><span className={`h-2.5 w-2.5 rounded-full ${supabaseCheck?.ok ? "bg-emerald-500" : "bg-rose-500"} ${supabaseChecking ? "animate-pulse" : ""}`} />{supabaseChecking ? "連線檢查中" : supabaseCheck?.ok ? "雲端資料已連線" : "雲端資料未連線"}</span>
+          <button className="btn-secondary h-9 px-2" onClick={onCheckSupabase} disabled={supabaseChecking} title="重新檢查連線"><RefreshCw size={16} /></button>
         </div>
-        <p className="mt-4 text-sm leading-6 text-slate-500 dark:text-slate-400">
-          目前狀態：{isSupabaseConfigured ? "雲端資料已準備完成。" : "雲端資料尚未完成設定。"}
-        </p>
+        {!sessionEmail && <form className="mt-4 flex flex-col gap-3 sm:flex-row" onSubmit={handleFormSubmit((formData) => void onSendSignInLink(String(formData.get("email") ?? "")))}><input className="input mt-0" name="email" type="email" placeholder="輸入 Email" required disabled={!isSupabaseConfigured} /><button className="btn-primary shrink-0" type="submit" disabled={!isSupabaseConfigured}>寄送登入連結</button></form>}
+        {dataNotice && !sessionEmail && <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">{dataNotice}</p>}
+      </section>
+      <section className="panel">
+        <h2 className="text-lg font-semibold">變更密碼</h2>
+        <form className="mt-4 grid gap-3" onSubmit={handleFormSubmit((formData) => void onChangePassword(String(formData.get("password") ?? ""), String(formData.get("confirmation") ?? "")))}>
+          <Field label="新密碼"><input className="input" name="password" type="password" autoComplete="new-password" minLength={8} required /></Field>
+          <Field label="再次輸入新密碼"><input className="input" name="confirmation" type="password" autoComplete="new-password" minLength={8} required /></Field>
+          <button className="btn-primary justify-self-start" type="submit" disabled={!sessionEmail}>更新密碼</button>
+        </form>
+      </section>
+      <section className="panel flex flex-col justify-between gap-4">
+        <div><h2 className="text-lg font-semibold">登入工作階段</h2><p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">目前裝置上的登入狀態與個人資料會分開管理。</p></div>
+        <div className="flex flex-wrap gap-2"><button className="btn-secondary" onClick={onRefresh}>重新讀取資料</button><button className="btn-danger" onClick={() => void onSignOut()} disabled={!sessionEmail}>登出</button></div>
       </section>
     </div>
   );

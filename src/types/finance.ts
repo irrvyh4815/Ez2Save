@@ -180,6 +180,42 @@ export interface FinancialReminder extends BaseEntity {
   status: ReminderStatus;
 }
 
+export interface LedgerBook extends BaseEntity {
+  ownerUserId: string;
+  name: string;
+  purpose: "personal" | "family" | "business" | "investment" | "custom";
+  color: "emerald" | "sky" | "violet" | "amber" | "rose";
+  note?: string;
+  isDefault: boolean;
+  isShared: boolean;
+}
+
+export interface LedgerInvitation extends BaseEntity {
+  ledgerId: string;
+  inviteeEmail?: string;
+  inviteeMemberCode?: string;
+  role: "viewer" | "editor" | "admin";
+  status: "pending" | "accepted" | "revoked" | "expired";
+  expiresAt: string;
+}
+
+export interface InsurancePolicy extends BaseEntity {
+  name: string;
+  type: "life" | "medical" | "accident" | "car" | "home" | "travel" | "investment" | "other";
+  insurer: string;
+  policyNumberLast4?: string;
+  insuredPerson?: string;
+  annualPremiumCents: number;
+  coverageAmountCents: number;
+  paidClaimAmountCents: number;
+  pendingClaimAmountCents: number;
+  paymentDay: number;
+  renewalDate: string;
+  beneficiary?: string;
+  note?: string;
+  status: "active" | "paused" | "expired";
+}
+
 export interface DashboardSummary {
   totalAssetsCents: number;
   totalLiabilitiesCents: number;

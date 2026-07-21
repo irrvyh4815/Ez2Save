@@ -199,6 +199,7 @@ export function summarizeDashboard(args: {
   loans: Loan[];
   transactions: Transaction[];
   month: string;
+  dateRange?: { startDate: string; endDate: string };
   averageNecessaryExpenseCents: number;
 }): DashboardSummary {
   const activeAccounts = args.accounts.filter((account) => account.isActive);
@@ -216,7 +217,9 @@ export function summarizeDashboard(args: {
   const loanLiabilities = args.loans.reduce((sum, loan) => sum + loan.remainingPrincipalCents, 0);
   const cardLiabilities = args.creditCards.reduce((sum, card) => sum + card.unbilledAmountCents + card.currentStatementAmountCents, 0);
   const totalLiabilitiesCents = loanLiabilities + cardLiabilities;
-  const monthlyTransactions = args.transactions.filter((transaction) => transaction.date.startsWith(args.month));
+  const monthlyTransactions = args.dateRange
+    ? args.transactions.filter((transaction) => transaction.date >= args.dateRange!.startDate && transaction.date <= args.dateRange!.endDate)
+    : args.transactions.filter((transaction) => transaction.date.startsWith(args.month));
   const monthlyIncomeCents = monthlyTransactions
     .filter((transaction) => transaction.type === "income")
     .reduce((sum, transaction) => sum + transaction.amountCents, 0);
