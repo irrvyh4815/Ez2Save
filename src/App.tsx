@@ -57,13 +57,21 @@ import {
   checkSupabaseConnection,
   createLedgerBook,
   createLedgerInvitation,
+  createBudget,
+  createDeposit,
   createFinancialAccount,
+  createFinancialReminder,
   createCreditCard,
   createCreditCardInstallment,
+  createInsurancePolicy,
   createLoan,
   createTransactionWithCategory,
+  deleteBudget,
   deleteCreditCard,
+  deleteDeposit,
   deleteFinancialAccount,
+  deleteFinancialReminder,
+  deleteInsurancePolicy,
   deleteLoan,
   deleteTransaction,
   emptyFinanceData,
@@ -77,6 +85,7 @@ import {
   signOut,
   deleteLedgerBook,
   updateLedgerBook,
+  updateBudget,
   updateCreditCard,
   updateFinancialAccount,
   updateLoan,
@@ -418,6 +427,7 @@ const budgetCategoryOptions = [
 ];
 
 const today = getTaipeiTodayIso();
+const nextYearDate = addMonthsToIsoDate(today, 12);
 const localUserId = "local-user";
 const chartPalette = ["#059669", "#0284c7", "#d97706", "#7c3aed", "#dc2626", "#0f766e", "#be123c", "#4f46e5"];
 const legacyLedgerId = "legacy-personal";
@@ -1139,8 +1149,9 @@ export default function App() {
       createdAt: now,
       updatedAt: now
     };
+    let saved: Transaction;
     try {
-      const saved = await createTransactionWithCategory(transaction, activePersistedLedgerId);
+      saved = await createTransactionWithCategory(transaction, activePersistedLedgerId);
       setTransactions((current) => [saved, ...current]);
       setRememberedCategories((current) => [...new Set([saved.category, ...current])].sort((a, b) => a.localeCompare(b, "zh-Hant")));
       notify("success", isSupabaseConfigured ? "交易與分類記憶已儲存" : "交易已新增");
@@ -1148,30 +1159,97 @@ export default function App() {
       notify("error", error instanceof Error ? error.message : "交易儲存失敗");
       return;
     }
-    if (type === "credit_card_purchase" && transaction.creditCardId) {
-      setCreditCards((current) =>
-        current.map((card) =>
-          card.id === transaction.creditCardId ? { ...card, unbilledAmountCents: card.unbilledAmountCents + amountCents } : card
-        )
-      );
-    }
-    if (type === "credit_card_payment" && transaction.creditCardId) {
-      setCreditCards((current) =>
-        current.map((card) =>
-          card.id === transaction.creditCardId
-            ? { ...card, currentStatementAmountCents: Math.max(0, card.currentStatementAmountCents - amountCents) }
-            : card
-        )
-      );
-      setAccounts((current) =>
-        current.map((account) =>
-          account.id === transaction.accountId ? { ...account, balanceCents: Math.max(0, account.balanceCents - amountCents) } : account
-        )
-      );
+    try {
+      if (type === "credit_card_purchase" && saved.creditCardId) {
+        const card = creditCards.find((candidate) => candidate.id === saved.creditCardId);
+        if (card) {
+          const updatedCard = await updateCreditCard({ ...card, unbilledAmountCents: card.unbilledAmountCents + amountCents });
+          setCreditCards((current) => current.map((candidate) => candidate.id === updatedCard.id ? updatedCard : candidate));
+        }
+      }
+      if (type === "credit_card_payment" && saved.creditCardId) {
+        const card = creditCards.find((candidate) => candidate.id === saved.creditCardId);
+        const account = accounts.find((candidate) => candidate.id === saved.accountId);
+        const updates = await Promise.all([
+          card ? updateCreditCard({ ...card, currentStatementAmountCents: Math.max(0, card.currentStatementAmountCents - amountCents) }) : Promise.resolve(null),
+          account ? updateFinancialAccount({ ...account, balanceCents: Math.max(0, account.balanceCents - amountCents) }) : Promise.resolve(null)
+        ]);
+        const [updatedCard, updatedAccount] = updates;
+        if (updatedCard) setCreditCards((current) => current.map((candidate) => candidate.id === updatedCard.id ? updatedCard : candidate));
+        if (updatedAccount) setAccounts((current) => current.map((candidate) => candidate.id === updatedAccount.id ? updatedAccount : candidate));
+      }
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "信用卡連動資料儲存失敗");
     }
   }
 
-  function addInsurancePolicy(formData: FormData) {
+  async function addDeposit(deposit: Deposit) {
+    try {
+      const saved = await createDeposit(deposit, activePersistedLedgerId);
+      setDeposits((current) => [saved, ...current]);
+      notify("success", "存款已儲存");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "存款儲存失敗");
+    }
+  }
+
+  async function removeDeposit(deposit: Deposit) {
+    if (!window.confirm(`確定刪除「${deposit.name}」？`)) return;
+    try {
+      await deleteDeposit(deposit.id);
+      setDeposits((current) => current.filter((item) => item.id !== deposit.id));
+      notify("success", "存款已刪除");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "存款刪除失敗");
+    }
+  }
+
+  async function addBudget(budget: Budget) {
+    try {
+      const existing = budgets.find((candidate) => candidate.month === budget.month && candidate.category === budget.category);
+      const saved = existing
+        ? await updateBudget({ ...budget, id: existing.id, createdAt: existing.createdAt })
+        : await createBudget(budget, activePersistedLedgerId);
+      setBudgets((current) => existing ? current.map((candidate) => candidate.id === saved.id ? saved : candidate) : [saved, ...current]);
+      notify("success", existing ? "預算已更新" : "預算已儲存");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "預算儲存失敗");
+    }
+  }
+
+  async function removeBudget(budget: Budget) {
+    if (!window.confirm(`確定刪除「${budget.category || "全部"}」預算？`)) return;
+    try {
+      await deleteBudget(budget.id);
+      setBudgets((current) => current.filter((item) => item.id !== budget.id));
+      notify("success", "預算已刪除");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "預算刪除失敗");
+    }
+  }
+
+  async function addReminder(reminder: FinancialReminder) {
+    try {
+      const saved = await createFinancialReminder(reminder, activePersistedLedgerId);
+      setReminders((current) => [saved, ...current]);
+      notify("success", "提醒已儲存");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "提醒儲存失敗");
+    }
+  }
+
+  async function removeReminder(reminder: FinancialReminder) {
+    if (!window.confirm(`確定刪除「${reminder.name}」提醒？`)) return;
+    try {
+      await deleteFinancialReminder(reminder.id);
+      setReminders((current) => current.filter((item) => item.id !== reminder.id));
+      notify("success", "提醒已刪除");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "提醒刪除失敗");
+    }
+  }
+
+  async function addInsurancePolicy(formData: FormData) {
     const annualPremiumCents = parseMoneyToCents(String(formData.get("annualPremium") ?? ""));
     const coverageAmountCents = parseMoneyToCents(String(formData.get("coverageAmount") ?? ""));
     const paidClaimAmountCents = parseMoneyToCents(String(formData.get("paidClaimAmount") ?? "0"));
@@ -1183,6 +1261,7 @@ export default function App() {
       validateDateRange(renewalDate)
     );
     if (!validation.valid) return notify("error", validation.errors[0]);
+    if (paidClaimAmountCents < 0 || pendingClaimAmountCents < 0) return notify("error", "理賠金額不可為負數");
     const now = new Date().toISOString();
     const policy: InsurancePolicy = {
       id: crypto.randomUUID(),
@@ -1204,15 +1283,49 @@ export default function App() {
       createdAt: now,
       updatedAt: now
     };
-    setInsurancePolicies((current) => [policy, ...current]);
-    notify("success", "保單已新增");
+    try {
+      const saved = await createInsurancePolicy(policy, activePersistedLedgerId);
+      setInsurancePolicies((current) => [saved, ...current]);
+      notify("success", "保單已儲存");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "保單儲存失敗");
+    }
+  }
+
+  async function removeInsurancePolicy(policy: InsurancePolicy) {
+    if (!window.confirm(`確定刪除「${policy.name}」保單？`)) return;
+    try {
+      await deleteInsurancePolicy(policy.id);
+      setInsurancePolicies((current) => current.filter((item) => item.id !== policy.id));
+      notify("success", "保單已刪除");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "保單刪除失敗");
+    }
   }
 
   async function softDeleteTransaction(id: string) {
     if (!window.confirm("確定要刪除此交易？此操作需要二次確認。")) return;
+    const transaction = transactions.find((item) => item.id === id);
     try {
       await deleteTransaction(id);
       setTransactions((current) => current.filter((transaction) => transaction.id !== id));
+      if (transaction?.type === "credit_card_purchase" && transaction.creditCardId) {
+        const card = creditCards.find((candidate) => candidate.id === transaction.creditCardId);
+        if (card) {
+          const updatedCard = await updateCreditCard({ ...card, unbilledAmountCents: Math.max(0, card.unbilledAmountCents - transaction.amountCents) });
+          setCreditCards((current) => current.map((candidate) => candidate.id === updatedCard.id ? updatedCard : candidate));
+        }
+      }
+      if (transaction?.type === "credit_card_payment" && transaction.creditCardId) {
+        const card = creditCards.find((candidate) => candidate.id === transaction.creditCardId);
+        const account = accounts.find((candidate) => candidate.id === transaction.accountId);
+        const [updatedCard, updatedAccount] = await Promise.all([
+          card ? updateCreditCard({ ...card, currentStatementAmountCents: card.currentStatementAmountCents + transaction.amountCents }) : Promise.resolve(null),
+          account ? updateFinancialAccount({ ...account, balanceCents: account.balanceCents + transaction.amountCents }) : Promise.resolve(null)
+        ]);
+        if (updatedCard) setCreditCards((current) => current.map((candidate) => candidate.id === updatedCard.id ? updatedCard : candidate));
+        if (updatedAccount) setAccounts((current) => current.map((candidate) => candidate.id === updatedAccount.id ? updatedAccount : candidate));
+      }
       notify("success", "交易已刪除");
     } catch (error) {
       notify("error", error instanceof Error ? error.message : "交易刪除失敗");
@@ -1465,14 +1578,14 @@ export default function App() {
               />
             )}
             {page === "loans" && <LoansPage loans={loans} onAdd={addLoan} onUpdate={saveLoan} onDelete={removeLoan} notify={notify} />}
-            {page === "deposits" && <DepositsPage deposits={deposits} setDeposits={setDeposits} notify={notify} />}
-            {page === "insurance" && <InsurancePage policies={insurancePolicies} onAdd={addInsurancePolicy} />}
+            {page === "deposits" && <DepositsPage deposits={deposits} onAdd={addDeposit} onDelete={removeDeposit} notify={notify} />}
+            {page === "insurance" && <InsurancePage policies={insurancePolicies} onAdd={addInsurancePolicy} onDelete={removeInsurancePolicy} />}
             {page === "investments" && <InvestmentsPage notify={notify} />}
             {page === "calculators" && <CalculatorsPage />}
             {page === "budgets" && (
-              <BudgetsPage budgets={budgets} transactions={periodTransactions} month={month} setBudgets={setBudgets} notify={notify} />
+              <BudgetsPage budgets={budgets} transactions={periodTransactions} month={month} onAdd={addBudget} onDelete={removeBudget} notify={notify} />
             )}
-            {page === "reminders" && <RemindersPage reminders={reminders} accounts={accounts} setReminders={setReminders} notify={notify} />}
+            {page === "reminders" && <RemindersPage reminders={reminders} accounts={accounts} onAdd={addReminder} onDelete={removeReminder} notify={notify} />}
             {page === "reports" && (
               <ReportsPage
                 month={month}
@@ -2654,6 +2767,12 @@ function createMonthlyDate(month: string, day: number) {
   const [yearValue, monthValue] = month.split("-").map(Number);
   const safeDay = Math.max(1, Math.min(day || 1, new Date(yearValue, monthValue, 0).getDate()));
   return `${yearValue}-${String(monthValue).padStart(2, "0")}-${String(safeDay).padStart(2, "0")}`;
+}
+
+function addMonthsToIsoDate(value: string, months: number) {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1 + months, day));
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
 }
 
 function getTaipeiTodayIso(date = new Date()) {
@@ -4364,11 +4483,13 @@ function LoansPage({
 
 function DepositsPage({
   deposits,
-  setDeposits,
+  onAdd,
+  onDelete,
   notify
 }: {
   deposits: Deposit[];
-  setDeposits: React.Dispatch<React.SetStateAction<Deposit[]>>;
+  onAdd: (deposit: Deposit) => Promise<void>;
+  onDelete: (deposit: Deposit) => Promise<void>;
   notify: (type: ToastType, message: string) => void;
 }) {
   const [calcInput, setCalcInput] = useState<DepositCalculationInput>({
@@ -4416,31 +4537,27 @@ function DepositsPage({
     const termMonths = Number(formData.get("termMonths"));
     const estimate = calculateDeposit({ principalCents: principal, annualRate, months: termMonths, interestType: "simple" });
     const now = new Date().toISOString();
-    setDeposits((current) => [
-      {
-        id: crypto.randomUUID(),
-        userId: localUserId,
-        name: String(formData.get("name")),
-        institution: String(formData.get("institution") ?? ""),
-        principalCents: principal,
-        annualRate,
-        startDate,
-        maturityDate,
-        termMonths,
-        interestType: "simple",
-        interestPayout: "maturity",
-        autoRenew: formData.get("autoRenew") === "on",
-        maturityInstruction: "transfer_out",
-        estimatedInterestCents: estimate.totalInterestCents,
-        estimatedMaturityAmountCents: estimate.maturityAmountCents,
-        includeInAvailableCash: formData.get("available") === "on",
-        isActive: true,
-        createdAt: now,
-        updatedAt: now
-      },
-      ...current
-    ]);
-    notify("success", "存款已新增");
+    void onAdd({
+      id: crypto.randomUUID(),
+      userId: localUserId,
+      name: String(formData.get("name")),
+      institution: String(formData.get("institution") ?? ""),
+      principalCents: principal,
+      annualRate,
+      startDate,
+      maturityDate,
+      termMonths,
+      interestType: "simple",
+      interestPayout: "maturity",
+      autoRenew: formData.get("autoRenew") === "on",
+      maturityInstruction: "transfer_out",
+      estimatedInterestCents: estimate.totalInterestCents,
+      estimatedMaturityAmountCents: estimate.maturityAmountCents,
+      includeInAvailableCash: formData.get("available") === "on",
+      isActive: true,
+      createdAt: now,
+      updatedAt: now
+    });
   }
 
   return (
@@ -4513,7 +4630,7 @@ function DepositsPage({
             <Field label="本金"><input className="input" name="principal" inputMode="decimal" required /></Field>
             <Field label="年利率 %"><input className="input" name="annualRate" inputMode="decimal" defaultValue="1.6" /></Field>
             <Field label="期間（月）"><input className="input" name="termMonths" type="number" min={1} defaultValue={12} /></Field>
-            <div className="grid grid-cols-2 gap-3"><Field label="起存日"><input className="input" name="startDate" type="date" defaultValue={today} /></Field><Field label="到期日"><input className="input" name="maturityDate" type="date" defaultValue="2027-07-13" /></Field></div>
+            <div className="grid grid-cols-2 gap-3"><Field label="起存日"><input className="input" name="startDate" type="date" defaultValue={today} /></Field><Field label="到期日"><input className="input" name="maturityDate" type="date" defaultValue={nextYearDate} /></Field></div>
             <label className="flex items-center gap-2 text-sm"><input name="available" type="checkbox" /> 列入可動用資金</label>
             <label className="flex items-center gap-2 text-sm"><input name="autoRenew" type="checkbox" /> 自動續存</label>
             <button className="btn-primary w-full" type="submit"><Plus size={16} />新增存款</button>
@@ -4522,7 +4639,7 @@ function DepositsPage({
         <section className="grid gap-3 md:grid-cols-2">
           {deposits.length === 0 ? <div className="md:col-span-2"><EmptyState label="尚未建立定期存款，新增後會顯示到期日與預估利息。" /></div> : deposits.map((deposit) => (
             <div key={deposit.id} className="panel">
-              <p className="font-semibold">{deposit.name}</p>
+              <div className="flex items-start justify-between gap-3"><p className="font-semibold">{deposit.name}</p><button className="btn-danger h-8 w-8 px-0" onClick={() => void onDelete(deposit)} title="刪除存款" aria-label={`刪除 ${deposit.name}`}><Trash2 size={15} /></button></div>
               <p className="text-sm text-slate-500 dark:text-slate-400">{deposit.institution} · {deposit.termMonths} 個月 · {formatPercent(deposit.annualRate)}</p>
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                 <Info label="本金" value={formatMoney(deposit.principalCents)} />
@@ -4554,7 +4671,7 @@ function DepositsPage({
   );
 }
 
-function InsurancePage({ policies, onAdd }: { policies: InsurancePolicy[]; onAdd: (formData: FormData) => void }) {
+function InsurancePage({ policies, onAdd, onDelete }: { policies: InsurancePolicy[]; onAdd: (formData: FormData) => void; onDelete: (policy: InsurancePolicy) => Promise<void> }) {
   const activePolicies = policies.filter((policy) => policy.status === "active");
   const totalCoverageCents = activePolicies.reduce((sum, policy) => sum + policy.coverageAmountCents, 0);
   const annualPremiumCents = activePolicies.reduce((sum, policy) => sum + policy.annualPremiumCents, 0);
@@ -4666,7 +4783,7 @@ function InsurancePage({ policies, onAdd }: { policies: InsurancePolicy[]; onAdd
             </div>
             <div className="grid grid-cols-2 gap-3">
               <Field label="繳費日"><input className="input" name="paymentDay" type="number" min={1} max={31} defaultValue={5} /></Field>
-              <Field label="續保日"><input className="input" name="renewalDate" type="date" defaultValue="2027-07-15" /></Field>
+              <Field label="續保日"><input className="input" name="renewalDate" type="date" defaultValue={nextYearDate} /></Field>
             </div>
             <Field label="受益人"><input className="input" name="beneficiary" /></Field>
             <Field label="狀態">
@@ -4692,7 +4809,7 @@ function InsurancePage({ policies, onAdd }: { policies: InsurancePolicy[]; onAdd
                       <p className="font-semibold">{policy.name}</p>
                       <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{policy.insurer} · {insuranceTypeLabels[policy.type]}{policy.policyNumberLast4 ? ` · **** ${policy.policyNumberLast4}` : ""}</p>
                     </div>
-                    <Badge>{insuranceStatusLabels[policy.status]}</Badge>
+                    <div className="flex items-center gap-2"><Badge>{insuranceStatusLabels[policy.status]}</Badge><button className="btn-danger h-8 w-8 px-0" onClick={() => void onDelete(policy)} title="刪除保單" aria-label={`刪除 ${policy.name}`}><Trash2 size={15} /></button></div>
                   </div>
                   <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                     <Info label="保障額度" value={formatMoney(policy.coverageAmountCents)} />
@@ -5027,13 +5144,15 @@ function BudgetsPage({
   budgets,
   transactions,
   month,
-  setBudgets,
+  onAdd,
+  onDelete,
   notify
 }: {
   budgets: Budget[];
   transactions: Transaction[];
   month: string;
-  setBudgets: React.Dispatch<React.SetStateAction<Budget[]>>;
+  onAdd: (budget: Budget) => Promise<void>;
+  onDelete: (budget: Budget) => Promise<void>;
   notify: (type: ToastType, message: string) => void;
 }) {
   const monthlyExpenseTransactions = transactions
@@ -5075,7 +5194,8 @@ function BudgetsPage({
         budgetCents,
         spentCents: spent,
         remainingCents: Math.max(0, budgetCents - spent),
-        ratio: spent / Math.max(budgetCents, 1)
+        ratio: spent / Math.max(budgetCents, 1),
+        budget: currentBudgets.find((budget) => budget.category === category)
       };
     })
     .filter((row) => row.budgetCents > 0 || row.spentCents > 0 || budgetCategoryOptions.includes(row.category))
@@ -5090,21 +5210,17 @@ function BudgetsPage({
     const validation = validatePositiveAmount(amount, "預算");
     if (!validation.valid) return notify("error", validation.errors[0]);
     const now = new Date().toISOString();
-    setBudgets((current) => [
-      {
-        id: crypto.randomUUID(),
-        userId: localUserId,
-        month,
-        totalBudgetCents: amount,
-        category: String(formData.get("category") || "全部"),
-        budgetCents: amount,
-        thresholds: [0.5, 0.8, 1],
-        createdAt: now,
-        updatedAt: now
-      },
-      ...current
-    ]);
-    notify("success", "預算已新增");
+    void onAdd({
+      id: crypto.randomUUID(),
+      userId: localUserId,
+      month,
+      totalBudgetCents: amount,
+      category: String(formData.get("category") || "全部"),
+      budgetCents: amount,
+      thresholds: [0.5, 0.8, 1],
+      createdAt: now,
+      updatedAt: now
+    });
   }
 
   return (
@@ -5185,7 +5301,7 @@ function BudgetsPage({
             <div key={row.category} className="panel">
               <div className="flex items-start justify-between gap-3">
                 <p className="font-semibold">{row.category}</p>
-                <Badge>{row.budgetCents > 0 ? "已設定" : "待規劃"}</Badge>
+                <div className="flex items-center gap-2"><Badge>{row.budgetCents > 0 ? "已設定" : "待規劃"}</Badge>{row.budget && <button className="btn-danger h-8 w-8 px-0" onClick={() => void onDelete(row.budget!)} title="刪除預算" aria-label={`刪除 ${row.category} 預算`}><Trash2 size={15} /></button>}</div>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                 <Info label="預算" value={formatMoney(row.budgetCents)} />
@@ -5205,12 +5321,14 @@ function BudgetsPage({
 function RemindersPage({
   reminders,
   accounts,
-  setReminders,
+  onAdd,
+  onDelete,
   notify
 }: {
   reminders: FinancialReminder[];
   accounts: FinancialAccount[];
-  setReminders: React.Dispatch<React.SetStateAction<FinancialReminder[]>>;
+  onAdd: (reminder: FinancialReminder) => Promise<void>;
+  onDelete: (reminder: FinancialReminder) => Promise<void>;
   notify: (type: ToastType, message: string) => void;
 }) {
   const activeReminders = reminders.filter((reminder) => reminder.status !== "done");
@@ -5234,26 +5352,22 @@ function RemindersPage({
     const validation = combineValidations(validatePositiveAmount(amount), validateDateRange(String(formData.get("startDate"))));
     if (!validation.valid) return notify("error", validation.errors[0]);
     const now = new Date().toISOString();
-    setReminders((current) => [
-      {
-        id: crypto.randomUUID(),
-        userId: localUserId,
-        name: String(formData.get("name")),
-        amountCents: amount,
-        frequency: String(formData.get("frequency")) as FinancialReminder["frequency"],
-        debitDay: Number(formData.get("debitDay")),
-        accountId: String(formData.get("accountId") ?? ""),
-        remindDaysBefore: Number(formData.get("remindDaysBefore")),
-        autoCreateTransaction: formData.get("autoCreate") === "on",
-        isNecessary: formData.get("necessary") === "on",
-        startDate: String(formData.get("startDate")),
-        status: "pending",
-        createdAt: now,
-        updatedAt: now
-      },
-      ...current
-    ]);
-    notify("success", "提醒已新增");
+    void onAdd({
+      id: crypto.randomUUID(),
+      userId: localUserId,
+      name: String(formData.get("name")),
+      amountCents: amount,
+      frequency: String(formData.get("frequency")) as FinancialReminder["frequency"],
+      debitDay: Number(formData.get("debitDay")),
+      accountId: String(formData.get("accountId") ?? ""),
+      remindDaysBefore: Number(formData.get("remindDaysBefore")),
+      autoCreateTransaction: formData.get("autoCreate") === "on",
+      isNecessary: formData.get("necessary") === "on",
+      startDate: String(formData.get("startDate")),
+      status: "pending",
+      createdAt: now,
+      updatedAt: now
+    });
   }
 
   return (
@@ -5304,7 +5418,7 @@ function RemindersPage({
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {reminders.map((reminder) => (
           <div key={reminder.id} className="panel">
-            <div className="flex items-start justify-between gap-3"><p className="font-semibold">{reminder.name}</p><Badge>{reminder.status}</Badge></div>
+            <div className="flex items-start justify-between gap-3"><p className="font-semibold">{reminder.name}</p><div className="flex items-center gap-2"><Badge>{reminder.status}</Badge><button className="btn-danger h-8 w-8 px-0" onClick={() => void onDelete(reminder)} title="刪除提醒" aria-label={`刪除 ${reminder.name}`}><Trash2 size={15} /></button></div></div>
             <p className="mt-2 text-2xl font-bold">{formatMoney(reminder.amountCents)}</p>
           <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{reminder.frequency} · 每月 {reminder.debitDay} 日 · 提前 {reminder.remindDaysBefore} 天提醒</p>
         </div>
@@ -5587,7 +5701,7 @@ function AdminUsersPage({ currentUserId, notify }: { currentUserId: string; noti
       <section className="grid gap-3 sm:grid-cols-3">
         <StatCard label="符合條件帳號" value={`${total} 位`} />
         <StatCard label="本頁管理員" value={`${adminCount} 位`} />
-        <StatCard label="本頁已停用" value={`${suspendedCount} 位`} />
+        <StatCard label="本頁已封鎖" value={`${suspendedCount} 位`} />
       </section>
 
       <section className="panel">
@@ -5671,7 +5785,7 @@ function AdminUsersPage({ currentUserId, notify }: { currentUserId: string; noti
 }
 
 function AdminUserIdentity({ user }: { user: AdminManagedUser }) {
-  return <div className="min-w-0"><p className="truncate font-semibold text-slate-950 dark:text-slate-50">{user.displayName || user.email}</p><p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">{user.email}</p><p className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">{user.memberCode || "尚未建立會員編號"}</p></div>;
+  return <div className="min-w-0"><p className="truncate font-semibold text-slate-950 dark:text-slate-50">{user.displayName || user.email}</p><p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">{user.email}</p><p className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">{user.memberCode || "尚未建立會員編號"}</p>{user.adminNote && <p className="mt-2 line-clamp-2 text-xs text-slate-600 dark:text-slate-300">備註：{user.adminNote}</p>}</div>;
 }
 
 function AdminRoleControl({ user, disabled, onChange }: { user: AdminManagedUser; disabled: boolean; onChange: (role: "user" | "admin") => void }) {
@@ -5686,6 +5800,7 @@ function AdminStatus({ user }: { user: AdminManagedUser }) {
 function AdminUserActions({ user, disabled, pending, onAction }: { user: AdminManagedUser; disabled: boolean; pending: boolean; onAction: (action: Parameters<typeof manageAdminUser>[0], successMessage?: string) => Promise<void> }) {
   const locked = disabled || pending;
   return <div className="flex flex-wrap justify-end gap-2">
+    <button className="btn-secondary h-9 px-2" title="管理備註" aria-label="管理備註" disabled={locked} onClick={() => { const note = window.prompt(`設定 ${user.email} 的管理備註`, user.adminNote || ""); if (note !== null && note !== (user.adminNote || "")) void onAction({ action: "note", targetUserId: user.userId, note }, "管理備註已更新"); }}><Pencil size={16} /></button>
     <button className="btn-secondary h-9 px-2" title="寄送重設密碼信" aria-label="寄送重設密碼信" disabled={locked} onClick={() => { if (window.confirm(`確定寄送重設密碼信給 ${user.email}？`)) void onAction({ action: "recovery", targetUserId: user.userId }); }}><KeyRound size={16} /></button>
     <button className="btn-secondary h-9 px-2" title={user.isActive ? "封鎖帳號" : "解除封鎖"} aria-label={user.isActive ? "封鎖帳號" : "解除封鎖"} disabled={locked} onClick={() => { const label = user.isActive ? "封鎖" : "解除封鎖"; if (window.confirm(`確定${label} ${user.email} 的帳號？`)) void onAction({ action: "status", targetUserId: user.userId, isActive: !user.isActive }, `帳號已${label}`); }}>{user.isActive ? <UserX size={16} /> : <UserCheck size={16} />}</button>
     <button className="btn-danger h-9 px-2" title="刪除帳號" aria-label="刪除帳號" disabled={locked} onClick={() => { if (window.confirm(`確定永久刪除 ${user.email}？帳號與資料無法復原。`)) void onAction({ action: "delete", targetUserId: user.userId }); }}><Trash2 size={16} /></button>

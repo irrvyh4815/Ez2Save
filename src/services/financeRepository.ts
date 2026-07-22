@@ -603,6 +603,157 @@ export async function deleteLoan(id: string): Promise<void> {
   if (error) throw new Error("貸款刪除失敗");
 }
 
+export async function createDeposit(deposit: Deposit, ledgerId?: string): Promise<Deposit> {
+  if (!supabase) return deposit;
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !sessionData.session) throw new Error("請先登入再新增存款");
+  const { data, error } = await supabase
+    .from("deposits")
+    .insert({
+      user_id: sessionData.session.user.id,
+      ...(ledgerId ? { ledger_id: ledgerId } : {}),
+      name: deposit.name,
+      institution: deposit.institution || null,
+      principal_cents: deposit.principalCents,
+      annual_rate: deposit.annualRate,
+      start_date: deposit.startDate,
+      maturity_date: deposit.maturityDate,
+      term_months: deposit.termMonths,
+      interest_type: deposit.interestType,
+      interest_payout: deposit.interestPayout,
+      auto_renew: deposit.autoRenew,
+      maturity_instruction: deposit.maturityInstruction,
+      estimated_interest_cents: deposit.estimatedInterestCents,
+      estimated_maturity_amount_cents: deposit.estimatedMaturityAmountCents,
+      include_in_available_cash: deposit.includeInAvailableCash,
+      note: deposit.note || null,
+      is_active: deposit.isActive
+    })
+    .select("id,user_id,name,institution,principal_cents,annual_rate,start_date,maturity_date,term_months,interest_type,interest_payout,auto_renew,maturity_instruction,estimated_interest_cents,estimated_maturity_amount_cents,include_in_available_cash,note,is_active,created_at,updated_at")
+    .single();
+  if (error) throw new Error("存款儲存失敗");
+  return mapDeposit(data);
+}
+
+export async function deleteDeposit(id: string): Promise<void> {
+  if (!supabase) return;
+  const { error } = await supabase.from("deposits").update({ deleted_at: new Date().toISOString(), is_active: false }).eq("id", id);
+  if (error) throw new Error("存款刪除失敗");
+}
+
+export async function createBudget(budget: Budget, ledgerId?: string): Promise<Budget> {
+  if (!supabase) return budget;
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !sessionData.session) throw new Error("請先登入再新增預算");
+  const { data, error } = await supabase
+    .from("budgets")
+    .insert({
+      user_id: sessionData.session.user.id,
+      ...(ledgerId ? { ledger_id: ledgerId } : {}),
+      budget_month: `${budget.month}-01`,
+      total_budget_cents: budget.totalBudgetCents,
+      budget_cents: budget.budgetCents,
+      thresholds: budget.thresholds,
+      metadata: { category: budget.category || "全部" }
+    })
+    .select("id,user_id,budget_month,total_budget_cents,budget_cents,thresholds,created_at,updated_at,metadata")
+    .single();
+  if (error) throw new Error("預算儲存失敗");
+  return mapBudget(data);
+}
+
+export async function updateBudget(budget: Budget): Promise<Budget> {
+  if (!supabase) return { ...budget, updatedAt: new Date().toISOString() };
+  const { data, error } = await supabase
+    .from("budgets")
+    .update({
+      total_budget_cents: budget.totalBudgetCents,
+      budget_cents: budget.budgetCents,
+      thresholds: budget.thresholds,
+      metadata: { category: budget.category || "全部" }
+    })
+    .eq("id", budget.id)
+    .select("id,user_id,budget_month,total_budget_cents,budget_cents,thresholds,created_at,updated_at,metadata")
+    .single();
+  if (error) throw new Error("預算更新失敗");
+  return mapBudget(data);
+}
+
+export async function deleteBudget(id: string): Promise<void> {
+  if (!supabase) return;
+  const { error } = await supabase.from("budgets").update({ deleted_at: new Date().toISOString() }).eq("id", id);
+  if (error) throw new Error("預算刪除失敗");
+}
+
+export async function createFinancialReminder(reminder: FinancialReminder, ledgerId?: string): Promise<FinancialReminder> {
+  if (!supabase) return reminder;
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !sessionData.session) throw new Error("請先登入再新增提醒");
+  const { data, error } = await supabase
+    .from("financial_reminders")
+    .insert({
+      user_id: sessionData.session.user.id,
+      ...(ledgerId ? { ledger_id: ledgerId } : {}),
+      name: reminder.name,
+      amount_cents: reminder.amountCents,
+      frequency: reminder.frequency,
+      debit_day: reminder.debitDay,
+      account_id: reminder.accountId || null,
+      remind_days_before: reminder.remindDaysBefore,
+      auto_create_transaction: reminder.autoCreateTransaction,
+      is_necessary: reminder.isNecessary,
+      start_date: reminder.startDate,
+      end_date: reminder.endDate || null,
+      status: reminder.status
+    })
+    .select("id,user_id,name,amount_cents,frequency,debit_day,account_id,remind_days_before,auto_create_transaction,is_necessary,start_date,end_date,status,created_at,updated_at")
+    .single();
+  if (error) throw new Error("提醒儲存失敗");
+  return mapReminder(data);
+}
+
+export async function deleteFinancialReminder(id: string): Promise<void> {
+  if (!supabase) return;
+  const { error } = await supabase.from("financial_reminders").update({ deleted_at: new Date().toISOString(), status: "done" }).eq("id", id);
+  if (error) throw new Error("提醒刪除失敗");
+}
+
+export async function createInsurancePolicy(policy: InsurancePolicy, ledgerId?: string): Promise<InsurancePolicy> {
+  if (!supabase) return policy;
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !sessionData.session) throw new Error("請先登入再新增保單");
+  const { data, error } = await supabase
+    .from("insurance_policies")
+    .insert({
+      user_id: sessionData.session.user.id,
+      ...(ledgerId ? { ledger_id: ledgerId } : {}),
+      name: policy.name,
+      policy_type: policy.type,
+      insurer: policy.insurer,
+      policy_number_last4: policy.policyNumberLast4 || null,
+      insured_person: policy.insuredPerson || null,
+      annual_premium_cents: policy.annualPremiumCents,
+      coverage_amount_cents: policy.coverageAmountCents,
+      paid_claim_amount_cents: policy.paidClaimAmountCents,
+      pending_claim_amount_cents: policy.pendingClaimAmountCents,
+      payment_day: policy.paymentDay,
+      renewal_date: policy.renewalDate,
+      beneficiary: policy.beneficiary || null,
+      note: policy.note || null,
+      status: policy.status
+    })
+    .select("id,user_id,name,policy_type,insurer,policy_number_last4,insured_person,annual_premium_cents,coverage_amount_cents,paid_claim_amount_cents,pending_claim_amount_cents,payment_day,renewal_date,beneficiary,note,status,created_at,updated_at")
+    .single();
+  if (error) throw new Error("保單儲存失敗");
+  return mapInsurancePolicy(data);
+}
+
+export async function deleteInsurancePolicy(id: string): Promise<void> {
+  if (!supabase) return;
+  const { error } = await supabase.from("insurance_policies").update({ deleted_at: new Date().toISOString(), status: "expired" }).eq("id", id);
+  if (error) throw new Error("保單刪除失敗");
+}
+
 export async function createTransactionWithCategory(transaction: Transaction, ledgerId?: string): Promise<Transaction> {
   if (!supabase) return transaction;
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
