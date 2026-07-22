@@ -341,9 +341,29 @@ export async function loadLedgerInvitations(): Promise<LedgerInvitation[]> {
 
 export async function createLedgerBook(ledger: Omit<LedgerBook, "id" | "createdAt" | "updatedAt">): Promise<LedgerBook> {
   if (!supabase) throw new Error("請先登入再建立帳本");
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !sessionData.session) throw new Error("請先登入再建立帳本");
+  const response = await fetch("/api/ledgers", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sessionData.session.access_token}`
+    },
+    body: JSON.stringify({
+      name: ledger.name,
+      purpose: ledger.purpose,
+      color: ledger.color,
+      note: ledger.note,
+      isShared: ledger.isShared
+    })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (response.ok && payload.ledger) return mapLedgerBook(payload.ledger as Record<string, unknown>);
+  if (response.status !== 404) throw new Error(String(payload.error || "帳本建立失敗"));
+
   const { data, error } = await supabase
     .from("ledger_books")
-    .insert({ owner_user_id: ledger.ownerUserId, name: ledger.name, purpose: ledger.purpose, color: ledger.color, note: ledger.note || null, is_default: ledger.isDefault, is_shared: ledger.isShared })
+    .insert({ owner_user_id: sessionData.session.user.id, name: ledger.name, purpose: ledger.purpose, color: ledger.color, note: ledger.note || null, is_default: ledger.isDefault, is_shared: ledger.isShared })
     .select("id,owner_user_id,name,purpose,color,note,is_default,is_shared,created_at,updated_at")
     .single();
   if (error) throw new Error("帳本建立失敗");
