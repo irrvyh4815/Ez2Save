@@ -5515,6 +5515,7 @@ function AdminUsersPage({ currentUserId, notify }: { currentUserId: string; noti
   const [loadError, setLoadError] = useState("");
   const [actionId, setActionId] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [capabilities, setCapabilities] = useState({ accountActions: false, auditLogs: false, ledgerCounts: false });
   const notifyRef = useRef(notify);
   const pageSize = 20;
   notifyRef.current = notify;
@@ -5531,6 +5532,7 @@ function AdminUsersPage({ currentUserId, notify }: { currentUserId: string; noti
           setUsers(result.users);
           setAuditLogs(result.auditLogs);
           setTotal(result.total);
+          setCapabilities(result.capabilities);
         } catch (error) {
           if (!cancelled) {
             const message = error instanceof Error ? error.message : "使用者清單讀取失敗";
@@ -5565,6 +5567,7 @@ function AdminUsersPage({ currentUserId, notify }: { currentUserId: string; noti
   const adminCount = users.filter((user) => user.role === "admin" || user.isSuperAdmin).length;
   const suspendedCount = users.filter((user) => !user.isActive).length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const actionDisabled = actionId !== null || !capabilities.accountActions;
 
   return (
     <div className="space-y-4">
@@ -5611,6 +5614,7 @@ function AdminUsersPage({ currentUserId, notify }: { currentUserId: string; noti
         </div>
 
         {loadError && <div className="mt-4"><InlineNotice tone="warning" message={loadError} /></div>}
+        {!loading && !loadError && !capabilities.accountActions && <div className="mt-4"><InlineNotice tone="neutral" message="帳號資料已顯示；封鎖、角色調整與刪除會在雲端資料設定完成後開放。" /></div>}
 
         {loading ? (
           <div className="mt-5"><InlineNotice tone="neutral" message="正在讀取使用者資料..." /></div>
@@ -5627,11 +5631,11 @@ function AdminUsersPage({ currentUserId, notify }: { currentUserId: string; noti
                   {users.map((user) => (
                     <tr key={user.userId} className="border-b border-slate-100 align-top dark:border-slate-800">
                       <td className="py-4 pr-3"><AdminUserIdentity user={user} /></td>
-                      <td className="py-4 pr-3 font-semibold text-slate-700 dark:text-slate-200">{user.ledgerCount} 本</td>
-                      <td className="py-4 pr-3"><AdminRoleControl user={user} disabled={user.userId === currentUserId || user.isSuperAdmin || actionId !== null} onChange={(role) => void runAction({ action: "role", targetUserId: user.userId, role })} /></td>
+                      <td className="py-4 pr-3 font-semibold text-slate-700 dark:text-slate-200">{capabilities.ledgerCounts ? `${user.ledgerCount} 本` : "-"}</td>
+                      <td className="py-4 pr-3"><AdminRoleControl user={user} disabled={user.userId === currentUserId || user.isSuperAdmin || actionDisabled} onChange={(role) => void runAction({ action: "role", targetUserId: user.userId, role })} /></td>
                       <td className="py-4 pr-3"><AdminStatus user={user} /></td>
                       <td className="py-4 pr-3 text-slate-500 dark:text-slate-400">{formatAdminDate(user.createdAt)}</td>
-                      <td className="py-4 text-right"><AdminUserActions user={user} disabled={user.userId === currentUserId || user.isSuperAdmin || actionId !== null} pending={actionId?.endsWith(user.userId) ?? false} onAction={runAction} /></td>
+                      <td className="py-4 text-right"><AdminUserActions user={user} disabled={user.userId === currentUserId || user.isSuperAdmin || actionDisabled} pending={actionId?.endsWith(user.userId) ?? false} onAction={runAction} /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -5641,9 +5645,9 @@ function AdminUsersPage({ currentUserId, notify }: { currentUserId: string; noti
               {users.map((user) => (
                 <article key={user.userId} className="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
                   <div className="flex items-start justify-between gap-3"><AdminUserIdentity user={user} /><AdminStatus user={user} /></div>
-                  <div className="mt-3 grid grid-cols-2 gap-2"><Info label="帳本" value={`${user.ledgerCount} 本`} /><Info label="註冊日期" value={formatAdminDate(user.createdAt)} /></div>
-                  <div className="mt-3"><AdminRoleControl user={user} disabled={user.userId === currentUserId || user.isSuperAdmin || actionId !== null} onChange={(role) => void runAction({ action: "role", targetUserId: user.userId, role })} /></div>
-                  <div className="mt-3"><AdminUserActions user={user} disabled={user.userId === currentUserId || user.isSuperAdmin || actionId !== null} pending={actionId?.endsWith(user.userId) ?? false} onAction={runAction} /></div>
+                  <div className="mt-3 grid grid-cols-2 gap-2"><Info label="帳本" value={capabilities.ledgerCounts ? `${user.ledgerCount} 本` : "-"} /><Info label="註冊日期" value={formatAdminDate(user.createdAt)} /></div>
+                  <div className="mt-3"><AdminRoleControl user={user} disabled={user.userId === currentUserId || user.isSuperAdmin || actionDisabled} onChange={(role) => void runAction({ action: "role", targetUserId: user.userId, role })} /></div>
+                  <div className="mt-3"><AdminUserActions user={user} disabled={user.userId === currentUserId || user.isSuperAdmin || actionDisabled} pending={actionId?.endsWith(user.userId) ?? false} onAction={runAction} /></div>
                 </article>
               ))}
             </div>
@@ -5659,7 +5663,7 @@ function AdminUsersPage({ currentUserId, notify }: { currentUserId: string; noti
       <section className="panel">
         <div className="flex items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">近期管理紀錄</h2><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">保留最近的帳號管理操作，方便追查異動。</p></div><ShieldCheck className="text-brand-700 dark:text-brand-100" size={22} /></div>
         <div className="mt-4 space-y-2">
-          {auditLogs.length === 0 ? <EmptyState label="目前尚無管理紀錄" /> : auditLogs.map((log) => <AdminAuditRow key={log.id} log={log} />)}
+          {!capabilities.auditLogs ? <EmptyState label="管理紀錄會在雲端資料設定完成後顯示" /> : auditLogs.length === 0 ? <EmptyState label="目前尚無管理紀錄" /> : auditLogs.map((log) => <AdminAuditRow key={log.id} log={log} />)}
         </div>
       </section>
     </div>

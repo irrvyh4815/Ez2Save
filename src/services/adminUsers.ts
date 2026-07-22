@@ -31,6 +31,11 @@ export type AdminUserList = {
   total: number;
   page: number;
   pageSize: number;
+  capabilities: {
+    accountActions: boolean;
+    auditLogs: boolean;
+    ledgerCounts: boolean;
+  };
 };
 
 type AdminUserAction =
@@ -64,13 +69,25 @@ export async function listAdminUsers(params: { search?: string; role?: string; s
   if (params.status && params.status !== "all") query.set("status", params.status);
   query.set("page", String(params.page ?? 1));
   query.set("pageSize", String(params.pageSize ?? 20));
-  const payload = await requestAdminUsers<{ users: Record<string, unknown>[]; auditLogs: Record<string, unknown>[]; total: number; page: number; pageSize: number }>(`?${query.toString()}`);
+  const payload = await requestAdminUsers<{
+    users: Record<string, unknown>[];
+    auditLogs: Record<string, unknown>[];
+    total: number;
+    page: number;
+    pageSize: number;
+    capabilities?: Partial<AdminUserList["capabilities"]>;
+  }>(`?${query.toString()}`);
   return {
     users: payload.users.map(mapAdminUser),
     auditLogs: payload.auditLogs.map(mapAuditLog),
     total: payload.total,
     page: payload.page,
-    pageSize: payload.pageSize
+    pageSize: payload.pageSize,
+    capabilities: {
+      accountActions: Boolean(payload.capabilities?.accountActions),
+      auditLogs: Boolean(payload.capabilities?.auditLogs),
+      ledgerCounts: Boolean(payload.capabilities?.ledgerCounts)
+    }
   };
 }
 

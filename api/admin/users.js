@@ -1,7 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 
 const rateLimitBuckets = new Map();
-const userFields = "user_id,email,display_name,member_code,role,is_super_admin,is_active,suspended_at,admin_note,created_at,updated_at";
+const baseUserFields = "user_id,email,display_name,member_code,role,is_super_admin,created_at,updated_at";
+const managedUserFields = `${baseUserFields},is_active,suspended_at,admin_note`;
 
 function sendJson(response, status, body) {
   response.status(status).json(body);
@@ -39,6 +40,31 @@ function allowRequest(userId) {
   return true;
 }
 
+function isSchemaUnavailable(error) {
+  return ["42P01", "42703", "PGRST204", "PGRST205"].includes(error?.code);
+}
+
+async function getProfileWithManagementState(serviceClient, userId) {
+  const managedProfile = await serviceClient
+    .from("profiles")
+    .select("user_id,role,is_super_admin,is_active")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!managedProfile.error) return { profile: managedProfile.data, managementReady: true };
+  if (!isSchemaUnavailable(managedProfile.error)) return { error: managedProfile.error };
+
+  const baseProfile = await serviceClient
+    .from("profiles")
+    .select("user_id,role,is_super_admin")
+    .eq("user_id", userId)
+    .maybeSingle();
+  return {
+    profile: baseProfile.data ? { ...baseProfile.data, is_active: true } : null,
+    error: baseProfile.error,
+    managementReady: false
+  };
+}
+
 async function getAdministrator(request) {
   const { url, anonKey, serviceRoleKey } = getConfig();
   const token = getBearerToken(request);
@@ -50,59 +76,70 @@ async function getAdministrator(request) {
   const { data, error } = await userClient.auth.getUser(token);
   if (error || !data.user) return { error: "登入狀態已失效", status: 401 };
 
-  const { data: profile, error: profileError } = await serviceClient
-    .from("profiles")
-    .select("user_id,role,is_super_admin,is_active")
-    .eq("user_id", data.user.id)
-    .maybeSingle();
+  const { profile, error: profileError, managementReady } = await getProfileWithManagementState(serviceClient, data.user.id);
   if (profileError || !profile || profile.role !== "super_admin" || !profile.is_super_admin || !profile.is_active) {
     return { error: "你沒有用戶管理權限", status: 403 };
   }
   if (!allowRequest(data.user.id)) return { error: "操作過於頻繁，請稍後再試", status: 429 };
-  return { serviceClient, administrator: data.user };
+  return { serviceClient, administrator: data.user, managementReady };
 }
 
 async function getTargetUser(serviceClient, targetUserId) {
-  const { data, error } = await serviceClient.from("profiles").select(userFields).eq("user_id", targetUserId).maybeSingle();
+  const { data, error } = await serviceClient.from("profiles").select(managedUserFields).eq("user_id", targetUserId).maybeSingle();
   if (error || !data) throw new Error("找不到指定使用者");
   return data;
 }
 
-async function listUsers(request, response, serviceClient) {
+async function listUsers(request, response, serviceClient, managementReady) {
   const search = sanitizeSearch(request.query.search);
   const role = String(request.query.role || "all");
   const status = String(request.query.status || "all");
   const page = parsePositiveInteger(request.query.page, 1, 10_000);
   const pageSize = parsePositiveInteger(request.query.pageSize, 20, 50);
-  let query = serviceClient.from("profiles").select(userFields, { count: "exact" }).order("created_at", { ascending: false });
+  let query = serviceClient.from("profiles").select(managementReady ? managedUserFields : baseUserFields, { count: "exact" }).order("created_at", { ascending: false });
   if (search) query = query.or(`email.ilike.%${search}%,display_name.ilike.%${search}%,member_code.ilike.%${search}%`);
   if (["user", "admin", "super_admin"].includes(role)) query = query.eq("role", role);
   if (status === "active") query = query.eq("is_active", true);
   if (status === "suspended") query = query.eq("is_active", false);
   const from = (page - 1) * pageSize;
-  const [{ data: profiles, error, count }, { data: audits, error: auditError }] = await Promise.all([
-    query.range(from, from + pageSize - 1),
-    serviceClient.from("admin_audit_logs").select("id,actor_user_id,target_user_id,action,metadata,created_at").order("created_at", { ascending: false }).limit(8)
-  ]);
+  const { data: profiles, error, count } = await query.range(from, from + pageSize - 1);
   if (error) throw new Error("使用者清單讀取失敗");
-  if (auditError) throw new Error("管理紀錄讀取失敗");
+
+  const auditRequest = managementReady
+    ? serviceClient.from("admin_audit_logs").select("id,actor_user_id,target_user_id,action,metadata,created_at").order("created_at", { ascending: false }).limit(8)
+    : Promise.resolve({ data: [], error: null });
   const userIds = (profiles || []).map((profile) => profile.user_id);
-  const { data: ledgers, error: ledgerError } = userIds.length
+  const ledgerRequest = userIds.length
     ? await serviceClient.from("ledger_books").select("owner_user_id").in("owner_user_id", userIds).is("deleted_at", null)
     : { data: [], error: null };
-  if (ledgerError) throw new Error("帳本概況讀取失敗");
+  const audits = await auditRequest;
+  const ledgers = ledgerRequest;
+  const canReadAuditLogs = !audits.error;
+  const canReadLedgerCounts = !ledgers.error;
   const ledgerCounts = new Map();
-  for (const ledger of ledgers || []) ledgerCounts.set(ledger.owner_user_id, (ledgerCounts.get(ledger.owner_user_id) || 0) + 1);
+  for (const ledger of ledgers.data || []) ledgerCounts.set(ledger.owner_user_id, (ledgerCounts.get(ledger.owner_user_id) || 0) + 1);
   sendJson(response, 200, {
-    users: (profiles || []).map((profile) => ({ ...profile, ledger_count: ledgerCounts.get(profile.user_id) || 0 })),
-    auditLogs: audits || [],
+    users: (profiles || []).map((profile) => ({
+      ...profile,
+      is_active: managementReady ? profile.is_active : true,
+      suspended_at: managementReady ? profile.suspended_at : null,
+      admin_note: managementReady ? profile.admin_note : null,
+      ledger_count: ledgerCounts.get(profile.user_id) || 0
+    })),
+    auditLogs: audits.data || [],
     total: count || 0,
     page,
-    pageSize
+    pageSize,
+    capabilities: {
+      accountActions: managementReady,
+      auditLogs: canReadAuditLogs,
+      ledgerCounts: canReadLedgerCounts
+    }
   });
 }
 
-async function manageUser(request, response, serviceClient, administrator) {
+async function manageUser(request, response, serviceClient, administrator, managementReady) {
+  if (!managementReady) return sendJson(response, 503, { error: "帳號管理功能尚未啟用，請先完成雲端資料設定" });
   const body = typeof request.body === "string" ? JSON.parse(request.body || "{}") : request.body || {};
   const action = String(body.action || "");
   const targetUserId = String(body.targetUserId || "");
@@ -165,8 +202,8 @@ export default async function handler(request, response) {
   try {
     const context = await getAdministrator(request);
     if (context.error) return sendJson(response, context.status, { error: context.error });
-    if (request.method === "GET") return await listUsers(request, response, context.serviceClient);
-    return await manageUser(request, response, context.serviceClient, context.administrator);
+    if (request.method === "GET") return await listUsers(request, response, context.serviceClient, context.managementReady);
+    return await manageUser(request, response, context.serviceClient, context.administrator, context.managementReady);
   } catch (error) {
     return sendJson(response, 500, { error: error instanceof Error ? error.message : "用戶管理服務暫時無法使用" });
   }
