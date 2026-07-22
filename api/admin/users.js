@@ -67,7 +67,8 @@ async function getProfileWithManagementState(serviceClient, userId) {
 async function getAdministrator(request) {
   const { url, serviceRoleKey } = getConfig();
   const token = getBearerToken(request);
-  if (!url || !serviceRoleKey) return { error: "管理服務尚未完成設定", status: 503 };
+  if (!url) return { error: "管理服務缺少 Supabase 網址設定", status: 503 };
+  if (!serviceRoleKey) return { error: "管理服務缺少伺服器金鑰設定", status: 503 };
   if (!token) return { error: "請先登入", status: 401 };
 
   const serviceClient = createClient(url, serviceRoleKey, { auth: { autoRefreshToken: false, persistSession: false } });

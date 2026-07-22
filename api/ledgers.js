@@ -46,7 +46,8 @@ export default async function handler(request, response) {
 
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceRoleKey) return sendJson(response, 503, { error: "帳本服務尚未完成設定" });
+  if (!url) return sendJson(response, 503, { error: "帳本服務缺少 Supabase 網址設定" });
+  if (!serviceRoleKey) return sendJson(response, 503, { error: "帳本服務缺少伺服器金鑰設定" });
 
   const token = getBearerToken(request);
   if (!token) return sendJson(response, 401, { error: "請先登入再建立帳本" });
