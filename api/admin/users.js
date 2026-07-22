@@ -10,9 +10,8 @@ function sendJson(response, status, body) {
 
 function getConfig() {
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const anonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  return { url, anonKey, serviceRoleKey };
+  return { url, serviceRoleKey };
 }
 
 function getBearerToken(request) {
@@ -66,14 +65,13 @@ async function getProfileWithManagementState(serviceClient, userId) {
 }
 
 async function getAdministrator(request) {
-  const { url, anonKey, serviceRoleKey } = getConfig();
+  const { url, serviceRoleKey } = getConfig();
   const token = getBearerToken(request);
-  if (!url || !anonKey || !serviceRoleKey) return { error: "管理服務尚未完成設定", status: 503 };
+  if (!url || !serviceRoleKey) return { error: "管理服務尚未完成設定", status: 503 };
   if (!token) return { error: "請先登入", status: 401 };
 
-  const userClient = createClient(url, anonKey, { auth: { autoRefreshToken: false, persistSession: false } });
   const serviceClient = createClient(url, serviceRoleKey, { auth: { autoRefreshToken: false, persistSession: false } });
-  const { data, error } = await userClient.auth.getUser(token);
+  const { data, error } = await serviceClient.auth.getUser(token);
   if (error || !data.user) return { error: "登入狀態已失效", status: 401 };
 
   const { profile, error: profileError, managementReady } = await getProfileWithManagementState(serviceClient, data.user.id);

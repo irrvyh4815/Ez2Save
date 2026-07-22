@@ -45,9 +45,8 @@ export default async function handler(request, response) {
   if (request.method !== "POST") return sendJson(response, 405, { error: "不支援的請求方式" });
 
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const anonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !anonKey || !serviceRoleKey) return sendJson(response, 503, { error: "帳本服務尚未完成設定" });
+  if (!url || !serviceRoleKey) return sendJson(response, 503, { error: "帳本服務尚未完成設定" });
 
   const token = getBearerToken(request);
   if (!token) return sendJson(response, 401, { error: "請先登入再建立帳本" });
@@ -62,12 +61,10 @@ export default async function handler(request, response) {
   if (input.error) return sendJson(response, 400, { error: input.error });
 
   try {
-    const userClient = createClient(url, anonKey, { auth: { autoRefreshToken: false, persistSession: false } });
-    const { data: authData, error: authError } = await userClient.auth.getUser(token);
+    const serviceClient = createClient(url, serviceRoleKey, { auth: { autoRefreshToken: false, persistSession: false } });
+    const { data: authData, error: authError } = await serviceClient.auth.getUser(token);
     if (authError || !authData.user) return sendJson(response, 401, { error: "登入狀態已失效，請重新登入" });
     if (!allowRequest(authData.user.id)) return sendJson(response, 429, { error: "建立帳本操作過於頻繁，請稍後再試" });
-
-    const serviceClient = createClient(url, serviceRoleKey, { auth: { autoRefreshToken: false, persistSession: false } });
     const { data, error } = await serviceClient
       .from("ledger_books")
       .insert({
