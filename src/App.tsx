@@ -117,7 +117,7 @@ type Page =
   | "settings"
   | "users";
 
-type PeriodMode = "month" | "year" | "range";
+type PeriodMode = "month" | "three_months" | "six_months" | "year" | "range";
 
 type DatePeriod = {
   mode: PeriodMode;
@@ -689,6 +689,18 @@ export default function App() {
   }
 
   const period = useMemo<DatePeriod>(() => {
+    if (periodMode === "three_months" || periodMode === "six_months") {
+      const [year, monthNumber] = month.split("-").map(Number);
+      const periodMonths = periodMode === "three_months" ? 3 : 6;
+      const start = new Date(year, monthNumber - periodMonths, 1);
+      const endDay = new Date(year, monthNumber, 0).getDate();
+      return {
+        mode: periodMode,
+        startDate: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-01`,
+        endDate: `${month}-${String(endDay).padStart(2, "0")}`,
+        label: `近 ${periodMonths} 個月`
+      };
+    }
     if (periodMode === "year") {
       return { mode: periodMode, startDate: `${periodYear}-01-01`, endDate: `${periodYear}-12-31`, label: `${periodYear} 年` };
     }
@@ -2240,9 +2252,9 @@ function PeriodSelector({
 }) {
   return (
     <div className="mt-4 flex flex-wrap items-end gap-2 border-t border-slate-200 pt-4 dark:border-slate-700">
-      <div className="inline-flex rounded-md border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-950">
-        {(["month", "year", "range"] as const).map((item) => (
-          <button key={item} className={`rounded px-3 py-1.5 text-sm font-semibold ${mode === item ? "bg-emerald-600 text-white" : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"}`} onClick={() => onModeChange(item)}>{item === "month" ? "月份" : item === "year" ? "年份" : "指定區間"}</button>
+      <div className="flex max-w-full flex-wrap rounded-md border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-950">
+        {(["month", "three_months", "six_months", "year", "range"] as const).map((item) => (
+          <button key={item} className={`rounded px-3 py-1.5 text-sm font-semibold ${mode === item ? "bg-emerald-600 text-white" : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"}`} onClick={() => onModeChange(item)}>{item === "month" ? "月份" : item === "three_months" ? "近三個月" : item === "six_months" ? "近半年" : item === "year" ? "年份" : "指定區間"}</button>
         ))}
       </div>
       {mode === "month" && <input className="input mt-0 w-36" type="month" value={month} onChange={(event) => onMonthChange(event.target.value)} aria-label="選擇月份" />}
