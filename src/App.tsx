@@ -85,6 +85,7 @@ import {
   emptyFinanceData,
   loadLedgerBooks,
   loadLedgerInvitations,
+  loadAllLedgerNotificationData,
   loadFinanceData,
   normalizeCategoryName,
   sendSignInLink,
@@ -99,7 +100,8 @@ import {
   updateFinancialPlan,
   updateLoan,
   updateOwnPassword,
-  updateOwnProfile
+  updateOwnProfile,
+  saveNotificationPreferences
 } from "./services/financeRepository";
 import type {
   AccountType,
@@ -111,6 +113,7 @@ import type {
   FinancialAccount,
   FinancialPlan,
   FinancialReminder,
+  NotificationPreference,
   InsurancePolicy,
   InvestmentCategory,
   LedgerBook as PersistedLedgerBook,
@@ -135,6 +138,7 @@ type Page =
   | "reminders"
   | "reports"
   | "ai"
+  | "notification_settings"
   | "settings"
   | "users";
 
@@ -155,8 +159,12 @@ type FinanceNotification = {
   detail: string;
   date: string;
   amountCents?: number;
-  source: "credit_card" | "loan" | "installment" | "reminder" | "insurance";
+  source: "credit_card" | "loan" | "installment" | "reminder" | "deposit" | "insurance";
   status: "overdue" | "due_today" | "upcoming" | "scheduled";
+  ledgerId?: string;
+  ledgerName?: string;
+  deliveryMode: "single" | "repeat";
+  repeatHours: number;
 };
 
 type LedgerBook = {
@@ -194,6 +202,7 @@ type FinanceSnapshot = {
   insurancePolicies: InsurancePolicy[];
   investmentCategories: InvestmentCategory[];
   financialPlans: FinancialPlan[];
+  notificationPreferences: NotificationPreference[];
 };
 
 const navGroups: { title: "理財" | "投資" | "其他" | "設定"; items: { page: Page; label: string; icon: typeof BarChart3 }[] }[] = [
@@ -334,6 +343,13 @@ const pageIntros: Record<Page, { eyebrow: string; title: string; description: st
     description: "AI 只在你主動點擊時分析彙總資料，協助整理風險、優先順序與建議。",
     accent: "#9333ea",
     tint: "#faf5ff"
+  },
+  notification_settings: {
+    eyebrow: "帳本通知設定",
+    title: "依你的付款節奏安排提醒",
+    description: "針對信用卡、分期、貸款、固定帳單、定存與保險，設定是否提醒、提前天數與單次或持續提示。",
+    accent: "#ea580c",
+    tint: "#fff7ed"
   },
   settings: {
     eyebrow: "帳號與資料",
@@ -509,6 +525,8 @@ export default function App() {
   const [ledgerBooks, setLedgerBooks] = useState<LedgerBook[]>([]);
   const [ledgerInvitations, setLedgerInvitations] = useState<LedgerInvitation[]>([]);
   const [ledgerSnapshots, setLedgerSnapshots] = useState<Record<string, FinanceSnapshot>>({});
+  const [allLedgerNotificationData, setAllLedgerNotificationData] = useState<Awaited<ReturnType<typeof loadAllLedgerNotificationData>>>([]);
+  const [ledgerHomeView, setLedgerHomeView] = useState<"ledgers" | "users">("ledgers");
   const [ledgerTransitioning, setLedgerTransitioning] = useState(false);
   const [page, setPage] = useState<Page>("dashboard");
   const [month, setMonth] = useState(currentTaipeiMonth());
@@ -531,6 +549,7 @@ export default function App() {
   const [insurancePolicies, setInsurancePolicies] = useState<InsurancePolicy[]>([]);
   const [investmentCategories, setInvestmentCategories] = useState<InvestmentCategory[]>([]);
   const [financialPlans, setFinancialPlans] = useState<FinancialPlan[]>([]);
+  const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreference[]>([]);
   const [rememberedCategories, setRememberedCategories] = useState<string[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
   const [dataNotice, setDataNotice] = useState("");
@@ -576,7 +595,8 @@ export default function App() {
       rememberedCategories,
       insurancePolicies,
       investmentCategories,
-      financialPlans
+      financialPlans,
+      notificationPreferences
     };
   }
 
@@ -593,6 +613,7 @@ export default function App() {
     setInsurancePolicies(snapshot.insurancePolicies);
     setInvestmentCategories(snapshot.investmentCategories);
     setFinancialPlans(snapshot.financialPlans);
+    setNotificationPreferences(snapshot.notificationPreferences);
     setAiReport(null);
     setCsvPreview([]);
   }
@@ -607,11 +628,13 @@ export default function App() {
 
       if (result.session) {
         try {
-          const [persistedLedgers, persistedInvitations] = await Promise.all([loadLedgerBooks(), loadLedgerInvitations()]);
+          const [persistedLedgers, persistedInvitations, notificationData] = await Promise.all([loadLedgerBooks(), loadLedgerInvitations(), loadAllLedgerNotificationData()]);
           nextLedgerBooks = persistedLedgers.map((ledger) => mapLedgerForUi(ledger, userId));
           nextInvitations = persistedInvitations.map(mapInvitationForUi);
+          setAllLedgerNotificationData(notificationData);
         } catch {
           nextLedgerBooks = [];
+          setAllLedgerNotificationData([]);
         }
         if (nextLedgerBooks.length === 0) {
           nextLedgerBooks = [{
@@ -647,7 +670,8 @@ export default function App() {
         rememberedCategories: result.data.categories,
         insurancePolicies: result.data.insurancePolicies,
         investmentCategories: result.data.investmentCategories,
-        financialPlans: result.data.financialPlans
+        financialPlans: result.data.financialPlans,
+        notificationPreferences: result.data.notificationPreferences
       };
       setLedgerBooks(nextLedgerBooks);
       setLedgerInvitations(nextInvitations);
@@ -832,6 +856,9 @@ export default function App() {
     });
   }, [month, period, transactions]);
 
+  const activeLedger = ledgerBooks.find((ledger) => ledger.id === activeLedgerId) ?? null;
+  const activePersistedLedgerId = isPersistedLedgerId(activeLedgerId) ? activeLedgerId : undefined;
+
   const financeNotifications = useMemo(
     () =>
       buildFinanceNotifications({
@@ -840,18 +867,47 @@ export default function App() {
         creditCards,
         installments: creditCardInstallments,
         loans,
-        insurancePolicies
+        deposits,
+        insurancePolicies,
+        preferences: notificationPreferences,
+        ledgerId: activeLedgerId ?? undefined,
+        ledgerName: activeLedger?.name
       }),
-    [creditCardInstallments, creditCards, insurancePolicies, loans, month, reminders]
+    [activeLedger?.name, activeLedgerId, creditCardInstallments, creditCards, deposits, insurancePolicies, loans, month, notificationPreferences, reminders]
   );
 
+  const allFinanceNotifications = useMemo(
+    () =>
+      allLedgerNotificationData
+        .flatMap((data) => buildFinanceNotifications({
+          month,
+          reminders: data.reminders,
+          creditCards: data.creditCards,
+          installments: data.installments,
+          loans: data.loans,
+          deposits: data.deposits,
+          insurancePolicies: data.insurancePolicies,
+          preferences: data.preferences,
+          ledgerId: data.ledgerId,
+          ledgerName: ledgerBooks.find((ledger) => ledger.id === data.ledgerId)?.name
+        }))
+        .sort((a, b) => getNotificationSortWeight(a.status) - getNotificationSortWeight(b.status) || a.date.localeCompare(b.date)),
+    [allLedgerNotificationData, ledgerBooks, month]
+  );
+
+  useEffect(() => {
+    const repeating = financeNotifications.filter((item) => item.deliveryMode === "repeat" && item.status !== "scheduled");
+    if (repeating.length === 0) return;
+    const intervalHours = Math.min(...repeating.map((item) => Math.max(1, item.repeatHours)));
+    const timer = window.setInterval(() => {
+      setToast({ type: "error", message: "提醒：" + repeating[0].title });
+    }, intervalHours * 3_600_000);
+    return () => window.clearInterval(timer);
+  }, [financeNotifications]);
+
   const rootClass = darkMode ? "dark min-h-screen" : "min-h-screen";
-  const activeLedger = ledgerBooks.find((ledger) => ledger.id === activeLedgerId) ?? null;
-  const activePersistedLedgerId = isPersistedLedgerId(activeLedgerId) ? activeLedgerId : undefined;
   const isPlatformAdmin = Boolean(currentProfile?.isSuperAdmin && currentProfile.role === "super_admin");
-  const visibleNavGroups = isPlatformAdmin
-    ? navGroups
-    : navGroups.map((group) => ({ ...group, items: group.items.filter((item) => item.page !== "users") }));
+  const visibleNavGroups = navGroups.map((group) => ({ ...group, items: group.items.filter((item) => item.page !== "users") }));
   const visibleNavItems = visibleNavGroups.flatMap((group) => group.items);
 
   function notify(type: ToastType, message: string) {
@@ -884,11 +940,13 @@ export default function App() {
         rememberedCategories: result.data.categories,
         insurancePolicies: result.data.insurancePolicies,
         investmentCategories: result.data.investmentCategories,
-        financialPlans: result.data.financialPlans
+        financialPlans: result.data.financialPlans,
+        notificationPreferences: result.data.notificationPreferences
       };
       applySnapshot(nextSnapshot);
       setLedgerSnapshots((current) => ({ ...current, [ledgerId]: nextSnapshot }));
       setActiveLedgerId(ledgerId);
+      setLedgerHomeView("ledgers");
       setPage("dashboard");
       startLedgerTransition();
     } catch (error) {
@@ -1027,15 +1085,13 @@ export default function App() {
       setLedgerSnapshots((current) => ({ ...current, [activeLedgerId]: captureCurrentSnapshot() }));
     }
     setActiveLedgerId(null);
+    setLedgerHomeView("ledgers");
     setNotificationOpen(false);
     startLedgerTransition();
   }
 
   function navigateToPage(nextPage: Page) {
-    if (nextPage === "users" && !isPlatformAdmin) {
-      notify("error", "你沒有用戶管理權限");
-      return;
-    }
+    if (nextPage === "users") return openUserManagement();
     if (nextPage === page) return;
     setNotificationOpen(false);
     setPage(nextPage);
@@ -1047,6 +1103,7 @@ export default function App() {
       installment: "cards",
       loan: "loans",
       reminder: "reminders",
+      deposit: "deposits",
       insurance: "insurance"
     };
     setNotificationOpen(false);
@@ -1055,12 +1112,18 @@ export default function App() {
 
   function openUserManagement() {
     if (!isPlatformAdmin) return notify("error", "你沒有用戶管理權限");
-    if (!activeLedgerId) {
-      const firstLedger = ledgerBooks[0];
-      if (!firstLedger) return notify("error", "請先建立帳本");
-      openLedger(firstLedger.id);
+    if (activeLedgerId) {
+      setLedgerSnapshots((current) => ({ ...current, [activeLedgerId]: captureCurrentSnapshot() }));
     }
-    setPage("users");
+    setActiveLedgerId(null);
+    setLedgerHomeView("users");
+    setNotificationOpen(false);
+    startLedgerTransition();
+  }
+
+  async function openGlobalNotification(item: FinanceNotification) {
+    if (item.ledgerId && item.ledgerId !== activeLedgerId) await openLedger(item.ledgerId);
+    openNotification(item);
   }
 
   async function addAccount(formData: FormData) {
@@ -1300,6 +1363,19 @@ export default function App() {
     }
   }
 
+  async function saveLedgerNotificationPreferences(preferences: NotificationPreference[]) {
+    try {
+      const saved = await saveNotificationPreferences(preferences, activePersistedLedgerId);
+      setNotificationPreferences(saved);
+      if (activePersistedLedgerId) {
+        setAllLedgerNotificationData((current) => current.map((item) => item.ledgerId === activePersistedLedgerId ? { ...item, preferences: saved } : item));
+      }
+      notify("success", "通知設定已儲存");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "通知設定儲存失敗");
+    }
+  }
+
   async function addInsurancePolicy(formData: FormData) {
     const annualPremiumCents = parseMoneyToCents(String(formData.get("annualPremium") ?? ""));
     const coverageAmountCents = parseMoneyToCents(String(formData.get("coverageAmount") ?? ""));
@@ -1532,6 +1608,11 @@ export default function App() {
           onToggleSharing={toggleLedgerSharing}
           onInviteMember={inviteLedgerMember}
           onOpenUserManagement={openUserManagement}
+          showUserManagement={ledgerHomeView === "users"}
+          onCloseUserManagement={() => setLedgerHomeView("ledgers")}
+          globalNotifications={allFinanceNotifications}
+          onOpenNotification={openGlobalNotification}
+          notify={notify}
         />
         {toast && <div className="fixed right-4 top-4 z-50 max-w-sm"><ToastBanner toast={toast} /></div>}
       </div>
@@ -1604,7 +1685,7 @@ export default function App() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-[11px] font-bold tracking-[0.16em] text-brand-700 dark:text-brand-200">EZ2SAVEMORE</p>
-                <h1 className="text-xl font-bold text-slate-950 dark:text-slate-50">{visibleNavItems.find((item) => item.page === page)?.label ?? "理財總覽"}</h1>
+                <h1 className="text-xl font-bold text-slate-950 dark:text-slate-50">{page === "notification_settings" ? "通知設定" : visibleNavItems.find((item) => item.page === page)?.label ?? "理財總覽"}</h1>
                 <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{activeLedger?.name} · Asia/Taipei · TWD</p>
               </div>
               <div className="flex items-center gap-2">
@@ -1626,7 +1707,7 @@ export default function App() {
                       </span>
                     )}
                   </button>
-                  {notificationOpen && <NotificationPanel notifications={financeNotifications} onClose={() => setNotificationOpen(false)} onOpen={openNotification} />}
+                  {notificationOpen && <NotificationPanel notifications={financeNotifications} onClose={() => setNotificationOpen(false)} onOpen={openNotification} onManage={() => navigateToPage("notification_settings")} />}
                 </div>
                 <button className="btn-secondary h-10 w-10 px-0" title="切換深色模式" onClick={() => setDarkMode((value) => !value)}>
                   <Moon size={18} />
@@ -1683,6 +1764,7 @@ export default function App() {
             {page === "loans" && <LoansPage loans={loans} onAdd={addLoan} onUpdate={saveLoan} onDelete={removeLoan} notify={notify} />}
             {page === "deposits" && <DepositsPage deposits={deposits} onAdd={addDeposit} onDelete={removeDeposit} notify={notify} />}
             {page === "insurance" && <InsurancePage policies={insurancePolicies} onAdd={addInsurancePolicy} onDelete={removeInsurancePolicy} />}
+            {page === "notification_settings" && <NotificationSettingsPage preferences={notificationPreferences} onSave={saveLedgerNotificationPreferences} notify={notify} />}
             {page === "financial_plan" && (
               <FinancialPlansPage
                 plans={financialPlans}
@@ -1752,9 +1834,6 @@ export default function App() {
                 onChangePassword={savePassword}
               />
             )}
-            {page === "users" && isPlatformAdmin && (
-              <AdminUsersPage currentUserId={currentProfile?.userId ?? ""} notify={notify} />
-            )}
           </div>
         </main>
       </div>
@@ -1802,7 +1881,12 @@ function LedgerHomePage({
   onDeleteLedger,
   onToggleSharing,
   onInviteMember,
-  onOpenUserManagement
+  onOpenUserManagement,
+  showUserManagement,
+  onCloseUserManagement,
+  globalNotifications,
+  onOpenNotification,
+  notify
 }: {
   ledgerBooks: LedgerBook[];
   invitations: LedgerInvitation[];
@@ -1819,7 +1903,51 @@ function LedgerHomePage({
   onToggleSharing: (ledgerId: string, enabled: boolean) => void;
   onInviteMember: (ledgerId: string, formData: FormData) => void;
   onOpenUserManagement: () => void;
+  showUserManagement: boolean;
+  onCloseUserManagement: () => void;
+  globalNotifications: FinanceNotification[];
+  onOpenNotification: (notification: FinanceNotification) => void;
+  notify: (type: ToastType, message: string) => void;
 }) {
+  const [globalNotificationOpen, setGlobalNotificationOpen] = useState(false);
+  const globalNotificationAreaRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!globalNotificationOpen) return;
+
+    const closeOnOutsideInteraction = (event: PointerEvent) => {
+      if (!globalNotificationAreaRef.current?.contains(event.target as Node)) {
+        setGlobalNotificationOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setGlobalNotificationOpen(false);
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsideInteraction);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideInteraction);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [globalNotificationOpen]);
+
+  if (showUserManagement) {
+    return (
+      <main className="min-h-screen bg-[#f5f7fb] p-3 dark:bg-slate-950 sm:p-6">
+        <div className="mx-auto max-w-7xl space-y-4">
+          <header className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white/95 p-3 shadow-subtle dark:border-slate-800 dark:bg-slate-950/95">
+            <Brand />
+            <div className="flex items-center gap-2">
+              <button className="btn-secondary" onClick={onCloseUserManagement}><ArrowLeft size={16} />帳本總覽</button>
+              <button className="btn-secondary h-10 w-10 px-0" title="切換深色模式" onClick={onToggleDarkMode}><Moon size={18} /></button>
+            </div>
+          </header>
+          <AdminUsersPage currentUserId={profile?.userId ?? ""} notify={notify} />
+        </div>
+      </main>
+    );
+  }
   const summaryFor = (ledgerId: string) => {
     const snapshot = snapshots[ledgerId] ?? {
       accounts: [],
@@ -1833,7 +1961,8 @@ function LedgerHomePage({
       rememberedCategories: [],
       insurancePolicies: [],
       investmentCategories: [],
-      financialPlans: []
+      financialPlans: [],
+      notificationPreferences: []
     };
     const dashboard = summarizeDashboard({
       accounts: snapshot.accounts,
@@ -1874,7 +2003,14 @@ function LedgerHomePage({
           <Brand />
           <div className="flex items-center gap-2">
             {profile && <Badge>{getRoleLabel(profile)}</Badge>}
-            {profile?.isSuperAdmin && <button className="btn-secondary hidden h-10 px-3 sm:inline-flex" onClick={onOpenUserManagement}><Users size={16} />用戶管理</button>}
+            <div className="relative" ref={globalNotificationAreaRef}>
+              <button className="btn-secondary relative h-10 w-10 px-0" title="全部帳本通知中心" aria-label={"全部帳本通知中心，共 " + globalNotifications.length + " 則提醒"} onClick={() => setGlobalNotificationOpen((value) => !value)}>
+                <Bell size={18} />
+                {globalNotifications.length > 0 && <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white ring-2 ring-white dark:ring-slate-950">{globalNotifications.length > 9 ? "9+" : globalNotifications.length}</span>}
+              </button>
+              {globalNotificationOpen && <NotificationPanel notifications={globalNotifications} onClose={() => setGlobalNotificationOpen(false)} onOpen={(item) => { setGlobalNotificationOpen(false); onOpenNotification(item); }} />}
+            </div>
+            {profile?.isSuperAdmin && <button className="btn-secondary h-10 px-3" onClick={onOpenUserManagement}><Users size={16} />用戶管理</button>}
             {memberCode && <span className="hidden rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-800 shadow-subtle dark:border-sky-900 dark:bg-sky-950 dark:text-sky-100 sm:inline-flex">會員編號 {memberCode}</span>}
             {sessionEmail && <span className="hidden rounded-md border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-600 shadow-subtle dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 sm:inline-flex">{sessionEmail}</span>}
             <button className="btn-secondary h-10 w-10 px-0" title="切換深色模式" onClick={onToggleDarkMode}>
@@ -2150,6 +2286,19 @@ function LedgerHomePage({
                 </div>
               </div>
             </section>
+
+            {profile?.isSuperAdmin && (
+              <section className="rounded-2xl border border-sky-200 bg-sky-50/70 p-4 shadow-card dark:border-sky-900 dark:bg-sky-950/30">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="font-bold text-slate-950 dark:text-slate-50">平台用戶管理</p>
+                    <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300">管理帳號狀態、角色與存取權限，不屬於任何單一本帳本。</p>
+                  </div>
+                  <Users className="shrink-0 text-sky-600 dark:text-sky-300" size={24} />
+                </div>
+                <button className="btn-secondary mt-4 w-full" onClick={onOpenUserManagement}><Users size={16} />開啟用戶管理</button>
+              </section>
+            )}
 
             <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-card dark:border-slate-800 dark:bg-slate-950">
               <p className="font-bold text-slate-950 dark:text-slate-50">帳本排行</p>
@@ -2437,7 +2586,7 @@ function PageExperience({
           <PageMiniStat label="提醒" value={`${notifications}`} accent={notifications > 0 ? "#dc2626" : "#64748b"} />
         </div>
       </div>
-      {!["settings", "users", "calculators", "investments", "financial_plan"].includes(page) && (
+      {!["settings", "users", "calculators", "investments", "financial_plan", "notification_settings"].includes(page) && (
         <PeriodSelector
           mode={period.mode}
           month={month}
@@ -2708,15 +2857,18 @@ function AuthPreviewRow({ label, value, color }: { label: string; value: string;
   );
 }
 
-function NotificationPanel({ notifications, onClose, onOpen }: { notifications: FinanceNotification[]; onClose: () => void; onOpen: (notification: FinanceNotification) => void }) {
+function NotificationPanel({ notifications, onClose, onOpen, onManage }: { notifications: FinanceNotification[]; onClose: () => void; onOpen: (notification: FinanceNotification) => void; onManage?: () => void }) {
   return (
     <div className="absolute right-0 top-12 z-40 w-[calc(100vw-2rem)] max-w-md rounded-lg border border-slate-200 bg-white p-3 shadow-lg dark:border-slate-800 dark:bg-slate-950">
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="font-semibold text-slate-950 dark:text-slate-50">通知中心</p>
-          <p className="text-xs text-slate-500 dark:text-slate-400">信用卡、貸款、分期與固定帳單提醒</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">信用卡、貸款、分期、定存與固定帳單提醒</p>
         </div>
-        <button className="btn-secondary px-2 py-1" onClick={onClose}>關閉</button>
+        <div className="flex items-center gap-2">
+          {onManage && <button className="btn-secondary px-2 py-1" onClick={onManage}>設定</button>}
+          <button className="btn-secondary px-2 py-1" onClick={onClose}>關閉</button>
+        </div>
       </div>
       <div className="mt-3 max-h-[420px] space-y-2 overflow-y-auto">
         {notifications.length === 0 ? (
@@ -2737,11 +2889,105 @@ function NotificationPanel({ notifications, onClose, onOpen }: { notifications: 
                 <span>{formatDate(item.date)}</span>
                 {item.amountCents !== undefined && <span>{formatMoney(item.amountCents)}</span>}
                 <span>{getNotificationSourceLabel(item.source)}</span>
+                {item.ledgerName && <span>{item.ledgerName}</span>}
+                <span>{item.deliveryMode === "repeat" ? "每 " + item.repeatHours + " 小時提醒" : "單次提醒"}</span>
               </div>
             </button>
           ))
         )}
       </div>
+    </div>
+  );
+}
+
+const notificationPreferenceLabels: Record<NotificationPreference["type"], { label: string; detail: string }> = {
+  credit_card: { label: "信用卡", detail: "結帳日與繳款截止" },
+  installment: { label: "信用卡分期", detail: "分期應繳與到期日" },
+  loan: { label: "貸款", detail: "每期還款日" },
+  reminder: { label: "固定帳單", detail: "房租、水電、保費與訂閱" },
+  deposit: { label: "定期存款", detail: "到期日與到期金額" },
+  insurance: { label: "保險", detail: "保費繳款與續保日" }
+};
+
+function NotificationSettingsPage({ preferences, onSave, notify }: { preferences: NotificationPreference[]; onSave: (preferences: NotificationPreference[]) => Promise<void>; notify: (type: ToastType, message: string) => void }) {
+  const preferenceFor = (type: NotificationPreference["type"]) => preferences.find((item) => item.type === type);
+  const enabledCount = (Object.keys(notificationPreferenceLabels) as NotificationPreference["type"][]).filter((type) => preferenceFor(type)?.isEnabled ?? true).length;
+
+  function save(formData: FormData) {
+    const now = new Date().toISOString();
+    const next = (Object.keys(notificationPreferenceLabels) as NotificationPreference["type"][]).map((type) => {
+      const existing = preferenceFor(type);
+      const remindDaysBefore = Number(formData.get("days-" + type));
+      const repeatHours = Number(formData.get("hours-" + type));
+      if (!Number.isInteger(remindDaysBefore) || remindDaysBefore < 0 || remindDaysBefore > 90) {
+        notify("error", "提前提醒天數需介於 0 到 90 天");
+        return null;
+      }
+      if (!Number.isInteger(repeatHours) || repeatHours < 1 || repeatHours > 168) {
+        notify("error", "持續提醒間隔需介於 1 到 168 小時");
+        return null;
+      }
+      return {
+        id: existing?.id ?? crypto.randomUUID(),
+        userId: existing?.userId ?? localUserId,
+        type,
+        isEnabled: formData.get("enabled-" + type) === "on",
+        remindDaysBefore,
+        deliveryMode: String(formData.get("mode-" + type)) as NotificationPreference["deliveryMode"],
+        repeatHours,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now
+      };
+    });
+    if (next.some((item) => item === null)) return;
+    void onSave(next as NotificationPreference[]);
+  }
+
+  return (
+    <div className="space-y-4">
+      <FeatureHero
+        icon={<Bell size={18} />}
+        label="通知設定"
+        title="為這本帳本設定提醒節奏"
+        value={String(enabledCount) + " 類"}
+        tone="amber"
+        metrics={[
+          { label: "已啟用類別", value: String(enabledCount), accent: "border-emerald-300" },
+          { label: "提醒模式", value: "單次或持續", accent: "border-amber-300" },
+          { label: "帳本範圍", value: "目前帳本", accent: "border-sky-300" }
+        ]}
+      >
+        <div className="space-y-3 text-sm text-slate-200">
+          <p>關閉某一類後，該類事項不會出現在此帳本的通知中心。</p>
+          <p>持續提醒會在應用程式開啟期間，依設定間隔再次顯示；單次提醒只保留一則提示。</p>
+        </div>
+      </FeatureHero>
+
+      <form className="panel" onSubmit={handleFormSubmit(save)}>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div><h2 className="text-lg font-semibold">提醒類別</h2><p className="text-sm text-slate-500 dark:text-slate-400">每個帳本都有獨立設定，不會影響其他帳本。</p></div>
+          <button className="btn-primary" type="submit"><CheckCircle2 size={16} />儲存通知設定</button>
+        </div>
+        <div className="mt-4 grid gap-3 xl:grid-cols-2">
+          {(Object.keys(notificationPreferenceLabels) as NotificationPreference["type"][]).map((type) => {
+            const existing = preferenceFor(type);
+            const label = notificationPreferenceLabels[type];
+            return (
+              <section key={type} className="rounded-lg border border-slate-200 bg-white/80 p-4 dark:border-slate-800 dark:bg-slate-950/70">
+                <div className="flex items-start justify-between gap-3">
+                  <div><h3 className="font-semibold text-slate-950 dark:text-slate-50">{label.label}</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{label.detail}</p></div>
+                  <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200"><span>開啟</span><input name={"enabled-" + type} type="checkbox" defaultChecked={existing?.isEnabled ?? true} /></label>
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <Field label="提前天數"><input className="input" name={"days-" + type} type="number" min={0} max={90} defaultValue={existing?.remindDaysBefore ?? (type === "deposit" || type === "insurance" ? 14 : 7)} /></Field>
+                  <Field label="提醒方式"><select className="input" name={"mode-" + type} defaultValue={existing?.deliveryMode ?? "repeat"}><option value="single">單次提醒</option><option value="repeat">持續提醒</option></select></Field>
+                  <Field label="持續間隔"><select className="input" name={"hours-" + type} defaultValue={existing?.repeatHours ?? 12}><option value={6}>每 6 小時</option><option value={12}>每 12 小時</option><option value={24}>每 24 小時</option><option value={48}>每 48 小時</option></select></Field>
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      </form>
     </div>
   );
 }
@@ -2752,17 +2998,44 @@ function buildFinanceNotifications({
   creditCards,
   installments,
   loans,
-  insurancePolicies
+  deposits,
+  insurancePolicies,
+  preferences = [],
+  ledgerId,
+  ledgerName
 }: {
   month: string;
   reminders: FinancialReminder[];
   creditCards: CreditCard[];
   installments: CreditCardInstallment[];
   loans: Loan[];
+  deposits: Deposit[];
   insurancePolicies: InsurancePolicy[];
+  preferences?: NotificationPreference[];
+  ledgerId?: string;
+  ledgerName?: string;
 }): FinanceNotification[] {
   const items: FinanceNotification[] = [];
   const todayIso = getTaipeiTodayIso();
+  const settingFor = (source: FinanceNotification["source"]) => preferences.find((item) => item.type === source) ?? {
+    isEnabled: true,
+    remindDaysBefore: source === "insurance" || source === "deposit" ? 14 : 7,
+    deliveryMode: "repeat" as const,
+    repeatHours: 12
+  };
+  const push = (item: Omit<FinanceNotification, "status" | "ledgerId" | "ledgerName" | "deliveryMode" | "repeatHours">, remindDaysBefore?: number) => {
+    const savedSetting = preferences.find((preference) => preference.type === item.source);
+    const setting = savedSetting ?? settingFor(item.source);
+    if (!setting.isEnabled) return;
+    items.push({
+      ...item,
+      status: getNotificationStatus(item.date, todayIso, savedSetting?.remindDaysBefore ?? remindDaysBefore ?? setting.remindDaysBefore),
+      ledgerId,
+      ledgerName,
+      deliveryMode: setting.deliveryMode,
+      repeatHours: setting.repeatHours
+    });
+  };
 
   creditCards
     .filter((card) => card.isActive)
@@ -2770,25 +3043,23 @@ function buildFinanceNotifications({
       const statementDate = createMonthlyDate(month, card.statementDay);
       const dueDate = createMonthlyDate(month, card.paymentDueDay);
       if (card.unbilledAmountCents > 0) {
-        items.push({
-          id: `card-statement-${card.id}-${statementDate}`,
-          title: `${card.name} 結帳日`,
-          detail: `${card.issuer} **** ${card.last4}，本期帳款 ${formatMoney(card.currentStatementAmountCents)}，未出帳 ${formatMoney(card.unbilledAmountCents)}`,
+        push({
+          id: "card-statement-" + card.id + "-" + statementDate,
+          title: card.name + " 結帳日",
+          detail: card.issuer + " **** " + card.last4 + "，本期帳款 " + formatMoney(card.currentStatementAmountCents) + "，未出帳 " + formatMoney(card.unbilledAmountCents),
           date: statementDate,
           amountCents: card.currentStatementAmountCents + card.unbilledAmountCents,
-          source: "credit_card",
-          status: getNotificationStatus(statementDate, todayIso, 5)
+          source: "credit_card"
         });
       }
       if (card.currentStatementAmountCents > 0) {
-        items.push({
-          id: `card-due-${card.id}-${dueDate}`,
-          title: `${card.name} 繳款截止`,
-          detail: `本期帳單 ${formatMoney(card.currentStatementAmountCents)}，最低應繳 ${formatMoney(card.minimumPaymentCents)}。最低應繳僅作提醒，不建議作為長期策略。`,
+        push({
+          id: "card-due-" + card.id + "-" + dueDate,
+          title: card.name + " 繳款截止",
+          detail: "本期帳單 " + formatMoney(card.currentStatementAmountCents) + "，最低應繳 " + formatMoney(card.minimumPaymentCents) + "。最低應繳僅作提醒，不建議作為長期策略。",
           date: dueDate,
           amountCents: card.currentStatementAmountCents,
-          source: "credit_card",
-          status: getNotificationStatus(dueDate, todayIso, 7)
+          source: "credit_card"
         });
       }
     });
@@ -2799,14 +3070,13 @@ function buildFinanceNotifications({
     .forEach((installment) => {
       const date = installment.nextDueDate as string;
       const card = creditCards.find((candidate) => candidate.id === installment.creditCardId);
-      items.push({
-        id: `installment-${installment.id}-${date}`,
-        title: `${installment.merchant || card?.name || "信用卡"} 分期應繳`,
-        detail: `${card?.name ?? "信用卡"}，已還 ${installment.paidPeriods}/${installment.periods} 期，剩餘 ${formatMoney(installment.remainingAmountCents)}，年利率 ${formatPercent(installment.annualRate)}`,
+      push({
+        id: "installment-" + installment.id + "-" + date,
+        title: (installment.merchant || card?.name || "信用卡") + " 分期應繳",
+        detail: (card?.name ?? "信用卡") + "，已還 " + installment.paidPeriods + "/" + installment.periods + " 期，剩餘 " + formatMoney(installment.remainingAmountCents) + "，年利率 " + formatPercent(installment.annualRate),
         date,
         amountCents: installment.monthlyPaymentCents,
-        source: "installment",
-        status: getNotificationStatus(date, todayIso, 7)
+        source: "installment"
       });
     });
 
@@ -2815,14 +3085,13 @@ function buildFinanceNotifications({
     .filter((loan) => loan.remainingPrincipalCents > 0)
     .forEach((loan) => {
       const date = createMonthlyDate(month, loan.monthlyPaymentDay);
-      items.push({
-        id: `loan-${loan.id}-${date}`,
-        title: `${loan.name} 貸款還款`,
-        detail: `${loan.institution || "貸款"}，剩餘本金 ${formatMoney(loan.remainingPrincipalCents)}，已繳 ${loan.paidPeriods}/${loan.termMonths} 期`,
+      push({
+        id: "loan-" + loan.id + "-" + date,
+        title: loan.name + " 貸款還款",
+        detail: (loan.institution || "貸款") + "，剩餘本金 " + formatMoney(loan.remainingPrincipalCents) + "，已繳 " + loan.paidPeriods + "/" + loan.termMonths + " 期",
         date,
         amountCents: loan.paymentPerPeriodCents,
-        source: "loan",
-        status: getNotificationStatus(date, todayIso, 7)
+        source: "loan"
       });
     });
 
@@ -2832,50 +3101,58 @@ function buildFinanceNotifications({
       const date = createMonthlyDate(month, reminder.debitDay);
       if (reminder.startDate > date) return;
       if (reminder.endDate && reminder.endDate < date) return;
-      items.push({
-        id: `reminder-${reminder.id}-${date}`,
+      push({
+        id: "reminder-" + reminder.id + "-" + date,
         title: reminder.name,
-        detail: `${reminder.frequency} 固定帳單${reminder.autoCreateTransaction ? "，可自動建立交易" : ""}`,
+        detail: reminder.frequency + " 固定帳單" + (reminder.autoCreateTransaction ? "，可自動建立交易" : ""),
         date,
         amountCents: reminder.amountCents,
-        source: "reminder",
-        status: getNotificationStatus(date, todayIso, reminder.remindDaysBefore)
-      });
+        source: "reminder"
+      }, reminder.remindDaysBefore);
     });
 
   insurancePolicies
     .filter((policy) => policy.status === "active")
     .forEach((policy) => {
       const premiumDate = createMonthlyDate(month, policy.paymentDay);
-      items.push({
-        id: `insurance-premium-${policy.id}-${premiumDate}`,
-        title: `${policy.name} 保費繳款`,
-        detail: `${policy.insurer} · ${insuranceTypeLabels[policy.type]}，年保費 ${formatMoney(policy.annualPremiumCents)}，保障額 ${formatMoney(policy.coverageAmountCents)}`,
+      push({
+        id: "insurance-premium-" + policy.id + "-" + premiumDate,
+        title: policy.name + " 保費繳款",
+        detail: policy.insurer + " · " + insuranceTypeLabels[policy.type] + "，年保費 " + formatMoney(policy.annualPremiumCents) + "，保障額 " + formatMoney(policy.coverageAmountCents),
         date: premiumDate,
         amountCents: Math.round(policy.annualPremiumCents / 12),
-        source: "insurance",
-        status: getNotificationStatus(premiumDate, todayIso, 7)
+        source: "insurance"
       });
       if (policy.renewalDate.startsWith(month)) {
-        items.push({
-          id: `insurance-renewal-${policy.id}-${policy.renewalDate}`,
-          title: `${policy.name} 續保日`,
-          detail: `${policy.insurer} · ${insuranceTypeLabels[policy.type]}，已理賠 ${formatMoney(policy.paidClaimAmountCents)}，待理賠 ${formatMoney(policy.pendingClaimAmountCents)}`,
+        push({
+          id: "insurance-renewal-" + policy.id + "-" + policy.renewalDate,
+          title: policy.name + " 續保日",
+          detail: policy.insurer + " · " + insuranceTypeLabels[policy.type] + "，已理賠 " + formatMoney(policy.paidClaimAmountCents) + "，待理賠 " + formatMoney(policy.pendingClaimAmountCents),
           date: policy.renewalDate,
           amountCents: policy.annualPremiumCents,
-          source: "insurance",
-          status: getNotificationStatus(policy.renewalDate, todayIso, 14)
+          source: "insurance"
         });
       }
     });
 
-  const statusWeight: Record<FinanceNotification["status"], number> = {
-    overdue: 0,
-    due_today: 1,
-    upcoming: 2,
-    scheduled: 3
-  };
-  return items.sort((a, b) => statusWeight[a.status] - statusWeight[b.status] || a.date.localeCompare(b.date));
+  deposits
+    .filter((deposit) => deposit.isActive && deposit.maturityDate.startsWith(month))
+    .forEach((deposit) => {
+      push({
+        id: "deposit-maturity-" + deposit.id + "-" + deposit.maturityDate,
+        title: deposit.name + " 到期日",
+        detail: (deposit.institution || "存款帳戶") + "，預估到期金額 " + formatMoney(deposit.estimatedMaturityAmountCents),
+        date: deposit.maturityDate,
+        amountCents: deposit.estimatedMaturityAmountCents,
+        source: "deposit"
+      });
+    });
+
+  return items.sort((a, b) => getNotificationSortWeight(a.status) - getNotificationSortWeight(b.status) || a.date.localeCompare(b.date));
+}
+
+function getNotificationSortWeight(status: FinanceNotification["status"]) {
+  return { overdue: 0, due_today: 1, upcoming: 2, scheduled: 3 }[status];
 }
 
 function createMonthlyDate(month: string, day: number) {
@@ -2960,6 +3237,7 @@ function getNotificationSourceLabel(source: FinanceNotification["source"]) {
     loan: "貸款",
     installment: "分期",
     reminder: "固定帳單",
+    deposit: "定期存款",
     insurance: "保險"
   };
   return labels[source];

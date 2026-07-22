@@ -180,6 +180,17 @@ export interface FinancialReminder extends BaseEntity {
   status: ReminderStatus;
 }
 
+export type NotificationPreferenceType = "credit_card" | "installment" | "loan" | "reminder" | "deposit" | "insurance";
+export type NotificationDeliveryMode = "single" | "repeat";
+
+export interface NotificationPreference extends BaseEntity {
+  type: NotificationPreferenceType;
+  isEnabled: boolean;
+  remindDaysBefore: number;
+  deliveryMode: NotificationDeliveryMode;
+  repeatHours: number;
+}
+
 export interface LedgerBook extends BaseEntity {
   ownerUserId: string;
   name: string;

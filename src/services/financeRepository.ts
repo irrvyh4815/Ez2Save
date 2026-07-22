@@ -9,6 +9,7 @@ import type {
   FinancialAccount,
   FinancialPlan,
   FinancialReminder,
+  NotificationPreference,
   InsurancePolicy,
   InvestmentCategory,
   LedgerBook,
@@ -30,6 +31,7 @@ export interface FinanceData {
   insurancePolicies: InsurancePolicy[];
   investmentCategories: InvestmentCategory[];
   financialPlans: FinancialPlan[];
+  notificationPreferences: NotificationPreference[];
   categories: string[];
 }
 
@@ -37,6 +39,17 @@ export interface LoadFinanceResult {
   data: FinanceData;
   session: Session | null;
   profile: UserProfile | null;
+}
+
+export interface LedgerNotificationData {
+  ledgerId: string;
+  creditCards: CreditCard[];
+  installments: CreditCardInstallment[];
+  loans: Loan[];
+  deposits: Deposit[];
+  reminders: FinancialReminder[];
+  insurancePolicies: InsurancePolicy[];
+  preferences: NotificationPreference[];
 }
 
 export interface SupabaseConnectionCheck {
@@ -58,6 +71,7 @@ export const emptyFinanceData: FinanceData = {
   insurancePolicies: [],
   investmentCategories: [],
   financialPlans: [],
+  notificationPreferences: [],
   categories: []
 };
 
@@ -245,7 +259,8 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
     categories,
     insurancePolicies,
     investmentCategories,
-    financialPlans
+    financialPlans,
+    notificationPreferences
   ] = await Promise.all([
     scoped(supabase
       .from("financial_accounts")
@@ -310,7 +325,11 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
       .select("id,user_id,name,goal_type,horizon,target_amount_cents,current_amount_cents,monthly_contribution_cents,target_date,expected_annual_return,risk_profile,priority,note,status,created_at,updated_at"))
       .is("deleted_at", null)
       .order("priority", { ascending: true })
-      .order("target_date", { ascending: true })
+      .order("target_date", { ascending: true }),
+    scoped(supabase
+      .from("ledger_notification_preferences")
+      .select("id,user_id,notification_type,is_enabled,remind_days_before,delivery_mode,repeat_hours,created_at,updated_at"))
+      .order("notification_type", { ascending: true })
   ]);
 
   const responses = [accounts, transactions, creditCards, creditCardInstallments, loans, deposits, budgets, reminders, categories];
@@ -322,6 +341,8 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
   if (investmentCategories.error && !investmentsTableUnavailable) throw new Error("投資資料讀取失敗");
   const plansTableUnavailable = financialPlans.error?.code === "42P01" || financialPlans.error?.code === "PGRST205";
   if (financialPlans.error && !plansTableUnavailable) throw new Error("財務計劃讀取失敗");
+  const preferencesTableUnavailable = notificationPreferences.error?.code === "42P01" || notificationPreferences.error?.code === "PGRST205";
+  if (notificationPreferences.error && !preferencesTableUnavailable) throw new Error("通知設定讀取失敗");
 
   return {
     session,
@@ -338,6 +359,7 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
       insurancePolicies: (insurancePolicies.data ?? []).map(mapInsurancePolicy),
       investmentCategories: (investmentCategories.data ?? []).map(mapInvestmentCategory),
       financialPlans: (financialPlans.data ?? []).map(mapFinancialPlan),
+      notificationPreferences: (notificationPreferences.data ?? []).map(mapNotificationPreference),
       categories: [...new Set((categories.data ?? []).map((row) => String(row.name)).filter(Boolean))]
     }
   };
@@ -353,6 +375,53 @@ export async function loadLedgerBooks(): Promise<LedgerBook[]> {
     .order("created_at", { ascending: true });
   if (error) throw new Error("帳本資料讀取失敗，請確認帳本 migration 與 RLS 設定");
   return (data ?? []).map(mapLedgerBook);
+}
+
+export async function loadAllLedgerNotificationData(): Promise<LedgerNotificationData[]> {
+  if (!supabase || !(await getCurrentSession())) return [];
+  const [creditCards, installments, loans, deposits, reminders, insurancePolicies, preferences] = await Promise.all([
+    supabase.from("credit_cards").select("ledger_id,id,user_id,name,issuer,last4,credit_limit_cents,statement_day,payment_due_day,unbilled_amount_cents,current_statement_amount_cents,minimum_payment_cents,installment_balance_cents,auto_pay_account_id,annual_fee_cents,annual_fee_waiver,note,is_active,recommended_utilization_rate,created_at,updated_at").is("deleted_at", null).eq("is_active", true),
+    supabase.from("credit_card_installments").select("ledger_id,id,user_id,credit_card_id,transaction_id,merchant,total_amount_cents,annual_rate,periods,paid_periods,monthly_payment_cents,paid_amount_cents,remaining_amount_cents,started_on,next_due_date,status,note,created_at,updated_at").is("deleted_at", null).eq("status", "active"),
+    supabase.from("loans").select("ledger_id,id,user_id,name,loan_type,institution,original_principal_cents,remaining_principal_cents,annual_rate,term_months,paid_periods,monthly_payment_day,start_date,expected_payoff_date,repayment_method,payment_per_period_cents,prepayment_penalty_note,note,status,created_at,updated_at").is("deleted_at", null).eq("status", "active"),
+    supabase.from("deposits").select("ledger_id,id,user_id,name,institution,principal_cents,annual_rate,start_date,maturity_date,term_months,interest_type,interest_payout,auto_renew,maturity_instruction,estimated_interest_cents,estimated_maturity_amount_cents,include_in_available_cash,note,is_active,created_at,updated_at").is("deleted_at", null).eq("is_active", true),
+    supabase.from("financial_reminders").select("ledger_id,id,user_id,name,amount_cents,frequency,debit_day,account_id,remind_days_before,auto_create_transaction,is_necessary,start_date,end_date,status,created_at,updated_at").is("deleted_at", null).neq("status", "done"),
+    supabase.from("insurance_policies").select("ledger_id,id,user_id,name,policy_type,insurer,policy_number_last4,insured_person,annual_premium_cents,coverage_amount_cents,paid_claim_amount_cents,pending_claim_amount_cents,payment_day,renewal_date,beneficiary,note,status,created_at,updated_at").is("deleted_at", null).eq("status", "active"),
+    supabase.from("ledger_notification_preferences").select("ledger_id,id,user_id,notification_type,is_enabled,remind_days_before,delivery_mode,repeat_hours,created_at,updated_at")
+  ]);
+  const required = [creditCards, installments, loans, deposits, reminders];
+  if (required.some((result) => result.error)) throw new Error("跨帳本通知讀取失敗");
+  const insuranceUnavailable = insurancePolicies.error?.code === "42P01" || insurancePolicies.error?.code === "PGRST205";
+  if (insurancePolicies.error && !insuranceUnavailable) throw new Error("跨帳本保險通知讀取失敗");
+  const preferencesUnavailable = preferences.error?.code === "42P01" || preferences.error?.code === "PGRST205";
+  if (preferences.error && !preferencesUnavailable) throw new Error("跨帳本通知設定讀取失敗");
+
+  const groups = new Map<string, LedgerNotificationData>();
+  const ensureLedger = (ledgerId: string) => {
+    const existing = groups.get(ledgerId);
+    if (existing) return existing;
+    const created: LedgerNotificationData = { ledgerId, creditCards: [], installments: [], loans: [], deposits: [], reminders: [], insurancePolicies: [], preferences: [] };
+    groups.set(ledgerId, created);
+    return created;
+  };
+  const append = (rows: Record<string, unknown>[] | null, type: "creditCards" | "installments" | "loans" | "deposits" | "reminders" | "insurancePolicies", map: (row: Record<string, unknown>) => unknown) => {
+    (rows ?? []).forEach((row) => {
+      const ledgerId = String(row.ledger_id ?? "");
+      if (!ledgerId) return;
+      const target = ensureLedger(ledgerId)[type] as unknown[];
+      target.push(map(row));
+    });
+  };
+  append(creditCards.data as Record<string, unknown>[] | null, "creditCards", mapCreditCard);
+  append(installments.data as Record<string, unknown>[] | null, "installments", mapCreditCardInstallment);
+  append(loans.data as Record<string, unknown>[] | null, "loans", mapLoan);
+  append(deposits.data as Record<string, unknown>[] | null, "deposits", mapDeposit);
+  append(reminders.data as Record<string, unknown>[] | null, "reminders", mapReminder);
+  append(insurancePolicies.data as Record<string, unknown>[] | null, "insurancePolicies", mapInsurancePolicy);
+  ((preferences.data ?? []) as Record<string, unknown>[]).forEach((row) => {
+    const ledgerId = String(row.ledger_id ?? "");
+    if (ledgerId) ensureLedger(ledgerId).preferences.push(mapNotificationPreference(row));
+  });
+  return [...groups.values()];
 }
 
 export async function loadLedgerInvitations(): Promise<LedgerInvitation[]> {
@@ -870,6 +939,30 @@ export async function deleteFinancialPlan(id: string): Promise<void> {
   if (error) throw new Error("財務計劃刪除失敗");
 }
 
+export async function saveNotificationPreferences(preferences: NotificationPreference[], ledgerId?: string): Promise<NotificationPreference[]> {
+  if (!supabase) return preferences;
+  const session = await getCurrentSession();
+  if (!session || !ledgerId) throw new Error("請先進入已儲存的帳本再更新通知設定");
+  const { data, error } = await supabase
+    .from("ledger_notification_preferences")
+    .upsert(
+      preferences.map((preference) => ({
+        user_id: session.user.id,
+        ledger_id: ledgerId,
+        notification_type: preference.type,
+        is_enabled: preference.isEnabled,
+        remind_days_before: preference.remindDaysBefore,
+        delivery_mode: preference.deliveryMode,
+        repeat_hours: preference.repeatHours
+      })),
+      { onConflict: "ledger_id,user_id,notification_type" }
+    )
+    .select("id,user_id,notification_type,is_enabled,remind_days_before,delivery_mode,repeat_hours,created_at,updated_at");
+  if (error?.code === "42P01" || error?.code === "PGRST205") throw new Error("通知設定功能尚未完成雲端初始化");
+  if (error) throw new Error("通知設定儲存失敗");
+  return (data ?? []).map(mapNotificationPreference);
+}
+
 export async function createTransactionWithCategory(transaction: Transaction, ledgerId?: string): Promise<Transaction> {
   if (!supabase) return transaction;
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
@@ -1199,6 +1292,20 @@ function mapFinancialPlan(row: Record<string, unknown>): FinancialPlan {
     priority: toNumber(row.priority),
     note: nullableString(row.note),
     status: String(row.status) as FinancialPlan["status"],
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
+  };
+}
+
+function mapNotificationPreference(row: Record<string, unknown>): NotificationPreference {
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    type: String(row.notification_type) as NotificationPreference["type"],
+    isEnabled: Boolean(row.is_enabled),
+    remindDaysBefore: toNumber(row.remind_days_before),
+    deliveryMode: String(row.delivery_mode) as NotificationPreference["deliveryMode"],
+    repeatHours: toNumber(row.repeat_hours),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)
   };

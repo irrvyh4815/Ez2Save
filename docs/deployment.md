@@ -30,6 +30,7 @@ supabase db push
 - no service role key in frontend
 - `202607170005_admin_user_management.sql` 已套用
 - `202607220009_financial_plans.sql` 已套用
+- `202607220010_ledger_notification_preferences.sql` 已套用
 
 ## Vercel
 

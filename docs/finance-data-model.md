@@ -33,6 +33,7 @@
 - `insurance_policies`
 - `investment_categories`
 - `financial_plans`
+- `ledger_notification_preferences`
 - `budgets`
 - `financial_reminders`
 - `monthly_financial_summaries`
@@ -121,3 +122,14 @@ Apply `supabase/migrations/202607220008_investment_categories.sql` to store inve
 - risk profile, priority, and progress status
 
 Apply `supabase/migrations/202607220009_financial_plans.sql` after the ledger and access-hardening migrations. It uses the same ledger-member RLS policies and does not modify existing financial records.
+
+## Ledger Notification Preferences
+
+`ledger_notification_preferences` stores notification choices independently for each ledger. It covers credit cards, installments, loans, fixed bills, deposits, and insurance, including:
+
+- enabled or disabled status
+- days before a due or maturity date
+- single delivery or repeating delivery
+- repeat interval in hours
+
+Apply `supabase/migrations/202607220010_ledger_notification_preferences.sql` after the ledger and access-hardening migrations. It only adds a new preference table and uses `can_read_ledger` and `can_write_ledger` RLS policies, so one ledger cannot read or change another ledger's notification settings.
