@@ -216,6 +216,16 @@ export interface InsurancePolicy extends BaseEntity {
   status: "active" | "paused" | "expired";
 }
 
+export interface InvestmentCategory extends BaseEntity {
+  name: string;
+  kind: "tw_stock" | "us_stock" | "etf" | "mutual_fund" | "bond_fund" | "money_market" | "other";
+  market: "TW" | "US" | "GLOBAL";
+  targetAllocation: number;
+  risk: "low" | "medium" | "high";
+  note?: string;
+  isActive: boolean;
+}
+
 export interface DashboardSummary {
   totalAssetsCents: number;
   totalLiabilitiesCents: number;

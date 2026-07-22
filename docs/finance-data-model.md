@@ -31,6 +31,7 @@
 - `credit_card_payments`
 - `deposits`
 - `insurance_policies`
+- `investment_categories`
 - `budgets`
 - `financial_reminders`
 - `monthly_financial_summaries`
@@ -107,3 +108,5 @@ Apply `supabase/migrations/202607140003_auth_profiles_admin.sql` to enable:
 - `status`
 
 Apply `supabase/migrations/202607130002_credit_card_installment_debt_details.sql` before deploying the installment debt UI.
+
+Apply `supabase/migrations/202607220008_investment_categories.sql` to store investment categories per ledger with the same member-based access rules.

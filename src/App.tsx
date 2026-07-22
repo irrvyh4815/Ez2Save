@@ -64,6 +64,7 @@ import {
   createCreditCard,
   createCreditCardInstallment,
   createInsurancePolicy,
+  createInvestmentCategory,
   createLoan,
   createTransactionWithCategory,
   deleteBudget,
@@ -72,6 +73,7 @@ import {
   deleteFinancialAccount,
   deleteFinancialReminder,
   deleteInsurancePolicy,
+  deleteInvestmentCategory,
   deleteLoan,
   deleteTransaction,
   emptyFinanceData,
@@ -102,6 +104,7 @@ import type {
   FinancialAccount,
   FinancialReminder,
   InsurancePolicy,
+  InvestmentCategory,
   LedgerBook as PersistedLedgerBook,
   LedgerInvitation as PersistedLedgerInvitation,
   Loan,
@@ -180,6 +183,7 @@ type FinanceSnapshot = {
   reminders: FinancialReminder[];
   rememberedCategories: string[];
   insurancePolicies: InsurancePolicy[];
+  investmentCategories: InvestmentCategory[];
 };
 
 const navGroups: { title: "理財" | "投資" | "其他" | "設定"; items: { page: Page; label: string; icon: typeof BarChart3 }[] }[] = [
@@ -349,16 +353,6 @@ const transactionTypeLabels: Record<Transaction["type"], string> = {
   deposit_transfer: "存款轉入"
 };
 
-type InvestmentCategory = {
-  id: string;
-  name: string;
-  kind: "tw_stock" | "us_stock" | "etf" | "mutual_fund" | "bond_fund" | "money_market" | "other";
-  market: "TW" | "US" | "GLOBAL";
-  targetAllocation: number;
-  risk: "low" | "medium" | "high";
-  note: string;
-};
-
 const investmentKindLabels: Record<InvestmentCategory["kind"], string> = {
   tw_stock: "台股",
   us_stock: "美股",
@@ -488,6 +482,7 @@ export default function App() {
   const [budgets, setBudgets] = useState(emptyFinanceData.budgets);
   const [reminders, setReminders] = useState(emptyFinanceData.reminders);
   const [insurancePolicies, setInsurancePolicies] = useState<InsurancePolicy[]>([]);
+  const [investmentCategories, setInvestmentCategories] = useState<InvestmentCategory[]>([]);
   const [rememberedCategories, setRememberedCategories] = useState<string[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
   const [dataNotice, setDataNotice] = useState("");
@@ -531,7 +526,8 @@ export default function App() {
       budgets,
       reminders,
       rememberedCategories,
-      insurancePolicies
+      insurancePolicies,
+      investmentCategories
     };
   }
 
@@ -546,6 +542,7 @@ export default function App() {
     setReminders(snapshot.reminders);
     setRememberedCategories(snapshot.rememberedCategories);
     setInsurancePolicies(snapshot.insurancePolicies);
+    setInvestmentCategories(snapshot.investmentCategories);
     setAiReport(null);
     setCsvPreview([]);
   }
@@ -598,7 +595,8 @@ export default function App() {
         budgets: result.data.budgets,
         reminders: result.data.reminders,
         rememberedCategories: result.data.categories,
-        insurancePolicies: result.data.insurancePolicies
+        insurancePolicies: result.data.insurancePolicies,
+        investmentCategories: result.data.investmentCategories
       };
       setLedgerBooks(nextLedgerBooks);
       setLedgerInvitations(nextInvitations);
@@ -833,7 +831,8 @@ export default function App() {
         budgets: result.data.budgets,
         reminders: result.data.reminders,
         rememberedCategories: result.data.categories,
-        insurancePolicies: result.data.insurancePolicies
+        insurancePolicies: result.data.insurancePolicies,
+        investmentCategories: result.data.investmentCategories
       };
       applySnapshot(nextSnapshot);
       setLedgerSnapshots((current) => ({ ...current, [ledgerId]: nextSnapshot }));
@@ -1303,6 +1302,27 @@ export default function App() {
     }
   }
 
+  async function addInvestmentCategory(category: InvestmentCategory) {
+    try {
+      const saved = await createInvestmentCategory(category, activePersistedLedgerId);
+      setInvestmentCategories((current) => [saved, ...current]);
+      notify("success", "投資分類已儲存");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "投資分類儲存失敗");
+    }
+  }
+
+  async function removeInvestmentCategory(category: InvestmentCategory) {
+    if (!window.confirm(`確定刪除「${category.name}」投資分類？`)) return;
+    try {
+      await deleteInvestmentCategory(category.id);
+      setInvestmentCategories((current) => current.filter((item) => item.id !== category.id));
+      notify("success", "投資分類已刪除");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "投資分類刪除失敗");
+    }
+  }
+
   async function softDeleteTransaction(id: string) {
     if (!window.confirm("確定要刪除此交易？此操作需要二次確認。")) return;
     const transaction = transactions.find((item) => item.id === id);
@@ -1580,7 +1600,7 @@ export default function App() {
             {page === "loans" && <LoansPage loans={loans} onAdd={addLoan} onUpdate={saveLoan} onDelete={removeLoan} notify={notify} />}
             {page === "deposits" && <DepositsPage deposits={deposits} onAdd={addDeposit} onDelete={removeDeposit} notify={notify} />}
             {page === "insurance" && <InsurancePage policies={insurancePolicies} onAdd={addInsurancePolicy} onDelete={removeInsurancePolicy} />}
-            {page === "investments" && <InvestmentsPage notify={notify} />}
+            {page === "investments" && <InvestmentsPage categories={investmentCategories} onAdd={addInvestmentCategory} onDelete={removeInvestmentCategory} notify={notify} />}
             {page === "calculators" && <CalculatorsPage />}
             {page === "budgets" && (
               <BudgetsPage budgets={budgets} transactions={periodTransactions} month={month} onAdd={addBudget} onDelete={removeBudget} notify={notify} />
@@ -1718,7 +1738,8 @@ function LedgerHomePage({
       budgets: [],
       reminders: [],
       rememberedCategories: [],
-      insurancePolicies: []
+      insurancePolicies: [],
+      investmentCategories: []
     };
     const dashboard = summarizeDashboard({
       accounts: snapshot.accounts,
@@ -4833,8 +4854,17 @@ function InsurancePage({ policies, onAdd, onDelete }: { policies: InsurancePolic
   );
 }
 
-function InvestmentsPage({ notify }: { notify: (type: ToastType, message: string) => void }) {
-  const [categories, setCategories] = useState<InvestmentCategory[]>([]);
+function InvestmentsPage({
+  categories,
+  onAdd,
+  onDelete,
+  notify
+}: {
+  categories: InvestmentCategory[];
+  onAdd: (category: InvestmentCategory) => Promise<void>;
+  onDelete: (category: InvestmentCategory) => Promise<void>;
+  notify: (type: ToastType, message: string) => void;
+}) {
 
   const totalAllocation = categories.reduce((sum, category) => sum + category.targetAllocation, 0);
   const highRiskAllocation = categories
@@ -4857,25 +4887,24 @@ function InvestmentsPage({ notify }: { notify: (type: ToastType, message: string
     if (!Number.isFinite(targetAllocation) || targetAllocation < 0 || targetAllocation > 100) {
       return notify("error", "目標配置需介於 0% 到 100%");
     }
-    setCategories((current) => [
-      {
-        id: crypto.randomUUID(),
-        name,
-        kind: String(formData.get("kind")) as InvestmentCategory["kind"],
-        market: String(formData.get("market")) as InvestmentCategory["market"],
-        targetAllocation,
-        risk: String(formData.get("risk")) as InvestmentCategory["risk"],
-        note: String(formData.get("note") ?? "")
-      },
-      ...current
-    ]);
-    notify("success", "投資分類已新增");
+    const now = new Date().toISOString();
+    void onAdd({
+      id: crypto.randomUUID(),
+      userId: localUserId,
+      name,
+      kind: String(formData.get("kind")) as InvestmentCategory["kind"],
+      market: String(formData.get("market")) as InvestmentCategory["market"],
+      targetAllocation,
+      risk: String(formData.get("risk")) as InvestmentCategory["risk"],
+      note: String(formData.get("note") ?? ""),
+      isActive: true,
+      createdAt: now,
+      updatedAt: now
+    });
   }
 
-  function deleteCategory(id: string) {
-    if (!window.confirm("確定刪除此投資分類？")) return;
-    setCategories((current) => current.filter((category) => category.id !== id));
-    notify("success", "投資分類已刪除");
+  function deleteCategory(category: InvestmentCategory) {
+    void onDelete(category);
   }
 
   return (
@@ -4959,7 +4988,7 @@ function InvestmentsPage({ notify }: { notify: (type: ToastType, message: string
                         {investmentKindLabels[category.kind]} · {investmentMarketLabels[category.market]} · {investmentRiskLabels[category.risk]}
                       </p>
                     </div>
-                    <button className="rounded-md p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950" onClick={() => deleteCategory(category.id)} title="刪除投資分類" aria-label="刪除投資分類">
+                    <button className="rounded-md p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950" onClick={() => deleteCategory(category)} title="刪除投資分類" aria-label="刪除投資分類">
                       <Trash2 size={16} />
                     </button>
                   </div>

@@ -9,6 +9,7 @@ import type {
   FinancialAccount,
   FinancialReminder,
   InsurancePolicy,
+  InvestmentCategory,
   LedgerBook,
   LedgerInvitation,
   Loan,
@@ -26,6 +27,7 @@ export interface FinanceData {
   budgets: Budget[];
   reminders: FinancialReminder[];
   insurancePolicies: InsurancePolicy[];
+  investmentCategories: InvestmentCategory[];
   categories: string[];
 }
 
@@ -52,6 +54,7 @@ export const emptyFinanceData: FinanceData = {
   budgets: [],
   reminders: [],
   insurancePolicies: [],
+  investmentCategories: [],
   categories: []
 };
 
@@ -237,7 +240,8 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
     budgets,
     reminders,
     categories,
-    insurancePolicies
+    insurancePolicies,
+    investmentCategories
   ] = await Promise.all([
     scoped(supabase
       .from("financial_accounts")
@@ -290,7 +294,13 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
       .from("insurance_policies")
       .select("id,user_id,name,policy_type,insurer,policy_number_last4,insured_person,annual_premium_cents,coverage_amount_cents,paid_claim_amount_cents,pending_claim_amount_cents,payment_day,renewal_date,beneficiary,note,status,created_at,updated_at"))
       .is("deleted_at", null)
-      .order("renewal_date", { ascending: true })
+      .order("renewal_date", { ascending: true }),
+    scoped(supabase
+      .from("investment_categories")
+      .select("id,user_id,name,kind,market,target_allocation,risk,note,is_active,created_at,updated_at"))
+      .is("deleted_at", null)
+      .eq("is_active", true)
+      .order("created_at", { ascending: false })
   ]);
 
   const responses = [accounts, transactions, creditCards, creditCardInstallments, loans, deposits, budgets, reminders, categories];
@@ -298,6 +308,8 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
   if (failed?.error) throw new Error("Supabase 資料讀取失敗，請確認 migration 與 RLS 設定");
   const insuranceTableUnavailable = insurancePolicies.error?.code === "42P01" || insurancePolicies.error?.code === "PGRST205";
   if (insurancePolicies.error && !insuranceTableUnavailable) throw new Error("保險資料讀取失敗");
+  const investmentsTableUnavailable = investmentCategories.error?.code === "42P01" || investmentCategories.error?.code === "PGRST205";
+  if (investmentCategories.error && !investmentsTableUnavailable) throw new Error("投資資料讀取失敗");
 
   return {
     session,
@@ -312,6 +324,7 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
       budgets: (budgets.data ?? []).map(mapBudget),
       reminders: (reminders.data ?? []).map(mapReminder),
       insurancePolicies: (insurancePolicies.data ?? []).map(mapInsurancePolicy),
+      investmentCategories: (investmentCategories.data ?? []).map(mapInvestmentCategory),
       categories: [...new Set((categories.data ?? []).map((row) => String(row.name)).filter(Boolean))]
     }
   };
@@ -754,6 +767,36 @@ export async function deleteInsurancePolicy(id: string): Promise<void> {
   if (error) throw new Error("保單刪除失敗");
 }
 
+export async function createInvestmentCategory(category: InvestmentCategory, ledgerId?: string): Promise<InvestmentCategory> {
+  if (!supabase) return category;
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !sessionData.session) throw new Error("請先登入再新增投資分類");
+  const { data, error } = await supabase
+    .from("investment_categories")
+    .insert({
+      user_id: sessionData.session.user.id,
+      ...(ledgerId ? { ledger_id: ledgerId } : {}),
+      name: category.name,
+      kind: category.kind,
+      market: category.market,
+      target_allocation: category.targetAllocation,
+      risk: category.risk,
+      note: category.note || null,
+      is_active: category.isActive
+    })
+    .select("id,user_id,name,kind,market,target_allocation,risk,note,is_active,created_at,updated_at")
+    .single();
+  if (error?.code === "42P01" || error?.code === "PGRST205") throw new Error("投資資料功能尚未完成雲端初始化");
+  if (error) throw new Error("投資分類儲存失敗");
+  return mapInvestmentCategory(data);
+}
+
+export async function deleteInvestmentCategory(id: string): Promise<void> {
+  if (!supabase) return;
+  const { error } = await supabase.from("investment_categories").update({ deleted_at: new Date().toISOString(), is_active: false }).eq("id", id);
+  if (error) throw new Error("投資分類刪除失敗");
+}
+
 export async function createTransactionWithCategory(transaction: Transaction, ledgerId?: string): Promise<Transaction> {
   if (!supabase) return transaction;
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
@@ -1046,6 +1089,22 @@ function mapInsurancePolicy(row: Record<string, unknown>): InsurancePolicy {
     beneficiary: nullableString(row.beneficiary),
     note: nullableString(row.note),
     status: String(row.status) as InsurancePolicy["status"],
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
+  };
+}
+
+function mapInvestmentCategory(row: Record<string, unknown>): InvestmentCategory {
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    name: String(row.name),
+    kind: String(row.kind) as InvestmentCategory["kind"],
+    market: String(row.market) as InvestmentCategory["market"],
+    targetAllocation: Number(row.target_allocation ?? 0),
+    risk: String(row.risk) as InvestmentCategory["risk"],
+    note: nullableString(row.note),
+    isActive: Boolean(row.is_active),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)
   };
