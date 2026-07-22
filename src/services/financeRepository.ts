@@ -296,7 +296,8 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
   const responses = [accounts, transactions, creditCards, creditCardInstallments, loans, deposits, budgets, reminders, categories];
   const failed = responses.find((response) => response.error);
   if (failed?.error) throw new Error("Supabase 資料讀取失敗，請確認 migration 與 RLS 設定");
-  if (insurancePolicies.error && insurancePolicies.error.code !== "42P01") throw new Error("保險資料讀取失敗");
+  const insuranceTableUnavailable = insurancePolicies.error?.code === "42P01" || insurancePolicies.error?.code === "PGRST205";
+  if (insurancePolicies.error && !insuranceTableUnavailable) throw new Error("保險資料讀取失敗");
 
   return {
     session,
