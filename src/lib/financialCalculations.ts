@@ -2,6 +2,7 @@ import type {
   CreditCard,
   DashboardSummary,
   DepositInterestType,
+  FinancialPlanRiskProfile,
   FinancialAccount,
   Loan,
   LoanRepaymentMethod,
@@ -60,8 +61,99 @@ export interface DepositCalculationResult {
   schedule: DepositProjectionRow[];
 }
 
+export interface FinancialPlanCalculationInput {
+  targetAmountCents: number;
+  currentAmountCents: number;
+  monthlyContributionCents: number;
+  expectedAnnualReturn: number;
+  monthsToTarget: number;
+}
+
+export interface FinancialPlanProjectionRow {
+  month: number;
+  balanceCents: number;
+}
+
+export interface FinancialPlanCalculationResult {
+  targetAmountCents: number;
+  currentAmountCents: number;
+  gapCents: number;
+  requiredMonthlyContributionCents: number;
+  projectedAmountCents: number;
+  projectedShortfallCents: number;
+  monthsToGoal: number | null;
+  progress: number;
+  schedule: FinancialPlanProjectionRow[];
+}
+
+export interface FinancialPlanAllocation {
+  cash: number;
+  fixedIncome: number;
+  diversifiedEquity: number;
+  label: string;
+}
+
 const cents = (value: number) => Math.round(value);
 const safeDivide = (numerator: number, denominator: number) => (denominator === 0 ? 0 : numerator / denominator);
+
+export function calculateFinancialPlan(input: FinancialPlanCalculationInput): FinancialPlanCalculationResult {
+  const targetAmountCents = Math.max(0, cents(input.targetAmountCents));
+  const currentAmountCents = Math.max(0, cents(input.currentAmountCents));
+  const monthlyContributionCents = Math.max(0, cents(input.monthlyContributionCents));
+  const monthsToTarget = Math.max(1, Math.min(1200, Math.round(input.monthsToTarget)));
+  const annualRate = Math.max(0, Math.min(input.expectedAnnualReturn, 1));
+  const monthlyRate = annualRate / 12;
+  const gapCents = Math.max(0, targetAmountCents - currentAmountCents);
+  const factor = monthlyRate === 0 ? 1 : (1 + monthlyRate) ** monthsToTarget;
+  const annuityFactor = monthlyRate === 0
+    ? monthsToTarget
+    : (factor - 1) / monthlyRate;
+  const requiredMonthlyContributionCents = gapCents === 0
+    ? 0
+    : Math.max(0, cents((targetAmountCents - currentAmountCents * factor) / Math.max(annuityFactor, 1)));
+
+  const schedule: FinancialPlanProjectionRow[] = [];
+  let balanceCents = currentAmountCents;
+  for (let month = 1; month <= monthsToTarget; month += 1) {
+    balanceCents = cents(balanceCents * (1 + monthlyRate) + monthlyContributionCents);
+    schedule.push({ month, balanceCents });
+  }
+
+  let monthsToGoal: number | null = currentAmountCents >= targetAmountCents ? 0 : null;
+  if (monthsToGoal === null && monthlyContributionCents > 0) {
+    let projectedBalanceCents = currentAmountCents;
+    for (let month = 1; month <= 1200; month += 1) {
+      projectedBalanceCents = cents(projectedBalanceCents * (1 + monthlyRate) + monthlyContributionCents);
+      if (projectedBalanceCents >= targetAmountCents) {
+        monthsToGoal = month;
+        break;
+      }
+    }
+  }
+
+  const projectedAmountCents = schedule.at(-1)?.balanceCents ?? currentAmountCents;
+  return {
+    targetAmountCents,
+    currentAmountCents,
+    gapCents,
+    requiredMonthlyContributionCents,
+    projectedAmountCents,
+    projectedShortfallCents: Math.max(0, targetAmountCents - projectedAmountCents),
+    monthsToGoal,
+    progress: targetAmountCents > 0 ? Math.min(1, currentAmountCents / targetAmountCents) : 0,
+    schedule
+  };
+}
+
+export function getFinancialPlanAllocation(profile: FinancialPlanRiskProfile): FinancialPlanAllocation {
+  if (profile === "conservative") {
+    return { cash: 60, fixedIncome: 30, diversifiedEquity: 10, label: "保守配置" };
+  }
+  if (profile === "growth") {
+    return { cash: 10, fixedIncome: 20, diversifiedEquity: 70, label: "成長配置" };
+  }
+  return { cash: 20, fixedIncome: 40, diversifiedEquity: 40, label: "平衡配置" };
+}
 
 export function calculateEqualPayment(principalCents: number, annualRate: number, termMonths: number): number {
   if (principalCents <= 0 || termMonths <= 0) return 0;

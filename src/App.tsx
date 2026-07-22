@@ -25,6 +25,7 @@ import {
   ShieldCheck,
   Sparkles,
   Table,
+  Target,
   TrendingUp,
   Trash2,
   Umbrella,
@@ -41,9 +42,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import {
   calculateDeposit,
+  calculateFinancialPlan,
+  getFinancialPlanAllocation,
   calculateLoan,
   summarizeDashboard,
   type DepositCalculationInput,
+  type FinancialPlanCalculationResult,
   type LoanCalculationInput
 } from "./lib/financialCalculations";
 import { currentTaipeiMonth, formatDate, formatMoney, formatPercent, parseMoneyToCents } from "./lib/format";
@@ -65,6 +69,7 @@ import {
   createCreditCardInstallment,
   createInsurancePolicy,
   createInvestmentCategory,
+  createFinancialPlan,
   createLoan,
   createTransactionWithCategory,
   deleteBudget,
@@ -74,6 +79,7 @@ import {
   deleteFinancialReminder,
   deleteInsurancePolicy,
   deleteInvestmentCategory,
+  deleteFinancialPlan,
   deleteLoan,
   deleteTransaction,
   emptyFinanceData,
@@ -90,6 +96,7 @@ import {
   updateBudget,
   updateCreditCard,
   updateFinancialAccount,
+  updateFinancialPlan,
   updateLoan,
   updateOwnPassword,
   updateOwnProfile
@@ -102,6 +109,7 @@ import type {
   CreditCardInstallment,
   Deposit,
   FinancialAccount,
+  FinancialPlan,
   FinancialReminder,
   InsurancePolicy,
   InvestmentCategory,
@@ -120,6 +128,7 @@ type Page =
   | "loans"
   | "deposits"
   | "insurance"
+  | "financial_plan"
   | "investments"
   | "calculators"
   | "budgets"
@@ -184,6 +193,7 @@ type FinanceSnapshot = {
   rememberedCategories: string[];
   insurancePolicies: InsurancePolicy[];
   investmentCategories: InvestmentCategory[];
+  financialPlans: FinancialPlan[];
 };
 
 const navGroups: { title: "理財" | "投資" | "其他" | "設定"; items: { page: Page; label: string; icon: typeof BarChart3 }[] }[] = [
@@ -191,6 +201,7 @@ const navGroups: { title: "理財" | "投資" | "其他" | "設定"; items: { pa
     title: "理財",
     items: [
       { page: "dashboard", label: "理財總覽", icon: BarChart3 },
+      { page: "financial_plan", label: "財務計劃", icon: Target },
       { page: "transactions", label: "收支紀錄", icon: ReceiptText },
       { page: "accounts", label: "帳戶", icon: WalletCards },
       { page: "cards", label: "信用卡", icon: CreditCardIcon },
@@ -274,6 +285,13 @@ const pageIntros: Record<Page, { eyebrow: string; title: string; description: st
     description: "集中管理壽險、醫療、意外、車險與其他保單，快速掌握保險費用與賠付狀態。",
     accent: "#0d9488",
     tint: "#f0fdfa"
+  },
+  financial_plan: {
+    eyebrow: "目標財務規劃",
+    title: "把近期、中期與長期目標放進同一張路線圖",
+    description: "以你的目標金額、期限與每月投入進行試算，清楚看見還差多少與下一步該準備多少。",
+    accent: "#2563eb",
+    tint: "#eff6ff"
   },
   investments: {
     eyebrow: "投資分類",
@@ -373,6 +391,35 @@ const investmentRiskLabels: Record<InvestmentCategory["risk"], string> = {
   low: "低風險",
   medium: "中風險",
   high: "高風險"
+};
+
+const financialPlanGoalLabels: Record<FinancialPlan["goalType"], string> = {
+  emergency_fund: "緊急預備金",
+  debt_repayment: "債務清償",
+  major_purchase: "大額購置",
+  education: "教育進修",
+  home: "購屋準備",
+  retirement: "退休準備",
+  investment: "投資目標",
+  custom: "自訂目標"
+};
+
+const financialPlanHorizonLabels: Record<FinancialPlan["horizon"], string> = {
+  short: "近期",
+  medium: "中期",
+  long: "長期"
+};
+
+const financialPlanRiskLabels: Record<FinancialPlan["riskProfile"], string> = {
+  conservative: "保守",
+  balanced: "平衡",
+  growth: "成長"
+};
+
+const financialPlanStatusLabels: Record<FinancialPlan["status"], string> = {
+  active: "進行中",
+  paused: "暫停",
+  completed: "已完成"
 };
 
 const insuranceTypeLabels: Record<InsurancePolicy["type"], string> = {
@@ -483,6 +530,7 @@ export default function App() {
   const [reminders, setReminders] = useState(emptyFinanceData.reminders);
   const [insurancePolicies, setInsurancePolicies] = useState<InsurancePolicy[]>([]);
   const [investmentCategories, setInvestmentCategories] = useState<InvestmentCategory[]>([]);
+  const [financialPlans, setFinancialPlans] = useState<FinancialPlan[]>([]);
   const [rememberedCategories, setRememberedCategories] = useState<string[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
   const [dataNotice, setDataNotice] = useState("");
@@ -527,7 +575,8 @@ export default function App() {
       reminders,
       rememberedCategories,
       insurancePolicies,
-      investmentCategories
+      investmentCategories,
+      financialPlans
     };
   }
 
@@ -543,6 +592,7 @@ export default function App() {
     setRememberedCategories(snapshot.rememberedCategories);
     setInsurancePolicies(snapshot.insurancePolicies);
     setInvestmentCategories(snapshot.investmentCategories);
+    setFinancialPlans(snapshot.financialPlans);
     setAiReport(null);
     setCsvPreview([]);
   }
@@ -596,7 +646,8 @@ export default function App() {
         reminders: result.data.reminders,
         rememberedCategories: result.data.categories,
         insurancePolicies: result.data.insurancePolicies,
-        investmentCategories: result.data.investmentCategories
+        investmentCategories: result.data.investmentCategories,
+        financialPlans: result.data.financialPlans
       };
       setLedgerBooks(nextLedgerBooks);
       setLedgerInvitations(nextInvitations);
@@ -832,7 +883,8 @@ export default function App() {
         reminders: result.data.reminders,
         rememberedCategories: result.data.categories,
         insurancePolicies: result.data.insurancePolicies,
-        investmentCategories: result.data.investmentCategories
+        investmentCategories: result.data.investmentCategories,
+        financialPlans: result.data.financialPlans
       };
       applySnapshot(nextSnapshot);
       setLedgerSnapshots((current) => ({ ...current, [ledgerId]: nextSnapshot }));
@@ -1323,6 +1375,37 @@ export default function App() {
     }
   }
 
+  async function addFinancialPlan(plan: FinancialPlan) {
+    try {
+      const saved = await createFinancialPlan(plan, activePersistedLedgerId);
+      setFinancialPlans((current) => [...current, saved]);
+      notify("success", "財務計劃已儲存");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "財務計劃儲存失敗");
+    }
+  }
+
+  async function saveFinancialPlan(plan: FinancialPlan) {
+    try {
+      const saved = await updateFinancialPlan(plan);
+      setFinancialPlans((current) => current.map((item) => item.id === saved.id ? saved : item));
+      notify("success", "財務計劃已更新");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "財務計劃更新失敗");
+    }
+  }
+
+  async function removeFinancialPlan(plan: FinancialPlan) {
+    if (!window.confirm(`確定刪除「${plan.name}」財務計劃？`)) return;
+    try {
+      await deleteFinancialPlan(plan.id);
+      setFinancialPlans((current) => current.filter((item) => item.id !== plan.id));
+      notify("success", "財務計劃已刪除");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "財務計劃刪除失敗");
+    }
+  }
+
   async function softDeleteTransaction(id: string) {
     if (!window.confirm("確定要刪除此交易？此操作需要二次確認。")) return;
     const transaction = transactions.find((item) => item.id === id);
@@ -1600,6 +1683,16 @@ export default function App() {
             {page === "loans" && <LoansPage loans={loans} onAdd={addLoan} onUpdate={saveLoan} onDelete={removeLoan} notify={notify} />}
             {page === "deposits" && <DepositsPage deposits={deposits} onAdd={addDeposit} onDelete={removeDeposit} notify={notify} />}
             {page === "insurance" && <InsurancePage policies={insurancePolicies} onAdd={addInsurancePolicy} onDelete={removeInsurancePolicy} />}
+            {page === "financial_plan" && (
+              <FinancialPlansPage
+                plans={financialPlans}
+                dashboard={dashboard}
+                onAdd={addFinancialPlan}
+                onUpdate={saveFinancialPlan}
+                onDelete={removeFinancialPlan}
+                notify={notify}
+              />
+            )}
             {page === "investments" && <InvestmentsPage categories={investmentCategories} onAdd={addInvestmentCategory} onDelete={removeInvestmentCategory} notify={notify} />}
             {page === "calculators" && <CalculatorsPage />}
             {page === "budgets" && (
@@ -1739,7 +1832,8 @@ function LedgerHomePage({
       reminders: [],
       rememberedCategories: [],
       insurancePolicies: [],
-      investmentCategories: []
+      investmentCategories: [],
+      financialPlans: []
     };
     const dashboard = summarizeDashboard({
       accounts: snapshot.accounts,
@@ -2343,7 +2437,7 @@ function PageExperience({
           <PageMiniStat label="提醒" value={`${notifications}`} accent={notifications > 0 ? "#dc2626" : "#64748b"} />
         </div>
       </div>
-      {!["settings", "users", "calculators", "investments"].includes(page) && (
+      {!["settings", "users", "calculators", "investments", "financial_plan"].includes(page) && (
         <PeriodSelector
           mode={period.mode}
           month={month}
@@ -2794,6 +2888,12 @@ function addMonthsToIsoDate(value: string, months: number) {
   const [year, month, day] = value.split("-").map(Number);
   const date = new Date(Date.UTC(year, month - 1 + months, day));
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+}
+
+function monthsBetween(startDate: string, endDate: string) {
+  const [startYear, startMonth] = startDate.split("-").map(Number);
+  const [endYear, endMonth] = endDate.split("-").map(Number);
+  return Math.max(1, (endYear - startYear) * 12 + endMonth - startMonth);
 }
 
 function getTaipeiTodayIso(date = new Date()) {
@@ -4852,6 +4952,256 @@ function InsurancePage({ policies, onAdd, onDelete }: { policies: InsurancePolic
       </div>
     </div>
   );
+}
+
+function FinancialPlansPage({
+  plans,
+  dashboard,
+  onAdd,
+  onUpdate,
+  onDelete,
+  notify
+}: {
+  plans: FinancialPlan[];
+  dashboard: ReturnType<typeof summarizeDashboard>;
+  onAdd: (plan: FinancialPlan) => Promise<void>;
+  onUpdate: (plan: FinancialPlan) => Promise<void>;
+  onDelete: (plan: FinancialPlan) => Promise<void>;
+  notify: (type: ToastType, message: string) => void;
+}) {
+  const activePlans = plans.filter((plan) => plan.status === "active");
+  const projections = activePlans.map((plan) => ({ plan, result: getPlanProjection(plan) }));
+  const totalTargetCents = projections.reduce((sum, item) => sum + item.result.targetAmountCents, 0);
+  const totalCurrentCents = projections.reduce((sum, item) => sum + item.result.currentAmountCents, 0);
+  const totalRequiredMonthlyCents = projections.reduce((sum, item) => sum + item.result.requiredMonthlyContributionCents, 0);
+  const totalMonthlyContributionCents = projections.reduce((sum, item) => sum + item.plan.monthlyContributionCents, 0);
+  const allocationPlan = activePlans.find((plan) => plan.goalType === "investment" || plan.horizon === "long") ?? activePlans[0];
+  const allocation = getFinancialPlanAllocation(allocationPlan?.riskProfile ?? "balanced");
+
+  function readPlan(formData: FormData, existing?: FinancialPlan): FinancialPlan | null {
+    const name = String(formData.get("name") ?? "").trim();
+    const targetAmountCents = parseMoneyToCents(String(formData.get("targetAmount") ?? ""));
+    const currentAmountCents = parseMoneyToCents(String(formData.get("currentAmount") ?? "0"));
+    const monthlyContributionCents = parseMoneyToCents(String(formData.get("monthlyContribution") ?? "0"));
+    const targetDate = String(formData.get("targetDate") ?? "");
+    const expectedAnnualReturn = Number(formData.get("expectedAnnualReturn") ?? 0) / 100;
+    const priority = Number(formData.get("priority") ?? 3);
+    if (!name) {
+      notify("error", "請輸入計劃名稱");
+      return null;
+    }
+    if (!Number.isFinite(targetAmountCents) || targetAmountCents <= 0) {
+      notify("error", "目標金額需大於 0");
+      return null;
+    }
+    if (!Number.isFinite(currentAmountCents) || currentAmountCents < 0 || !Number.isFinite(monthlyContributionCents) || monthlyContributionCents < 0) {
+      notify("error", "目前金額與每月投入不可為負數");
+      return null;
+    }
+    if (!targetDate || targetDate <= today) {
+      notify("error", "目標日期需晚於今天");
+      return null;
+    }
+    if (!Number.isFinite(expectedAnnualReturn) || expectedAnnualReturn < 0 || expectedAnnualReturn > 1) {
+      notify("error", "預估年化成長率需介於 0% 到 100%");
+      return null;
+    }
+    if (!Number.isInteger(priority) || priority < 1 || priority > 5) {
+      notify("error", "優先順序需介於 1 到 5");
+      return null;
+    }
+    const now = new Date().toISOString();
+    return {
+      id: existing?.id ?? crypto.randomUUID(),
+      userId: existing?.userId ?? localUserId,
+      name,
+      goalType: String(formData.get("goalType") ?? "custom") as FinancialPlan["goalType"],
+      horizon: String(formData.get("horizon") ?? "medium") as FinancialPlan["horizon"],
+      targetAmountCents,
+      currentAmountCents,
+      monthlyContributionCents,
+      targetDate,
+      expectedAnnualReturn,
+      riskProfile: String(formData.get("riskProfile") ?? "balanced") as FinancialPlan["riskProfile"],
+      priority,
+      note: String(formData.get("note") ?? "").trim(),
+      status: String(formData.get("status") ?? "active") as FinancialPlan["status"],
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now
+    };
+  }
+
+  const actions = getFinancialPlanActions(dashboard, totalRequiredMonthlyCents, totalMonthlyContributionCents, activePlans.length);
+
+  return (
+    <div className="space-y-4">
+      <FeatureHero
+        icon={<Target size={18} />}
+        label="財務計劃"
+        title="把目標、期限與每月行動放進同一張路線圖"
+        value={formatMoney(totalTargetCents)}
+        tone="sky"
+        metrics={[
+          { label: "已準備", value: formatMoney(totalCurrentCents), accent: "border-emerald-300" },
+          { label: "每月目標投入", value: formatMoney(totalRequiredMonthlyCents), accent: "border-sky-300" },
+          { label: "進行中", value: String(activePlans.length) + " 項", accent: "border-violet-300" }
+        ]}
+      >
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+          <DonutChart
+            segments={[
+              { label: "已準備", value: totalCurrentCents, color: "#10b981" },
+              { label: "尚待準備", value: Math.max(0, totalTargetCents - totalCurrentCents), color: "#60a5fa" }
+            ]}
+            centerLabel="總進度"
+            centerValue={totalTargetCents > 0 ? formatPercent(totalCurrentCents / totalTargetCents, 0) : "0%"}
+          />
+          <div className="flex-1 space-y-3">
+            <Progress label="目標準備進度" value={totalTargetCents > 0 ? totalCurrentCents / totalTargetCents : 0} helper={formatMoney(totalCurrentCents) + " / " + formatMoney(totalTargetCents)} colorClass="bg-emerald-500" />
+            <Progress label="目前每月投入" value={totalRequiredMonthlyCents > 0 ? totalMonthlyContributionCents / totalRequiredMonthlyCents : 1} helper={formatMoney(totalMonthlyContributionCents) + " / " + formatMoney(totalRequiredMonthlyCents)} colorClass={totalMonthlyContributionCents >= totalRequiredMonthlyCents ? "bg-emerald-500" : "bg-amber-500"} />
+            <p className="text-xs leading-5 text-slate-300">所有金額只在目前帳本內計算；試算用於規劃，不代表投資報酬保證。</p>
+          </div>
+        </div>
+      </FeatureHero>
+
+      <div className="grid gap-4 lg:grid-cols-4">
+        <StatCard label="進行中目標" value={String(activePlans.length) + " 項"} />
+        <StatCard label="尚待準備" value={formatMoney(Math.max(0, totalTargetCents - totalCurrentCents))} />
+        <StatCard label="本月可投入結餘" value={formatMoney(Math.max(0, dashboard.monthlyBalanceCents))} />
+        <StatCard label="每月投入差額" value={formatMoney(Math.max(0, totalRequiredMonthlyCents - totalMonthlyContributionCents))} />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
+        <section className="panel">
+          <div className="flex items-center gap-2"><Target size={18} className="text-sky-600 dark:text-sky-300" /><h2 className="text-lg font-semibold">建立財務計劃</h2></div>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">設定一個目標，系統會反推每月應準備的金額。</p>
+          <form className="mt-4 space-y-3" onSubmit={handleFormSubmit((formData) => {
+            const plan = readPlan(formData);
+            if (plan) void onAdd(plan);
+          })}>
+            <FinancialPlanFields />
+            <button className="btn-primary w-full" type="submit"><Plus size={16} />建立計劃</button>
+          </form>
+        </section>
+
+        <div className="space-y-4">
+          <section className="panel">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div><h2 className="text-lg font-semibold">下一步行動</h2><p className="text-sm text-slate-500 dark:text-slate-400">依目前帳本的結餘、負債與預備金整理。</p></div>
+              <Badge>{activePlans.length > 0 ? "已建立計劃" : "等待建立"}</Badge>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              {actions.map((action, index) => (
+                <div key={action.title} className="rounded-lg border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-950/70">
+                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-sky-100 text-sm font-bold text-sky-700 dark:bg-sky-950 dark:text-sky-200">{index + 1}</span>
+                  <p className="mt-3 font-semibold text-slate-950 dark:text-slate-50">{action.title}</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300">{action.detail}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="panel">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div><h2 className="text-lg font-semibold">長期資金配置參考</h2><p className="text-sm text-slate-500 dark:text-slate-400">{allocationPlan ? "依「" + allocationPlan.name + "」的" + financialPlanRiskLabels[allocationPlan.riskProfile] + "屬性顯示。" : "建立目標後會依風險屬性顯示配置參考。"}</p></div>
+              <Badge>{allocation.label}</Badge>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <AllocationCell label="現金與短期存款" value={allocation.cash} colorClass="bg-emerald-500" />
+              <AllocationCell label="固定收益資產" value={allocation.fixedIncome} colorClass="bg-sky-500" />
+              <AllocationCell label="分散股票型資產" value={allocation.diversifiedEquity} colorClass="bg-violet-500" />
+            </div>
+            <p className="mt-4 text-xs leading-5 text-slate-500 dark:text-slate-400">期限較短的目標宜優先保留流動性並降低價格波動風險；這是教育性配置框架，請自行評估風險與商品成本。</p>
+          </section>
+        </div>
+      </div>
+
+      <section className="panel">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div><h2 className="text-lg font-semibold">計劃路線圖</h2><p className="text-sm text-slate-500 dark:text-slate-400">更新累積金額或每月投入後，期限與缺口會立即重算。</p></div>
+          <Badge>{String(plans.length) + " 項計劃"}</Badge>
+        </div>
+        {plans.length === 0 ? <EmptyState label="先建立近期、中期或長期目標，這裡會整理你的準備進度與每月行動。" /> : (
+          <div className="mt-4 grid gap-4 xl:grid-cols-2">
+            {plans.slice().sort((a, b) => a.priority - b.priority || a.targetDate.localeCompare(b.targetDate)).map((plan) => {
+              const result = getPlanProjection(plan);
+              const isOnTrack = plan.status !== "active" || plan.monthlyContributionCents >= result.requiredMonthlyContributionCents;
+              return (
+                <article key={plan.id} className="overflow-hidden rounded-lg border border-slate-200 bg-white/90 dark:border-slate-800 dark:bg-slate-950/70">
+                  <div className="border-b border-slate-200 p-4 dark:border-slate-800">
+                    <div className="flex items-start justify-between gap-3">
+                      <div><div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold text-slate-950 dark:text-slate-50">{plan.name}</h3><Badge>{financialPlanHorizonLabels[plan.horizon]}</Badge><Badge>{financialPlanStatusLabels[plan.status]}</Badge></div><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{financialPlanGoalLabels[plan.goalType] + " · 目標日 " + formatDate(plan.targetDate) + " · 優先 " + plan.priority}</p></div>
+                      <button className="rounded-md p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950" onClick={() => void onDelete(plan)} title="刪除財務計劃" aria-label="刪除財務計劃"><Trash2 size={16} /></button>
+                    </div>
+                    <div className="mt-4"><Progress label="準備進度" value={result.progress} helper={formatMoney(plan.currentAmountCents) + " / " + formatMoney(plan.targetAmountCents)} colorClass={plan.status === "completed" ? "bg-emerald-500" : "bg-sky-500"} /></div>
+                  </div>
+                  <div className="grid gap-3 p-4 sm:grid-cols-3"><Info label="每月需準備" value={formatMoney(result.requiredMonthlyContributionCents)} /><Info label="目前每月投入" value={formatMoney(plan.monthlyContributionCents)} /><Info label="到期預估缺口" value={formatMoney(result.projectedShortfallCents)} /></div>
+                  <div className="border-t border-slate-200 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-900/40">
+                    <div className="grid gap-4 sm:grid-cols-[1fr_170px] sm:items-center"><div><p className={isOnTrack ? "text-sm font-semibold text-emerald-700 dark:text-emerald-300" : "text-sm font-semibold text-amber-700 dark:text-amber-300"}>{plan.status === "completed" ? "此計劃已完成" : isOnTrack ? "目前投入可望達成目標" : "目前投入仍不足以在目標日前完成"}</p><p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300">{result.monthsToGoal === null ? "依目前投入無法推估達成時間，請提高每月投入或調整目標。" : result.monthsToGoal === 0 ? "目前累積金額已達目標。" : "依目前投入，預估約 " + result.monthsToGoal + " 個月可達成。"}</p></div><FinancialPlanSparkline result={result} /></div>
+                  </div>
+                  <details className="border-t border-slate-200 dark:border-slate-800"><summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-semibold text-slate-700 dark:text-slate-200">調整計劃 <Pencil size={15} /></summary><form className="border-t border-slate-200 p-4 dark:border-slate-800" onSubmit={handleFormSubmit((formData) => { const next = readPlan(formData, plan); if (next) void onUpdate(next); })}><div className="grid gap-3 md:grid-cols-2"><FinancialPlanFields plan={plan} /></div><button className="btn-primary mt-4" type="submit"><CheckCircle2 size={16} />儲存調整</button></form></details>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function FinancialPlanFields({ plan }: { plan?: FinancialPlan }) {
+  return (
+    <>
+      <Field label="計劃名稱"><input className="input" name="name" defaultValue={plan?.name} placeholder="例如：三年購屋頭期款" required /></Field>
+      <Field label="目標類型"><select className="input" name="goalType" defaultValue={plan?.goalType ?? "custom"}>{Object.entries(financialPlanGoalLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
+      <Field label="規劃期間"><select className="input" name="horizon" defaultValue={plan?.horizon ?? "medium"}>{Object.entries(financialPlanHorizonLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
+      <Field label="目標金額"><input className="input" name="targetAmount" inputMode="numeric" defaultValue={plan ? plan.targetAmountCents / 100 : ""} placeholder="0" required /></Field>
+      <Field label="目前已準備"><input className="input" name="currentAmount" inputMode="numeric" defaultValue={plan ? plan.currentAmountCents / 100 : 0} /></Field>
+      <Field label="每月投入"><input className="input" name="monthlyContribution" inputMode="numeric" defaultValue={plan ? plan.monthlyContributionCents / 100 : 0} /></Field>
+      <Field label="目標日期"><input className="input" name="targetDate" type="date" defaultValue={plan?.targetDate ?? addMonthsToIsoDate(today, 12)} min={addMonthsToIsoDate(today, 1)} required /></Field>
+      <Field label="預估年化成長率 %"><input className="input" name="expectedAnnualReturn" type="number" min={0} max={100} step={0.1} defaultValue={plan ? plan.expectedAnnualReturn * 100 : 0} /></Field>
+      <Field label="資金風險屬性"><select className="input" name="riskProfile" defaultValue={plan?.riskProfile ?? "balanced"}>{Object.entries(financialPlanRiskLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
+      <Field label="優先順序"><select className="input" name="priority" defaultValue={plan?.priority ?? 3}>{[1, 2, 3, 4, 5].map((value) => <option key={value} value={value}>{value === 1 ? "1 最高" : value === 5 ? "5 最低" : String(value)}</option>)}</select></Field>
+      <Field label="狀態"><select className="input" name="status" defaultValue={plan?.status ?? "active"}>{Object.entries(financialPlanStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
+      <Field label="備註"><input className="input" name="note" defaultValue={plan?.note} placeholder="計劃用途或限制" /></Field>
+    </>
+  );
+}
+
+function AllocationCell({ label, value, colorClass }: { label: string; value: number; colorClass: string }) {
+  return <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-950/70"><div className="flex items-center justify-between gap-2"><p className="text-sm text-slate-600 dark:text-slate-300">{label}</p><strong className="text-slate-950 dark:text-slate-50">{value}%</strong></div><div className="mt-3 h-2 rounded-full bg-slate-200 dark:bg-slate-800"><div className={"h-2 rounded-full " + colorClass} style={{ width: String(value) + "%" }} /></div></div>;
+}
+
+function FinancialPlanSparkline({ result }: { result: FinancialPlanCalculationResult }) {
+  const points = result.schedule.filter((_, index) => index === 0 || index === result.schedule.length - 1 || index % Math.max(1, Math.ceil(result.schedule.length / 8)) === 0);
+  const max = Math.max(result.targetAmountCents, ...points.map((point) => point.balanceCents), 1);
+  const line = points.map((point, index) => String(points.length === 1 ? 85 : index / (points.length - 1) * 170) + "," + String(6 + (1 - point.balanceCents / max) * 50)).join(" ");
+  return <svg className="h-16 w-full text-sky-500" viewBox="0 0 170 64" role="img" aria-label="計劃金額預估趨勢"><line x1="0" x2="170" y1="6" y2="6" stroke="currentColor" strokeDasharray="4 4" opacity="0.25" /><polyline points={line} fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
+function getPlanProjection(plan: FinancialPlan) {
+  return calculateFinancialPlan({ targetAmountCents: plan.targetAmountCents, currentAmountCents: plan.currentAmountCents, monthlyContributionCents: plan.monthlyContributionCents, expectedAnnualReturn: plan.expectedAnnualReturn, monthsToTarget: monthsBetween(today, plan.targetDate) });
+}
+
+function getFinancialPlanActions(dashboard: ReturnType<typeof summarizeDashboard>, requiredCents: number, contributionCents: number, planCount: number) {
+  if (planCount === 0) return [
+    { title: "先選定一個目標", detail: "從近期、可衡量的目標開始，完成後再逐步加入中期與長期計劃。" },
+    { title: "確認每月可投入金額", detail: "目前帳本本月結餘為 " + formatMoney(dashboard.monthlyBalanceCents) + "，建立計劃前先保留必要支出。" },
+    { title: "設定目標日期", detail: "以真實日期反推每月需要準備的金額，讓目標有明確行動節奏。" }
+  ];
+  const gap = Math.max(0, requiredCents - contributionCents);
+  return [
+    dashboard.emergencyFundMonths < 3
+      ? { title: "先補足緊急預備金", detail: "目前可支撐約 " + dashboard.emergencyFundMonths.toFixed(1) + " 個月，建議先建立至少 3 個月必要支出的緩衝。" }
+      : { title: "維持緊急緩衝", detail: "目前可支撐約 " + dashboard.emergencyFundMonths.toFixed(1) + " 個月，持續保留可動用資金避免目標中斷。" },
+    dashboard.debtRatio > 0.5
+      ? { title: "優先處理高成本債務", detail: "目前負債比 " + formatPercent(dashboard.debtRatio) + "，新增高波動投資前，先確認高利率債務的還款順序。" }
+      : { title: "將目標投入排入每月", detail: "每月預計投入 " + formatMoney(contributionCents) + "，可在固定入帳後安排，降低臨時決策壓力。" },
+    gap > 0
+      ? { title: "補足每月投入差額", detail: "距離目標試算仍少 " + formatMoney(gap) + " / 月，可調整期限、目標或每月投入。" }
+      : { title: "定期更新實際進度", detail: "每次完成儲蓄或投資後更新目前已準備金額，期限與缺口會隨即重算。" }
+  ];
 }
 
 function InvestmentsPage({

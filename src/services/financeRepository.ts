@@ -7,6 +7,7 @@ import type {
   CreditCardInstallment,
   Deposit,
   FinancialAccount,
+  FinancialPlan,
   FinancialReminder,
   InsurancePolicy,
   InvestmentCategory,
@@ -28,6 +29,7 @@ export interface FinanceData {
   reminders: FinancialReminder[];
   insurancePolicies: InsurancePolicy[];
   investmentCategories: InvestmentCategory[];
+  financialPlans: FinancialPlan[];
   categories: string[];
 }
 
@@ -55,6 +57,7 @@ export const emptyFinanceData: FinanceData = {
   reminders: [],
   insurancePolicies: [],
   investmentCategories: [],
+  financialPlans: [],
   categories: []
 };
 
@@ -241,7 +244,8 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
     reminders,
     categories,
     insurancePolicies,
-    investmentCategories
+    investmentCategories,
+    financialPlans
   ] = await Promise.all([
     scoped(supabase
       .from("financial_accounts")
@@ -300,7 +304,13 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
       .select("id,user_id,name,kind,market,target_allocation,risk,note,is_active,created_at,updated_at"))
       .is("deleted_at", null)
       .eq("is_active", true)
-      .order("created_at", { ascending: false })
+      .order("created_at", { ascending: false }),
+    scoped(supabase
+      .from("financial_plans")
+      .select("id,user_id,name,goal_type,horizon,target_amount_cents,current_amount_cents,monthly_contribution_cents,target_date,expected_annual_return,risk_profile,priority,note,status,created_at,updated_at"))
+      .is("deleted_at", null)
+      .order("priority", { ascending: true })
+      .order("target_date", { ascending: true })
   ]);
 
   const responses = [accounts, transactions, creditCards, creditCardInstallments, loans, deposits, budgets, reminders, categories];
@@ -310,6 +320,8 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
   if (insurancePolicies.error && !insuranceTableUnavailable) throw new Error("保險資料讀取失敗");
   const investmentsTableUnavailable = investmentCategories.error?.code === "42P01" || investmentCategories.error?.code === "PGRST205";
   if (investmentCategories.error && !investmentsTableUnavailable) throw new Error("投資資料讀取失敗");
+  const plansTableUnavailable = financialPlans.error?.code === "42P01" || financialPlans.error?.code === "PGRST205";
+  if (financialPlans.error && !plansTableUnavailable) throw new Error("財務計劃讀取失敗");
 
   return {
     session,
@@ -325,6 +337,7 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
       reminders: (reminders.data ?? []).map(mapReminder),
       insurancePolicies: (insurancePolicies.data ?? []).map(mapInsurancePolicy),
       investmentCategories: (investmentCategories.data ?? []).map(mapInvestmentCategory),
+      financialPlans: (financialPlans.data ?? []).map(mapFinancialPlan),
       categories: [...new Set((categories.data ?? []).map((row) => String(row.name)).filter(Boolean))]
     }
   };
@@ -797,6 +810,66 @@ export async function deleteInvestmentCategory(id: string): Promise<void> {
   if (error) throw new Error("投資分類刪除失敗");
 }
 
+export async function createFinancialPlan(plan: FinancialPlan, ledgerId?: string): Promise<FinancialPlan> {
+  if (!supabase) return plan;
+  const session = await getCurrentSession();
+  if (!session) throw new Error("請先登入再新增財務計劃");
+  const { data, error } = await supabase
+    .from("financial_plans")
+    .insert({
+      user_id: session.user.id,
+      ...(ledgerId ? { ledger_id: ledgerId } : {}),
+      name: plan.name,
+      goal_type: plan.goalType,
+      horizon: plan.horizon,
+      target_amount_cents: plan.targetAmountCents,
+      current_amount_cents: plan.currentAmountCents,
+      monthly_contribution_cents: plan.monthlyContributionCents,
+      target_date: plan.targetDate,
+      expected_annual_return: plan.expectedAnnualReturn,
+      risk_profile: plan.riskProfile,
+      priority: plan.priority,
+      note: plan.note || null,
+      status: plan.status
+    })
+    .select("id,user_id,name,goal_type,horizon,target_amount_cents,current_amount_cents,monthly_contribution_cents,target_date,expected_annual_return,risk_profile,priority,note,status,created_at,updated_at")
+    .single();
+  if (error?.code === "42P01" || error?.code === "PGRST205") throw new Error("財務計劃功能尚未完成雲端初始化");
+  if (error) throw new Error("財務計劃儲存失敗");
+  return mapFinancialPlan(data);
+}
+
+export async function updateFinancialPlan(plan: FinancialPlan): Promise<FinancialPlan> {
+  if (!supabase) return plan;
+  const { data, error } = await supabase
+    .from("financial_plans")
+    .update({
+      name: plan.name,
+      goal_type: plan.goalType,
+      horizon: plan.horizon,
+      target_amount_cents: plan.targetAmountCents,
+      current_amount_cents: plan.currentAmountCents,
+      monthly_contribution_cents: plan.monthlyContributionCents,
+      target_date: plan.targetDate,
+      expected_annual_return: plan.expectedAnnualReturn,
+      risk_profile: plan.riskProfile,
+      priority: plan.priority,
+      note: plan.note || null,
+      status: plan.status
+    })
+    .eq("id", plan.id)
+    .select("id,user_id,name,goal_type,horizon,target_amount_cents,current_amount_cents,monthly_contribution_cents,target_date,expected_annual_return,risk_profile,priority,note,status,created_at,updated_at")
+    .single();
+  if (error) throw new Error("財務計劃更新失敗");
+  return mapFinancialPlan(data);
+}
+
+export async function deleteFinancialPlan(id: string): Promise<void> {
+  if (!supabase) return;
+  const { error } = await supabase.from("financial_plans").update({ deleted_at: new Date().toISOString() }).eq("id", id);
+  if (error) throw new Error("財務計劃刪除失敗");
+}
+
 export async function createTransactionWithCategory(transaction: Transaction, ledgerId?: string): Promise<Transaction> {
   if (!supabase) return transaction;
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
@@ -1105,6 +1178,27 @@ function mapInvestmentCategory(row: Record<string, unknown>): InvestmentCategory
     risk: String(row.risk) as InvestmentCategory["risk"],
     note: nullableString(row.note),
     isActive: Boolean(row.is_active),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
+  };
+}
+
+function mapFinancialPlan(row: Record<string, unknown>): FinancialPlan {
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    name: String(row.name),
+    goalType: String(row.goal_type) as FinancialPlan["goalType"],
+    horizon: String(row.horizon) as FinancialPlan["horizon"],
+    targetAmountCents: toNumber(row.target_amount_cents),
+    currentAmountCents: toNumber(row.current_amount_cents),
+    monthlyContributionCents: toNumber(row.monthly_contribution_cents),
+    targetDate: String(row.target_date),
+    expectedAnnualReturn: Number(row.expected_annual_return ?? 0),
+    riskProfile: String(row.risk_profile) as FinancialPlan["riskProfile"],
+    priority: toNumber(row.priority),
+    note: nullableString(row.note),
+    status: String(row.status) as FinancialPlan["status"],
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)
   };

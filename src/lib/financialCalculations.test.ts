@@ -4,6 +4,7 @@ import {
   calculateDeposit,
   calculateEmergencyFundMonths,
   calculateEqualPayment,
+  calculateFinancialPlan,
   calculateLoan,
   calculateMonthlyBalance,
   calculateNetWorth,
@@ -121,6 +122,57 @@ describe("deposit calculations", () => {
 
     expect(result.maturityAmountCents).toBeGreaterThan(70_000_00);
     expect(result.schedule).toHaveLength(12);
+  });
+});
+
+describe("financial plan calculations", () => {
+  it("calculates the required monthly amount without an assumed return", () => {
+    const result = calculateFinancialPlan({
+      targetAmountCents: 120_000_00,
+      currentAmountCents: 0,
+      monthlyContributionCents: 8_000_00,
+      expectedAnnualReturn: 0,
+      monthsToTarget: 12
+    });
+
+    expect(result.requiredMonthlyContributionCents).toBe(10_000_00);
+    expect(result.projectedAmountCents).toBe(96_000_00);
+    expect(result.projectedShortfallCents).toBe(24_000_00);
+    expect(result.schedule).toHaveLength(12);
+  });
+
+  it("reduces required monthly contribution when a positive return is used", () => {
+    const withoutReturn = calculateFinancialPlan({
+      targetAmountCents: 240_000_00,
+      currentAmountCents: 20_000_00,
+      monthlyContributionCents: 0,
+      expectedAnnualReturn: 0,
+      monthsToTarget: 24
+    });
+    const withReturn = calculateFinancialPlan({
+      targetAmountCents: 240_000_00,
+      currentAmountCents: 20_000_00,
+      monthlyContributionCents: 0,
+      expectedAnnualReturn: 0.06,
+      monthsToTarget: 24
+    });
+
+    expect(withReturn.requiredMonthlyContributionCents).toBeLessThan(withoutReturn.requiredMonthlyContributionCents);
+  });
+
+  it("handles a reached target and zero contribution safely", () => {
+    const result = calculateFinancialPlan({
+      targetAmountCents: 100_000_00,
+      currentAmountCents: 120_000_00,
+      monthlyContributionCents: 0,
+      expectedAnnualReturn: 0,
+      monthsToTarget: 12
+    });
+
+    expect(result.requiredMonthlyContributionCents).toBe(0);
+    expect(result.monthsToGoal).toBe(0);
+    expect(result.progress).toBe(1);
+    expect(Number.isFinite(result.projectedAmountCents)).toBe(true);
   });
 });
 

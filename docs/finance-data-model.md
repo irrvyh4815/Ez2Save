@@ -32,6 +32,7 @@
 - `deposits`
 - `insurance_policies`
 - `investment_categories`
+- `financial_plans`
 - `budgets`
 - `financial_reminders`
 - `monthly_financial_summaries`
@@ -110,3 +111,13 @@ Apply `supabase/migrations/202607140003_auth_profiles_admin.sql` to enable:
 Apply `supabase/migrations/202607130002_credit_card_installment_debt_details.sql` before deploying the installment debt UI.
 
 Apply `supabase/migrations/202607220008_investment_categories.sql` to store investment categories per ledger with the same member-based access rules.
+
+## Financial Plans
+
+`financial_plans` stores target-based plans for short-, medium-, and long-term goals. Each plan records:
+
+- target and current amounts in cents
+- monthly contribution, target date, and assumed annual growth rate
+- risk profile, priority, and progress status
+
+Apply `supabase/migrations/202607220009_financial_plans.sql` after the ledger and access-hardening migrations. It uses the same ledger-member RLS policies and does not modify existing financial records.

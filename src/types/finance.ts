@@ -226,6 +226,35 @@ export interface InvestmentCategory extends BaseEntity {
   isActive: boolean;
 }
 
+export type FinancialPlanGoalType =
+  | "emergency_fund"
+  | "debt_repayment"
+  | "major_purchase"
+  | "education"
+  | "home"
+  | "retirement"
+  | "investment"
+  | "custom";
+
+export type FinancialPlanHorizon = "short" | "medium" | "long";
+export type FinancialPlanRiskProfile = "conservative" | "balanced" | "growth";
+export type FinancialPlanStatus = "active" | "paused" | "completed";
+
+export interface FinancialPlan extends BaseEntity {
+  name: string;
+  goalType: FinancialPlanGoalType;
+  horizon: FinancialPlanHorizon;
+  targetAmountCents: number;
+  currentAmountCents: number;
+  monthlyContributionCents: number;
+  targetDate: string;
+  expectedAnnualReturn: number;
+  riskProfile: FinancialPlanRiskProfile;
+  priority: number;
+  note?: string;
+  status: FinancialPlanStatus;
+}
+
 export interface DashboardSummary {
   totalAssetsCents: number;
   totalLiabilitiesCents: number;
