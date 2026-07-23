@@ -1,15 +1,41 @@
-const amountFormatter = new Intl.NumberFormat("zh-TW", {
-  style: "currency",
-  currency: "TWD",
-  maximumFractionDigits: 0
-});
+import type { CurrencyCode, InvestmentQuoteCurrency } from "../types/finance";
+
+let defaultMoneyCurrency: CurrencyCode = "TWD";
 
 const numberFormatter = new Intl.NumberFormat("zh-TW", {
   maximumFractionDigits: 0
 });
 
-export function formatMoney(cents: number): string {
-  return amountFormatter.format(Math.round(cents / 100));
+export function setDefaultMoneyCurrency(currency: CurrencyCode): void {
+  defaultMoneyCurrency = currency;
+}
+
+export function formatMoney(cents: number, currency: CurrencyCode = defaultMoneyCurrency): string {
+  return new Intl.NumberFormat("zh-TW", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: currency === "TWD" || currency === "JPY" ? 0 : 2
+  }).format(cents / 100);
+}
+
+export function formatCompactMoney(cents: number, currency: CurrencyCode = defaultMoneyCurrency): string {
+  const amount = cents / 100;
+  return new Intl.NumberFormat("zh-TW", {
+    style: "currency",
+    currency,
+    notation: Math.abs(amount) >= 1_000_000 ? "compact" : "standard",
+    maximumFractionDigits: currency === "TWD" || currency === "JPY" ? 0 : 2
+  }).format(amount);
+}
+
+export function formatCurrencyAmount(value: number, currency: InvestmentQuoteCurrency): string {
+  if (!Number.isFinite(value)) return `${currency} 0`;
+  if (currency === "USDT") return `USDT ${value.toLocaleString("zh-TW", { maximumFractionDigits: 4 })}`;
+  return new Intl.NumberFormat("zh-TW", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: currency === "TWD" || currency === "JPY" ? 0 : 4
+  }).format(value);
 }
 
 export function formatNumber(value: number): string {

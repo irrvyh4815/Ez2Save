@@ -1,4 +1,5 @@
-export type CurrencyCode = "TWD";
+export type CurrencyCode = "TWD" | "USD" | "JPY" | "EUR" | "GBP" | "CNY" | "HKD" | "SGD";
+export type InvestmentQuoteCurrency = CurrencyCode | "USDT";
 
 export type AccountType =
   | "cash"
@@ -196,6 +197,7 @@ export interface LedgerBook extends BaseEntity {
   name: string;
   purpose: "personal" | "family" | "business" | "investment" | "custom";
   color: "emerald" | "sky" | "violet" | "amber" | "rose";
+  currency: CurrencyCode;
   note?: string;
   isDefault: boolean;
   isShared: boolean;
@@ -229,10 +231,26 @@ export interface InsurancePolicy extends BaseEntity {
 
 export interface InvestmentCategory extends BaseEntity {
   name: string;
-  kind: "tw_stock" | "us_stock" | "etf" | "mutual_fund" | "bond_fund" | "money_market" | "other";
-  market: "TW" | "US" | "GLOBAL";
+  kind: "tw_stock" | "us_stock" | "etf" | "mutual_fund" | "bond_fund" | "money_market" | "forex" | "crypto" | "other";
+  market: "TW" | "US" | "GLOBAL" | "FX" | "CRYPTO";
   targetAllocation: number;
   risk: "low" | "medium" | "high";
+  note?: string;
+  isActive: boolean;
+}
+
+export interface InvestmentAsset extends BaseEntity {
+  categoryId?: string;
+  assetType: "forex" | "crypto";
+  symbol: string;
+  name: string;
+  quantity: number;
+  quoteCurrency: InvestmentQuoteCurrency;
+  averageUnitCost: number;
+  currentUnitPrice: number;
+  exchangeRateToLedger: number;
+  platform?: string;
+  acquiredDate?: string;
   note?: string;
   isActive: boolean;
 }

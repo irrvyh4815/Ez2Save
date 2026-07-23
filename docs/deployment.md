@@ -32,6 +32,7 @@ supabase db push
 - `202607220009_financial_plans.sql` 已套用
 - `202607220010_ledger_notification_preferences.sql` 已套用
 - `202607230011_security_hardening.sql` 已套用
+- `202607230012_ledger_currencies_forex_crypto.sql` 已套用
 
 ## Vercel
 

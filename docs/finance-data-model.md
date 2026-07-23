@@ -32,6 +32,8 @@
 - `deposits`
 - `insurance_policies`
 - `investment_categories`
+- `investment_assets`
+- `ledger_currency_conversions`
 - `financial_plans`
 - `ledger_notification_preferences`
 - `budgets`
@@ -137,3 +139,15 @@ Apply `supabase/migrations/202607220010_ledger_notification_preferences.sql` aft
 ## Security Hardening
 
 Apply `supabase/migrations/202607230011_security_hardening.sql` after all previous migrations. It keeps RLS enforced for every finance and ledger table, and makes financial record ownership, ledger ownership, membership identity, and invitation ownership immutable after creation. Existing financial records are not changed.
+
+## Ledger Currencies And Alternative Assets
+
+Apply `supabase/migrations/202607230012_ledger_currencies_forex_crypto.sql` to add:
+
+- a base currency for each ledger
+- transaction-safe ledger currency conversion with an audit record
+- foreign exchange and cryptocurrency holdings
+- quantity, average cost, manual current price, quote currency, and ledger conversion rate
+- ledger-member RLS and same-ledger category validation
+
+Currency conversion multiplies all monetary `_cents` columns in the selected ledger by the user-confirmed conversion rate. The operation runs in one PostgreSQL transaction and rolls back completely if any table cannot be converted.

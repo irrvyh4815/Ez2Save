@@ -5,6 +5,7 @@ import {
   calculateEmergencyFundMonths,
   calculateEqualPayment,
   calculateFinancialPlan,
+  calculateInvestmentAssetValuation,
   calculateLoan,
   calculateMonthlyBalance,
   calculateNetWorth,
@@ -275,6 +276,35 @@ describe("credit card billing", () => {
   it("splits current and next statement by statement day", () => {
     expect(getCreditCardBillingBucket("2026-07-20", 20)).toBe("current");
     expect(getCreditCardBillingBucket("2026-07-21", 20)).toBe("next");
+  });
+});
+
+describe("investment asset valuation", () => {
+  it("calculates foreign currency value in the ledger currency", () => {
+    const result = calculateInvestmentAssetValuation({
+      quantity: 1_000,
+      averageUnitCost: 31,
+      currentUnitPrice: 32.5,
+      exchangeRateToLedger: 1
+    });
+
+    expect(result.costCents).toBe(3_100_000);
+    expect(result.currentValueCents).toBe(3_250_000);
+    expect(result.profitLossCents).toBe(150_000);
+    expect(result.returnRate).toBeCloseTo(0.048387, 5);
+  });
+
+  it("converts crypto quoted in USD into TWD", () => {
+    const result = calculateInvestmentAssetValuation({
+      quantity: 0.5,
+      averageUnitCost: 50_000,
+      currentUnitPrice: 60_000,
+      exchangeRateToLedger: 32
+    });
+
+    expect(result.costCents).toBe(80_000_000);
+    expect(result.currentValueCents).toBe(96_000_000);
+    expect(result.returnRate).toBeCloseTo(0.2);
   });
 });
 

@@ -4,6 +4,7 @@ import type {
   DepositInterestType,
   FinancialPlanRiskProfile,
   FinancialAccount,
+  InvestmentAsset,
   Loan,
   LoanRepaymentMethod,
   Transaction
@@ -93,8 +94,31 @@ export interface FinancialPlanAllocation {
   label: string;
 }
 
+export interface InvestmentAssetValuation {
+  costCents: number;
+  currentValueCents: number;
+  profitLossCents: number;
+  returnRate: number;
+}
+
 const cents = (value: number) => Math.round(value);
 const safeDivide = (numerator: number, denominator: number) => (denominator === 0 ? 0 : numerator / denominator);
+
+export function calculateInvestmentAssetValuation(asset: Pick<InvestmentAsset, "quantity" | "averageUnitCost" | "currentUnitPrice" | "exchangeRateToLedger">): InvestmentAssetValuation {
+  const quantity = Math.max(0, Number.isFinite(asset.quantity) ? asset.quantity : 0);
+  const averageUnitCost = Math.max(0, Number.isFinite(asset.averageUnitCost) ? asset.averageUnitCost : 0);
+  const currentUnitPrice = Math.max(0, Number.isFinite(asset.currentUnitPrice) ? asset.currentUnitPrice : 0);
+  const exchangeRate = Math.max(0, Number.isFinite(asset.exchangeRateToLedger) ? asset.exchangeRateToLedger : 0);
+  const costCents = cents(quantity * averageUnitCost * exchangeRate * 100);
+  const currentValueCents = cents(quantity * currentUnitPrice * exchangeRate * 100);
+  const profitLossCents = currentValueCents - costCents;
+  return {
+    costCents,
+    currentValueCents,
+    profitLossCents,
+    returnRate: safeDivide(profitLossCents, costCents)
+  };
+}
 
 export function calculateFinancialPlan(input: FinancialPlanCalculationInput): FinancialPlanCalculationResult {
   const targetAmountCents = Math.max(0, cents(input.targetAmountCents));

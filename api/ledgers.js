@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 const requestBuckets = new Map();
 const purposes = new Set(["personal", "family", "business", "investment", "custom"]);
 const colors = new Set(["emerald", "sky", "violet", "amber", "rose"]);
+const currencies = new Set(["TWD", "USD", "JPY", "EUR", "GBP", "CNY", "HKD", "SGD"]);
 const maxRequestBytes = 16 * 1024;
 
 export const config = {
@@ -23,7 +24,7 @@ function getBearerToken(request) {
 }
 
 function isSchemaUnavailable(error) {
-  return ["42P01", "PGRST205"].includes(error?.code);
+  return ["42P01", "42703", "PGRST204", "PGRST205"].includes(error?.code);
 }
 
 function allowRequest(userId) {
@@ -49,10 +50,11 @@ function readInput(body) {
   const name = sanitizeText(body.name, 80);
   const purpose = String(body.purpose || "custom");
   const color = String(body.color || "emerald");
+  const currency = String(body.currency || "TWD").toUpperCase();
   const note = sanitizeText(body.note, 500);
   if (!name) return { error: "請輸入帳本名稱" };
-  if (!purposes.has(purpose) || !colors.has(color)) return { error: "帳本資料格式不正確" };
-  return { name, purpose, color, note, isShared: Boolean(body.isShared) };
+  if (!purposes.has(purpose) || !colors.has(color) || !currencies.has(currency)) return { error: "帳本資料格式不正確" };
+  return { name, purpose, color, currency, note, isShared: Boolean(body.isShared) };
 }
 
 export default async function handler(request, response) {
@@ -83,25 +85,42 @@ export default async function handler(request, response) {
     const { data: authData, error: authError } = await serviceClient.auth.getUser(token);
     if (authError || !authData.user) return sendJson(response, 401, { error: "登入狀態已失效，請重新登入" });
     if (!allowRequest(authData.user.id)) return sendJson(response, 429, { error: "建立帳本操作過於頻繁，請稍後再試" });
-    const { data, error } = await serviceClient
+    let result = await serviceClient
       .from("ledger_books")
       .insert({
         owner_user_id: authData.user.id,
         name: input.name,
         purpose: input.purpose,
         color: input.color,
+        base_currency: input.currency,
         note: input.note || null,
         is_default: false,
         is_shared: input.isShared
       })
-      .select("id,owner_user_id,name,purpose,color,note,is_default,is_shared,created_at,updated_at")
+      .select("id,owner_user_id,name,purpose,color,base_currency,note,is_default,is_shared,created_at,updated_at")
       .single();
 
-    if (error) {
-      if (isSchemaUnavailable(error)) return sendJson(response, 503, { error: "帳本功能尚未完成雲端初始化" });
+    if (result.error && isSchemaUnavailable(result.error) && input.currency === "TWD") {
+      result = await serviceClient
+        .from("ledger_books")
+        .insert({
+          owner_user_id: authData.user.id,
+          name: input.name,
+          purpose: input.purpose,
+          color: input.color,
+          note: input.note || null,
+          is_default: false,
+          is_shared: input.isShared
+        })
+        .select("id,owner_user_id,name,purpose,color,note,is_default,is_shared,created_at,updated_at")
+        .single();
+    }
+
+    if (result.error) {
+      if (isSchemaUnavailable(result.error)) return sendJson(response, 503, { error: "帳本幣別功能尚未完成雲端初始化" });
       return sendJson(response, 500, { error: "帳本建立未完成，請稍後再試" });
     }
-    return sendJson(response, 201, { ledger: data });
+    return sendJson(response, 201, { ledger: result.data });
   } catch {
     return sendJson(response, 500, { error: "帳本建立未完成，請稍後再試" });
   }

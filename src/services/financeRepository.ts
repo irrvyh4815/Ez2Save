@@ -11,6 +11,7 @@ import type {
   FinancialReminder,
   NotificationPreference,
   InsurancePolicy,
+  InvestmentAsset,
   InvestmentCategory,
   LedgerBook,
   LedgerInvitation,
@@ -30,6 +31,7 @@ export interface FinanceData {
   reminders: FinancialReminder[];
   insurancePolicies: InsurancePolicy[];
   investmentCategories: InvestmentCategory[];
+  investmentAssets: InvestmentAsset[];
   financialPlans: FinancialPlan[];
   notificationPreferences: NotificationPreference[];
   categories: string[];
@@ -70,6 +72,7 @@ export const emptyFinanceData: FinanceData = {
   reminders: [],
   insurancePolicies: [],
   investmentCategories: [],
+  investmentAssets: [],
   financialPlans: [],
   notificationPreferences: [],
   categories: []
@@ -265,6 +268,7 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
     categories,
     insurancePolicies,
     investmentCategories,
+    investmentAssets,
     financialPlans,
     notificationPreferences
   ] = await Promise.all([
@@ -327,6 +331,12 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
       .eq("is_active", true)
       .order("created_at", { ascending: false }),
     scoped(supabase
+      .from("investment_assets")
+      .select("id,user_id,category_id,asset_type,symbol,name,quantity,quote_currency,average_unit_cost,current_unit_price,exchange_rate_to_ledger,platform,acquired_date,note,is_active,created_at,updated_at"))
+      .is("deleted_at", null)
+      .eq("is_active", true)
+      .order("created_at", { ascending: false }),
+    scoped(supabase
       .from("financial_plans")
       .select("id,user_id,name,goal_type,horizon,target_amount_cents,current_amount_cents,monthly_contribution_cents,target_date,expected_annual_return,risk_profile,priority,note,status,created_at,updated_at"))
       .is("deleted_at", null)
@@ -345,6 +355,8 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
   if (insurancePolicies.error && !insuranceTableUnavailable) throw new Error("保險資料讀取失敗");
   const investmentsTableUnavailable = investmentCategories.error?.code === "42P01" || investmentCategories.error?.code === "PGRST205";
   if (investmentCategories.error && !investmentsTableUnavailable) throw new Error("投資資料讀取失敗");
+  const investmentAssetsUnavailable = investmentAssets.error?.code === "42P01" || investmentAssets.error?.code === "PGRST205";
+  if (investmentAssets.error && !investmentAssetsUnavailable) throw new Error("投資持倉讀取失敗");
   const plansTableUnavailable = financialPlans.error?.code === "42P01" || financialPlans.error?.code === "PGRST205";
   if (financialPlans.error && !plansTableUnavailable) throw new Error("財務計劃讀取失敗");
   const preferencesTableUnavailable = notificationPreferences.error?.code === "42P01" || notificationPreferences.error?.code === "PGRST205";
@@ -364,6 +376,7 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
       reminders: (reminders.data ?? []).map(mapReminder),
       insurancePolicies: (insurancePolicies.data ?? []).map(mapInsurancePolicy),
       investmentCategories: (investmentCategories.data ?? []).map(mapInvestmentCategory),
+      investmentAssets: (investmentAssets.data ?? []).map(mapInvestmentAsset),
       financialPlans: (financialPlans.data ?? []).map(mapFinancialPlan),
       notificationPreferences: (notificationPreferences.data ?? []).map(mapNotificationPreference),
       categories: [...new Set((categories.data ?? []).map((row) => String(row.name)).filter(Boolean))]
@@ -373,14 +386,22 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
 
 export async function loadLedgerBooks(): Promise<LedgerBook[]> {
   if (!supabase) return [];
-  const { data, error } = await supabase
+  const result = await supabase
+    .from("ledger_books")
+    .select("id,owner_user_id,name,purpose,color,base_currency,note,is_default,is_shared,created_at,updated_at")
+    .is("deleted_at", null)
+    .order("is_default", { ascending: false })
+    .order("created_at", { ascending: true });
+  if (!result.error) return (result.data ?? []).map(mapLedgerBook);
+  if (!["42703", "PGRST204"].includes(result.error.code ?? "")) throw new Error("帳本資料讀取失敗，請確認帳本 migration 與 RLS 設定");
+  const fallback = await supabase
     .from("ledger_books")
     .select("id,owner_user_id,name,purpose,color,note,is_default,is_shared,created_at,updated_at")
     .is("deleted_at", null)
     .order("is_default", { ascending: false })
     .order("created_at", { ascending: true });
-  if (error) throw new Error("帳本資料讀取失敗，請確認帳本 migration 與 RLS 設定");
-  return (data ?? []).map(mapLedgerBook);
+  if (fallback.error) throw new Error("帳本資料讀取失敗，請確認帳本 migration 與 RLS 設定");
+  return (fallback.data ?? []).map(mapLedgerBook);
 }
 
 export async function loadAllLedgerNotificationData(): Promise<LedgerNotificationData[]> {
@@ -454,6 +475,7 @@ export async function createLedgerBook(ledger: Omit<LedgerBook, "id" | "createdA
       name: ledger.name,
       purpose: ledger.purpose,
       color: ledger.color,
+      currency: ledger.currency,
       note: ledger.note,
       isShared: ledger.isShared
     })
@@ -464,8 +486,8 @@ export async function createLedgerBook(ledger: Omit<LedgerBook, "id" | "createdA
 
   const { data, error } = await supabase
     .from("ledger_books")
-    .insert({ owner_user_id: sessionData.session.user.id, name: ledger.name, purpose: ledger.purpose, color: ledger.color, note: ledger.note || null, is_default: ledger.isDefault, is_shared: ledger.isShared })
-    .select("id,owner_user_id,name,purpose,color,note,is_default,is_shared,created_at,updated_at")
+    .insert({ owner_user_id: sessionData.session.user.id, name: ledger.name, purpose: ledger.purpose, color: ledger.color, base_currency: ledger.currency, note: ledger.note || null, is_default: ledger.isDefault, is_shared: ledger.isShared })
+    .select("id,owner_user_id,name,purpose,color,base_currency,note,is_default,is_shared,created_at,updated_at")
     .single();
   if (error) throw new Error("帳本建立失敗");
   return mapLedgerBook(data);
@@ -473,14 +495,34 @@ export async function createLedgerBook(ledger: Omit<LedgerBook, "id" | "createdA
 
 export async function updateLedgerBook(ledger: LedgerBook): Promise<LedgerBook> {
   if (!supabase) throw new Error("請先登入再更新帳本");
-  const { data, error } = await supabase
+  const result = await supabase
+    .from("ledger_books")
+    .update({ name: ledger.name, purpose: ledger.purpose, color: ledger.color, note: ledger.note || null, is_shared: ledger.isShared })
+    .eq("id", ledger.id)
+    .select("id,owner_user_id,name,purpose,color,base_currency,note,is_default,is_shared,created_at,updated_at")
+    .single();
+  if (!result.error) return mapLedgerBook(result.data);
+  if (!["42703", "PGRST204"].includes(result.error.code ?? "")) throw new Error("帳本更新失敗");
+  const fallback = await supabase
     .from("ledger_books")
     .update({ name: ledger.name, purpose: ledger.purpose, color: ledger.color, note: ledger.note || null, is_shared: ledger.isShared })
     .eq("id", ledger.id)
     .select("id,owner_user_id,name,purpose,color,note,is_default,is_shared,created_at,updated_at")
     .single();
-  if (error) throw new Error("帳本更新失敗");
-  return mapLedgerBook(data);
+  if (fallback.error) throw new Error("帳本更新失敗");
+  return mapLedgerBook(fallback.data);
+}
+
+export async function convertLedgerCurrency(ledgerId: string, targetCurrency: LedgerBook["currency"], conversionRate: number): Promise<void> {
+  if (!supabase) throw new Error("請先登入再轉換帳本幣別");
+  if (!Number.isFinite(conversionRate) || conversionRate <= 0 || conversionRate > 1_000_000) throw new Error("請輸入有效的幣別轉換匯率");
+  const { error } = await supabase.rpc("convert_ledger_currency", {
+    p_ledger_id: ledgerId,
+    p_to_currency: targetCurrency,
+    p_conversion_rate: conversionRate
+  });
+  if (error?.code === "42883" || error?.code === "PGRST202") throw new Error("幣別轉換功能尚未完成雲端初始化");
+  if (error) throw new Error("帳本幣別轉換失敗，資料未變更");
 }
 
 export async function deleteLedgerBook(id: string): Promise<void> {
@@ -885,6 +927,70 @@ export async function deleteInvestmentCategory(id: string): Promise<void> {
   if (error) throw new Error("投資分類刪除失敗");
 }
 
+export async function createInvestmentAsset(asset: InvestmentAsset, ledgerId?: string): Promise<InvestmentAsset> {
+  if (!supabase) return asset;
+  const session = await getCurrentSession();
+  if (!session || !ledgerId) throw new Error("請先登入並選擇帳本");
+  const { data, error } = await supabase
+    .from("investment_assets")
+    .insert({
+      user_id: session.user.id,
+      ledger_id: ledgerId,
+      category_id: asset.categoryId || null,
+      asset_type: asset.assetType,
+      symbol: asset.symbol,
+      name: asset.name,
+      quantity: asset.quantity,
+      quote_currency: asset.quoteCurrency,
+      average_unit_cost: asset.averageUnitCost,
+      current_unit_price: asset.currentUnitPrice,
+      exchange_rate_to_ledger: asset.exchangeRateToLedger,
+      platform: asset.platform || null,
+      acquired_date: asset.acquiredDate || null,
+      note: asset.note || null,
+      is_active: asset.isActive
+    })
+    .select("id,user_id,category_id,asset_type,symbol,name,quantity,quote_currency,average_unit_cost,current_unit_price,exchange_rate_to_ledger,platform,acquired_date,note,is_active,created_at,updated_at")
+    .single();
+  if (error?.code === "42P01" || error?.code === "PGRST205") throw new Error("外匯與加密貨幣功能尚未完成雲端初始化");
+  if (error) throw new Error("投資持倉儲存失敗");
+  return mapInvestmentAsset(data);
+}
+
+export async function updateInvestmentAsset(asset: InvestmentAsset): Promise<InvestmentAsset> {
+  if (!supabase) return asset;
+  const { data, error } = await supabase
+    .from("investment_assets")
+    .update({
+      category_id: asset.categoryId || null,
+      symbol: asset.symbol,
+      name: asset.name,
+      quantity: asset.quantity,
+      quote_currency: asset.quoteCurrency,
+      average_unit_cost: asset.averageUnitCost,
+      current_unit_price: asset.currentUnitPrice,
+      exchange_rate_to_ledger: asset.exchangeRateToLedger,
+      platform: asset.platform || null,
+      acquired_date: asset.acquiredDate || null,
+      note: asset.note || null,
+      is_active: asset.isActive
+    })
+    .eq("id", asset.id)
+    .select("id,user_id,category_id,asset_type,symbol,name,quantity,quote_currency,average_unit_cost,current_unit_price,exchange_rate_to_ledger,platform,acquired_date,note,is_active,created_at,updated_at")
+    .single();
+  if (error) throw new Error("投資持倉更新失敗");
+  return mapInvestmentAsset(data);
+}
+
+export async function deleteInvestmentAsset(id: string): Promise<void> {
+  if (!supabase) return;
+  const { error } = await supabase
+    .from("investment_assets")
+    .update({ deleted_at: new Date().toISOString(), is_active: false })
+    .eq("id", id);
+  if (error) throw new Error("投資持倉刪除失敗");
+}
+
 export async function createFinancialPlan(plan: FinancialPlan, ledgerId?: string): Promise<FinancialPlan> {
   if (!supabase) return plan;
   const session = await getCurrentSession();
@@ -1282,6 +1388,28 @@ function mapInvestmentCategory(row: Record<string, unknown>): InvestmentCategory
   };
 }
 
+function mapInvestmentAsset(row: Record<string, unknown>): InvestmentAsset {
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    categoryId: nullableString(row.category_id),
+    assetType: String(row.asset_type) as InvestmentAsset["assetType"],
+    symbol: String(row.symbol),
+    name: String(row.name),
+    quantity: Number(row.quantity ?? 0),
+    quoteCurrency: String(row.quote_currency) as InvestmentAsset["quoteCurrency"],
+    averageUnitCost: Number(row.average_unit_cost ?? 0),
+    currentUnitPrice: Number(row.current_unit_price ?? 0),
+    exchangeRateToLedger: Number(row.exchange_rate_to_ledger ?? 1),
+    platform: nullableString(row.platform),
+    acquiredDate: nullableString(row.acquired_date),
+    note: nullableString(row.note),
+    isActive: Boolean(row.is_active),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
+  };
+}
+
 function mapFinancialPlan(row: Record<string, unknown>): FinancialPlan {
   return {
     id: String(row.id),
@@ -1325,6 +1453,7 @@ function mapLedgerBook(row: Record<string, unknown>): LedgerBook {
     name: String(row.name),
     purpose: String(row.purpose) as LedgerBook["purpose"],
     color: String(row.color) as LedgerBook["color"],
+    currency: String(row.base_currency || "TWD") as LedgerBook["currency"],
     note: nullableString(row.note),
     isDefault: Boolean(row.is_default),
     isShared: Boolean(row.is_shared),

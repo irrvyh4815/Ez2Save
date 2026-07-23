@@ -52,6 +52,7 @@ supabase db push
 - `supabase/migrations/202607220009_financial_plans.sql`
 - `supabase/migrations/202607220010_ledger_notification_preferences.sql`
 - `supabase/migrations/202607230011_security_hardening.sql`
+- `supabase/migrations/202607230012_ledger_currencies_forex_crypto.sql`
 
 所有個人理財表都啟用 RLS。新版安全模型以 `ledger_id` + `ledger_members` 隔離資料；使用者必須是帳本成員才可讀取，且只有 `owner`、`admin`、`editor` 可寫入。
 

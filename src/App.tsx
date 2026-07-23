@@ -2,11 +2,13 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowDownRight,
+  ArrowRightLeft,
   ArrowUpRight,
   Banknote,
   BarChart3,
   Bell,
   Bot,
+  Bitcoin,
   BookOpen,
   Calculator,
   CalendarClock,
@@ -43,6 +45,7 @@ import type React from "react";
 import {
   calculateDeposit,
   calculateFinancialPlan,
+  calculateInvestmentAssetValuation,
   getFinancialPlanAllocation,
   calculateLoan,
   summarizeDashboard,
@@ -50,7 +53,7 @@ import {
   type FinancialPlanCalculationResult,
   type LoanCalculationInput
 } from "./lib/financialCalculations";
-import { currentTaipeiMonth, formatDate, formatMoney, formatPercent, parseMoneyToCents } from "./lib/format";
+import { currentTaipeiMonth, formatCompactMoney, formatCurrencyAmount, formatDate, formatMoney, formatPercent, parseMoneyToCents, setDefaultMoneyCurrency } from "./lib/format";
 import { parseTransactionsCsv } from "./lib/csv";
 import { combineValidations, validateAnnualRate, validateDateRange, validatePositiveAmount } from "./lib/validation";
 import { exportReportToExcel, exportReportToPdf } from "./lib/reportExport";
@@ -68,6 +71,7 @@ import {
   createCreditCard,
   createCreditCardInstallment,
   createInsurancePolicy,
+  createInvestmentAsset,
   createInvestmentCategory,
   createFinancialPlan,
   createLoan,
@@ -78,6 +82,7 @@ import {
   deleteFinancialAccount,
   deleteFinancialReminder,
   deleteInsurancePolicy,
+  deleteInvestmentAsset,
   deleteInvestmentCategory,
   deleteFinancialPlan,
   deleteLoan,
@@ -94,10 +99,12 @@ import {
   signOut,
   deleteLedgerBook,
   updateLedgerBook,
+  convertLedgerCurrency,
   updateBudget,
   updateCreditCard,
   updateFinancialAccount,
   updateFinancialPlan,
+  updateInvestmentAsset,
   updateLoan,
   updateOwnPassword,
   updateOwnProfile,
@@ -115,7 +122,9 @@ import type {
   FinancialReminder,
   NotificationPreference,
   InsurancePolicy,
+  InvestmentAsset,
   InvestmentCategory,
+  CurrencyCode,
   LedgerBook as PersistedLedgerBook,
   LedgerInvitation as PersistedLedgerInvitation,
   Loan,
@@ -173,6 +182,7 @@ type LedgerBook = {
   owner: string;
   purpose: "personal" | "family" | "business" | "investment" | "custom";
   color: "emerald" | "sky" | "violet" | "amber" | "rose";
+  currency: CurrencyCode;
   note: string;
   isShared: boolean;
   createdAt: string;
@@ -201,6 +211,7 @@ type FinanceSnapshot = {
   rememberedCategories: string[];
   insurancePolicies: InsurancePolicy[];
   investmentCategories: InvestmentCategory[];
+  investmentAssets: InvestmentAsset[];
   financialPlans: FinancialPlan[];
   notificationPreferences: NotificationPreference[];
 };
@@ -225,7 +236,7 @@ const navGroups: { title: "理財" | "投資" | "其他" | "設定"; items: { pa
   {
     title: "投資",
     items: [
-      { page: "investments", label: "股票基金", icon: TrendingUp }
+      { page: "investments", label: "投資資產", icon: TrendingUp }
     ]
   },
   {
@@ -303,9 +314,9 @@ const pageIntros: Record<Page, { eyebrow: string; title: string; description: st
     tint: "#eff6ff"
   },
   investments: {
-    eyebrow: "投資分類",
-    title: "管理股票與基金分類",
-    description: "把台股、美股、ETF、基金與其他投資分類整理好，後續持倉與報表才有清楚架構。",
+    eyebrow: "投資資產",
+    title: "股票基金、外匯與加密貨幣",
+    description: "用帳本基準幣別整理配置、外匯與加密持倉，清楚掌握成本、現值與損益。",
     accent: "#2563eb",
     tint: "#eff6ff"
   },
@@ -394,13 +405,17 @@ const investmentKindLabels: Record<InvestmentCategory["kind"], string> = {
   mutual_fund: "共同基金",
   bond_fund: "債券基金",
   money_market: "貨幣市場",
+  forex: "外匯",
+  crypto: "加密貨幣",
   other: "其他"
 };
 
 const investmentMarketLabels: Record<InvestmentCategory["market"], string> = {
   TW: "台灣",
   US: "美國",
-  GLOBAL: "全球"
+  GLOBAL: "全球",
+  FX: "外匯市場",
+  CRYPTO: "加密市場"
 };
 
 const investmentRiskLabels: Record<InvestmentCategory["risk"], string> = {
@@ -463,6 +478,17 @@ const ledgerPurposeLabels: Record<LedgerBook["purpose"], string> = {
   custom: "自訂帳本"
 };
 
+const currencyLabels: Record<CurrencyCode, string> = {
+  TWD: "新台幣 TWD",
+  USD: "美元 USD",
+  JPY: "日圓 JPY",
+  EUR: "歐元 EUR",
+  GBP: "英鎊 GBP",
+  CNY: "人民幣 CNY",
+  HKD: "港幣 HKD",
+  SGD: "新加坡幣 SGD"
+};
+
 const budgetCategoryOptions = [
   "全部",
   "餐飲",
@@ -496,6 +522,7 @@ function mapLedgerForUi(ledger: PersistedLedgerBook, currentUserId: string): Led
     owner: ledger.ownerUserId === currentUserId ? "自己" : "共用帳本",
     purpose: ledger.purpose,
     color: ledger.color,
+    currency: ledger.currency,
     note: ledger.note ?? "",
     isShared: ledger.isShared,
     createdAt: ledger.createdAt,
@@ -548,6 +575,7 @@ export default function App() {
   const [reminders, setReminders] = useState(emptyFinanceData.reminders);
   const [insurancePolicies, setInsurancePolicies] = useState<InsurancePolicy[]>([]);
   const [investmentCategories, setInvestmentCategories] = useState<InvestmentCategory[]>([]);
+  const [investmentAssets, setInvestmentAssets] = useState<InvestmentAsset[]>([]);
   const [financialPlans, setFinancialPlans] = useState<FinancialPlan[]>([]);
   const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreference[]>([]);
   const [rememberedCategories, setRememberedCategories] = useState<string[]>([]);
@@ -595,6 +623,7 @@ export default function App() {
       rememberedCategories,
       insurancePolicies,
       investmentCategories,
+      investmentAssets,
       financialPlans,
       notificationPreferences
     };
@@ -612,6 +641,7 @@ export default function App() {
     setRememberedCategories(snapshot.rememberedCategories);
     setInsurancePolicies(snapshot.insurancePolicies);
     setInvestmentCategories(snapshot.investmentCategories);
+    setInvestmentAssets(snapshot.investmentAssets);
     setFinancialPlans(snapshot.financialPlans);
     setNotificationPreferences(snapshot.notificationPreferences);
     setAiReport(null);
@@ -643,6 +673,7 @@ export default function App() {
             owner: "自己",
             purpose: "personal",
             color: "emerald",
+            currency: "TWD",
             note: "",
             isShared: false,
             createdAt: result.profile?.createdAt ?? new Date().toISOString(),
@@ -670,6 +701,7 @@ export default function App() {
         rememberedCategories: result.data.categories,
         insurancePolicies: result.data.insurancePolicies,
         investmentCategories: result.data.investmentCategories,
+        investmentAssets: result.data.investmentAssets,
         financialPlans: result.data.financialPlans,
         notificationPreferences: result.data.notificationPreferences
       };
@@ -858,6 +890,7 @@ export default function App() {
 
   const activeLedger = ledgerBooks.find((ledger) => ledger.id === activeLedgerId) ?? null;
   const activePersistedLedgerId = isPersistedLedgerId(activeLedgerId) ? activeLedgerId : undefined;
+  setDefaultMoneyCurrency(activeLedger?.currency ?? "TWD");
 
   const financeNotifications = useMemo(
     () =>
@@ -920,8 +953,8 @@ export default function App() {
     window.setTimeout(() => setLedgerTransitioning(false), 720);
   }
 
-  async function openLedger(ledgerId: string) {
-    if (activeLedgerId === ledgerId) return;
+  async function openLedger(ledgerId: string, forceReload = false) {
+    if (activeLedgerId === ledgerId && !forceReload) return;
     if (activeLedgerId) {
       setLedgerSnapshots((current) => ({ ...current, [activeLedgerId]: captureCurrentSnapshot() }));
     }
@@ -940,6 +973,7 @@ export default function App() {
         rememberedCategories: result.data.categories,
         insurancePolicies: result.data.insurancePolicies,
         investmentCategories: result.data.investmentCategories,
+        investmentAssets: result.data.investmentAssets,
         financialPlans: result.data.financialPlans,
         notificationPreferences: result.data.notificationPreferences
       };
@@ -967,6 +1001,7 @@ export default function App() {
         name,
         purpose: String(formData.get("purpose") ?? "custom") as PersistedLedgerBook["purpose"],
         color: String(formData.get("color") ?? "emerald") as PersistedLedgerBook["color"],
+        currency: String(formData.get("currency") ?? "TWD") as CurrencyCode,
         note: String(formData.get("note") ?? "").trim() || undefined,
         isDefault: false,
         isShared: formData.get("isShared") === "on"
@@ -986,6 +1021,16 @@ export default function App() {
     const current = ledgerBooks.find((ledger) => ledger.id === ledgerId);
     if (!currentProfile?.userId || !current || !isPersistedLedgerId(ledgerId)) return notify("error", "此帳本尚未完成雲端設定");
     try {
+      const nextCurrency = String(formData.get("currency") ?? current.currency) as CurrencyCode;
+      const currencyChanged = nextCurrency !== current.currency;
+      if (currencyChanged) {
+        const conversionRate = Number(formData.get("conversionRate"));
+        if (!Number.isFinite(conversionRate) || conversionRate <= 0) {
+          return notify("error", `請輸入 1 ${current.currency} 可換算多少 ${nextCurrency}`);
+        }
+        if (!window.confirm(`確定將「${current.name}」從 ${current.currency} 轉換為 ${nextCurrency}？所有帳務金額會依匯率 ${conversionRate} 換算並留下紀錄。`)) return;
+        await convertLedgerCurrency(ledgerId, nextCurrency, conversionRate);
+      }
       const saved = await updateLedgerBook({
         id: current.id,
         userId: currentProfile.userId,
@@ -993,6 +1038,7 @@ export default function App() {
         name,
         purpose: String(formData.get("purpose") ?? current.purpose) as PersistedLedgerBook["purpose"],
         color: String(formData.get("color") ?? current.color) as PersistedLedgerBook["color"],
+        currency: nextCurrency,
         note: String(formData.get("note") ?? "").trim() || undefined,
         isDefault: false,
         isShared: current.isShared,
@@ -1001,6 +1047,7 @@ export default function App() {
       });
       const ledger = mapLedgerForUi(saved, currentProfile.userId);
       setLedgerBooks((items) => items.map((item) => item.id === ledgerId ? ledger : item));
+      if (currencyChanged && activeLedgerId === ledgerId) await openLedger(ledgerId, true);
       notify("success", "帳本已更新");
     } catch (error) {
       notify("error", error instanceof Error ? error.message : "帳本更新失敗");
@@ -1041,6 +1088,7 @@ export default function App() {
         name: current.name,
         purpose: current.purpose,
         color: current.color,
+        currency: current.currency,
         note: current.note || undefined,
         isDefault: false,
         isShared: enabled,
@@ -1451,6 +1499,37 @@ export default function App() {
     }
   }
 
+  async function addInvestmentAsset(asset: InvestmentAsset) {
+    try {
+      const saved = await createInvestmentAsset(asset, activePersistedLedgerId);
+      setInvestmentAssets((current) => [saved, ...current]);
+      notify("success", "投資持倉已儲存");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "投資持倉儲存失敗");
+    }
+  }
+
+  async function saveInvestmentAsset(asset: InvestmentAsset) {
+    try {
+      const saved = await updateInvestmentAsset(asset);
+      setInvestmentAssets((current) => current.map((item) => item.id === saved.id ? saved : item));
+      notify("success", "投資持倉已更新");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "投資持倉更新失敗");
+    }
+  }
+
+  async function removeInvestmentAsset(asset: InvestmentAsset) {
+    if (!window.confirm(`確定刪除「${asset.name}」持倉？`)) return;
+    try {
+      await deleteInvestmentAsset(asset.id);
+      setInvestmentAssets((current) => current.filter((item) => item.id !== asset.id));
+      notify("success", "投資持倉已刪除");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "投資持倉刪除失敗");
+    }
+  }
+
   async function addFinancialPlan(plan: FinancialPlan) {
     try {
       const saved = await createFinancialPlan(plan, activePersistedLedgerId);
@@ -1775,7 +1854,19 @@ export default function App() {
                 notify={notify}
               />
             )}
-            {page === "investments" && <InvestmentsPage categories={investmentCategories} onAdd={addInvestmentCategory} onDelete={removeInvestmentCategory} notify={notify} />}
+            {page === "investments" && (
+              <InvestmentsPage
+                categories={investmentCategories}
+                assets={investmentAssets}
+                ledgerCurrency={activeLedger?.currency ?? "TWD"}
+                onAddCategory={addInvestmentCategory}
+                onDeleteCategory={removeInvestmentCategory}
+                onAddAsset={addInvestmentAsset}
+                onUpdateAsset={saveInvestmentAsset}
+                onDeleteAsset={removeInvestmentAsset}
+                notify={notify}
+              />
+            )}
             {page === "calculators" && <CalculatorsPage />}
             {page === "budgets" && (
               <BudgetsPage budgets={budgets} transactions={periodTransactions} month={month} onAdd={addBudget} onDelete={removeBudget} notify={notify} />
@@ -1961,6 +2052,7 @@ function LedgerHomePage({
       rememberedCategories: [],
       insurancePolicies: [],
       investmentCategories: [],
+      investmentAssets: [],
       financialPlans: [],
       notificationPreferences: []
     };
@@ -1979,12 +2071,15 @@ function LedgerHomePage({
     (sum, ledger) => sum + summaryFor(ledger.id).snapshot.insurancePolicies.reduce((policySum, policy) => policySum + policy.coverageAmountCents, 0),
     0
   );
+  const ledgerCurrencySet = new Set(ledgerBooks.map((ledger) => ledger.currency));
+  const sharedSummaryCurrency = ledgerCurrencySet.size === 1 ? ledgerBooks[0]?.currency ?? "TWD" : null;
   const ledgerChartRows = ledgerBooks.map((ledger) => {
     const { snapshot, dashboard } = summaryFor(ledger.id);
     return {
       id: ledger.id,
       name: ledger.name,
       color: ledger.color,
+      currency: ledger.currency,
       netWorthCents: Math.max(0, dashboard.netWorthCents),
       expenseCents: dashboard.monthlyExpenseCents,
       coverageCents: snapshot.insurancePolicies.reduce((sum, policy) => sum + policy.coverageAmountCents, 0)
@@ -2047,8 +2142,8 @@ function LedgerHomePage({
                 </div>
                 <div className="mt-7 grid gap-3 sm:grid-cols-3">
                   <LedgerOfficialMetric label="帳本數" value={`${ledgerBooks.length} 本`} detail={`${sharedLedgerCount} 本共用`} />
-                  <LedgerOfficialMetric label="淨資產總覽" value={formatMoney(totalNetWorthCents)} detail="跨帳本彙整" />
-                  <LedgerOfficialMetric label="本月支出" value={formatMoney(totalMonthlyExpenseCents)} detail="全部帳本合計" />
+                  <LedgerOfficialMetric label="淨資產總覽" value={sharedSummaryCurrency ? formatMoney(totalNetWorthCents, sharedSummaryCurrency) : "多幣別"} detail={sharedSummaryCurrency ? "跨帳本彙整" : "請分帳本查看"} />
+                  <LedgerOfficialMetric label="本月支出" value={sharedSummaryCurrency ? formatMoney(totalMonthlyExpenseCents, sharedSummaryCurrency) : "多幣別"} detail={sharedSummaryCurrency ? "全部帳本合計" : "避免錯誤加總"} />
                 </div>
               </div>
               <div className="mt-7 flex flex-wrap items-center gap-3 text-xs font-semibold text-slate-500 dark:text-slate-400">
@@ -2062,6 +2157,7 @@ function LedgerHomePage({
               <LedgerProductPreview
                 ledgerChartRows={ledgerChartRows}
                 totalInsuranceCoverageCents={totalInsuranceCoverageCents}
+                sharedCurrency={sharedSummaryCurrency}
                 pendingInviteCount={pendingInviteCount}
               />
             </div>
@@ -2108,7 +2204,7 @@ function LedgerHomePage({
                               </span>
                               <div className="min-w-0">
                                 <p className="truncate text-lg font-bold text-slate-950 dark:text-slate-50">{ledger.name}</p>
-                                <p className="truncate text-sm text-slate-500 dark:text-slate-400">{ledgerPurposeLabels[ledger.purpose]} · {ledger.owner}</p>
+                                <p className="truncate text-sm text-slate-500 dark:text-slate-400">{ledgerPurposeLabels[ledger.purpose]} · {ledger.owner} · {ledger.currency}</p>
                               </div>
                             </div>
                           </div>
@@ -2121,9 +2217,9 @@ function LedgerHomePage({
                         <p className="mt-3 line-clamp-2 min-h-10 text-sm leading-5 text-slate-600 dark:text-slate-300">{ledger.note || "獨立帳本工作區"}</p>
 
                         <div className="mt-4 grid grid-cols-3 gap-2">
-                          <LedgerHomeInlineStat label="淨資產" value={formatMoney(dashboard.netWorthCents)} />
-                          <LedgerHomeInlineStat label="月支出" value={formatMoney(dashboard.monthlyExpenseCents)} />
-                          <LedgerHomeInlineStat label="保障額" value={formatMoney(ledgerCoverageCents)} />
+                          <LedgerHomeInlineStat label="淨資產" value={formatMoney(dashboard.netWorthCents, ledger.currency)} />
+                          <LedgerHomeInlineStat label="月支出" value={formatMoney(dashboard.monthlyExpenseCents, ledger.currency)} />
+                          <LedgerHomeInlineStat label="保障額" value={formatMoney(ledgerCoverageCents, ledger.currency)} />
                         </div>
 
                         <div className="mt-4 space-y-2">
@@ -2168,6 +2264,15 @@ function LedgerHomePage({
                                   <option value="rose">紅色</option>
                                 </select>
                               </Field>
+                              <Field label="帳本幣別">
+                                <select className="input" name="currency" defaultValue={ledger.currency}>
+                                  {Object.entries(currencyLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                                </select>
+                              </Field>
+                              <Field label={`轉換匯率（1 ${ledger.currency} 可換多少新幣別）`}>
+                                <input className="input" name="conversionRate" type="number" min="0.000001" max="1000000" step="0.000001" defaultValue={1} />
+                              </Field>
+                              <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">只有變更幣別時才會使用匯率；確認後會換算整本帳務並保留紀錄。</p>
                               <Field label="備註"><input className="input" name="note" defaultValue={ledger.note} /></Field>
                               <button className="btn-secondary w-full" type="submit">儲存帳本設定</button>
                             </form>
@@ -2257,6 +2362,11 @@ function LedgerHomePage({
                     </select>
                   </Field>
                 </div>
+                <Field label="帳本幣別">
+                  <select className="input" name="currency" defaultValue="TWD">
+                    {Object.entries(currencyLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  </select>
+                </Field>
                 <Field label="擁有者"><input className="input" name="owner" defaultValue="自己" /></Field>
                 <Field label="備註"><input className="input" name="note" placeholder="用途或管理範圍" /></Field>
                 <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
@@ -2308,7 +2418,7 @@ function LedgerHomePage({
                 ) : (
                   ledgerChartRows
                     .slice()
-                    .sort((a, b) => b.netWorthCents - a.netWorthCents)
+                    .sort((a, b) => sharedSummaryCurrency ? b.netWorthCents - a.netWorthCents : a.name.localeCompare(b.name, "zh-TW"))
                     .slice(0, 5)
                     .map((row) => {
                       const tone = getLedgerToneClasses(row.color);
@@ -2316,7 +2426,7 @@ function LedgerHomePage({
                         <div key={row.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
                           <div className="min-w-0">
                             <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{row.name}</p>
-                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">淨資產 {formatMoney(row.netWorthCents)}</p>
+                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">淨資產 {formatMoney(row.netWorthCents, row.currency)}</p>
                           </div>
                           <span className={`h-9 w-1.5 rounded-full ${tone.bar}`} />
                         </div>
@@ -2356,10 +2466,12 @@ function LedgerOfficialMetric({ label, value, detail }: { label: string; value: 
 function LedgerProductPreview({
   ledgerChartRows,
   totalInsuranceCoverageCents,
+  sharedCurrency,
   pendingInviteCount
 }: {
-  ledgerChartRows: { id: string; name: string; color: LedgerBook["color"]; netWorthCents: number; expenseCents: number; coverageCents: number }[];
+  ledgerChartRows: { id: string; name: string; color: LedgerBook["color"]; currency: CurrencyCode; netWorthCents: number; expenseCents: number; coverageCents: number }[];
   totalInsuranceCoverageCents: number;
+  sharedCurrency: CurrencyCode | null;
   pendingInviteCount: number;
 }) {
   const visibleRows = ledgerChartRows.slice(0, 4);
@@ -2389,11 +2501,11 @@ function LedgerProductPreview({
         <div className="mt-4 grid grid-cols-3 gap-2">
           <div className="rounded-lg bg-white p-3 shadow-subtle dark:bg-slate-950">
             <p className="text-xs text-slate-500 dark:text-slate-400">淨資產</p>
-            <p className="mt-1 truncate text-sm font-bold text-slate-950 dark:text-slate-50">{formatMoney(totalNetWorthCents)}</p>
+            <p className="mt-1 truncate text-sm font-bold text-slate-950 dark:text-slate-50">{sharedCurrency ? formatMoney(totalNetWorthCents, sharedCurrency) : "多幣別"}</p>
           </div>
           <div className="rounded-lg bg-white p-3 shadow-subtle dark:bg-slate-950">
             <p className="text-xs text-slate-500 dark:text-slate-400">保障額</p>
-            <p className="mt-1 truncate text-sm font-bold text-slate-950 dark:text-slate-50">{formatMoney(totalInsuranceCoverageCents)}</p>
+            <p className="mt-1 truncate text-sm font-bold text-slate-950 dark:text-slate-50">{sharedCurrency ? formatMoney(totalInsuranceCoverageCents, sharedCurrency) : "多幣別"}</p>
           </div>
           <div className="rounded-lg bg-white p-3 shadow-subtle dark:bg-slate-950">
             <p className="text-xs text-slate-500 dark:text-slate-400">邀請</p>
@@ -2414,12 +2526,12 @@ function LedgerProductPreview({
                 <div key={row.id}>
                   <div className="mb-1 flex items-center justify-between gap-3 text-xs">
                     <span className="truncate text-slate-600 dark:text-slate-300">{row.name}</span>
-                    <span className="shrink-0 font-semibold">{formatMoney(row.netWorthCents)}</span>
+                    <span className="shrink-0 font-semibold">{formatMoney(row.netWorthCents, row.currency)}</span>
                   </div>
                   <div className="h-2 rounded-full bg-slate-100 dark:bg-slate-800">
                     <div
                       className={`h-2 rounded-full ${getLedgerToneClasses(row.color).bar}`}
-                      style={{ width: `${Math.max(8, (row.netWorthCents / maxNetWorthCents) * 100)}%` }}
+                      style={{ width: sharedCurrency ? `${Math.max(8, (row.netWorthCents / maxNetWorthCents) * 100)}%` : "100%" }}
                     />
                   </div>
                 </div>
@@ -4087,16 +4199,6 @@ function getChartColor(index: number) {
   return chartPalette[index % chartPalette.length];
 }
 
-function formatCompactMoney(cents: number) {
-  const amount = cents / 100;
-  return new Intl.NumberFormat("zh-TW", {
-    style: "currency",
-    currency: "TWD",
-    notation: Math.abs(amount) >= 1000000 ? "compact" : "standard",
-    maximumFractionDigits: 0
-  }).format(amount);
-}
-
 function TransactionsPage({
   accounts,
   creditCards,
@@ -5485,15 +5587,29 @@ function getFinancialPlanActions(dashboard: ReturnType<typeof summarizeDashboard
 
 function InvestmentsPage({
   categories,
-  onAdd,
-  onDelete,
+  assets,
+  ledgerCurrency,
+  onAddCategory,
+  onDeleteCategory,
+  onAddAsset,
+  onUpdateAsset,
+  onDeleteAsset,
   notify
 }: {
   categories: InvestmentCategory[];
-  onAdd: (category: InvestmentCategory) => Promise<void>;
-  onDelete: (category: InvestmentCategory) => Promise<void>;
+  assets: InvestmentAsset[];
+  ledgerCurrency: CurrencyCode;
+  onAddCategory: (category: InvestmentCategory) => Promise<void>;
+  onDeleteCategory: (category: InvestmentCategory) => Promise<void>;
+  onAddAsset: (asset: InvestmentAsset) => Promise<void>;
+  onUpdateAsset: (asset: InvestmentAsset) => Promise<void>;
+  onDeleteAsset: (asset: InvestmentAsset) => Promise<void>;
   notify: (type: ToastType, message: string) => void;
 }) {
+  const [assetType, setAssetType] = useState<InvestmentAsset["assetType"]>("forex");
+  const [quoteCurrency, setQuoteCurrency] = useState<InvestmentAsset["quoteCurrency"]>(ledgerCurrency);
+  const [editingAsset, setEditingAsset] = useState<InvestmentAsset | null>(null);
+  const [assetFormVersion, setAssetFormVersion] = useState(0);
 
   const totalAllocation = categories.reduce((sum, category) => sum + category.targetAllocation, 0);
   const highRiskAllocation = categories
@@ -5508,6 +5624,17 @@ function InvestmentsPage({
       return acc;
     }, {})
   ).map(([category, amountCents]) => ({ category, amountCents }));
+  const valuations = assets.map((asset) => ({ asset, valuation: calculateInvestmentAssetValuation(asset) }));
+  const totalCostCents = valuations.reduce((sum, row) => sum + row.valuation.costCents, 0);
+  const totalValueCents = valuations.reduce((sum, row) => sum + row.valuation.currentValueCents, 0);
+  const totalProfitLossCents = totalValueCents - totalCostCents;
+  const totalReturnRate = totalCostCents > 0 ? totalProfitLossCents / totalCostCents : 0;
+  const forexValueCents = valuations.filter((row) => row.asset.assetType === "forex").reduce((sum, row) => sum + row.valuation.currentValueCents, 0);
+  const cryptoValueCents = valuations.filter((row) => row.asset.assetType === "crypto").reduce((sum, row) => sum + row.valuation.currentValueCents, 0);
+  const assetDistributionRows = [
+    { category: "外匯", amountCents: forexValueCents },
+    { category: "加密貨幣", amountCents: cryptoValueCents }
+  ].filter((row) => row.amountCents > 0);
 
   function addCategory(formData: FormData) {
     const name = String(formData.get("name") ?? "").trim();
@@ -5517,7 +5644,7 @@ function InvestmentsPage({
       return notify("error", "目標配置需介於 0% 到 100%");
     }
     const now = new Date().toISOString();
-    void onAdd({
+    void onAddCategory({
       id: crypto.randomUUID(),
       userId: localUserId,
       name,
@@ -5533,40 +5660,199 @@ function InvestmentsPage({
   }
 
   function deleteCategory(category: InvestmentCategory) {
-    void onDelete(category);
+    void onDeleteCategory(category);
+  }
+
+  function saveAsset(formData: FormData) {
+    const symbol = String(formData.get("symbol") ?? "").trim().toUpperCase();
+    const name = String(formData.get("name") ?? "").trim();
+    const quantity = Number(formData.get("quantity"));
+    const averageUnitCost = Number(formData.get("averageUnitCost"));
+    const currentUnitPrice = Number(formData.get("currentUnitPrice"));
+    const effectiveQuoteCurrency = assetType === "forex" ? ledgerCurrency : quoteCurrency;
+    const exchangeRateToLedger = assetType === "forex" || effectiveQuoteCurrency === ledgerCurrency
+      ? 1
+      : Number(formData.get("exchangeRateToLedger"));
+    if (!symbol || !name) return notify("error", "請輸入資產代碼與名稱");
+    if (![quantity, averageUnitCost, currentUnitPrice, exchangeRateToLedger].every((value) => Number.isFinite(value) && value >= 0)) {
+      return notify("error", "數量、成本、現價與匯率必須是有效數字");
+    }
+    if (quantity <= 0 || exchangeRateToLedger <= 0) return notify("error", "數量與換算匯率必須大於 0");
+    const now = new Date().toISOString();
+    const next: InvestmentAsset = {
+      id: editingAsset?.id ?? crypto.randomUUID(),
+      userId: editingAsset?.userId ?? localUserId,
+      categoryId: String(formData.get("categoryId") ?? "") || undefined,
+      assetType,
+      symbol,
+      name,
+      quantity,
+      quoteCurrency: effectiveQuoteCurrency,
+      averageUnitCost,
+      currentUnitPrice,
+      exchangeRateToLedger,
+      platform: String(formData.get("platform") ?? "").trim() || undefined,
+      acquiredDate: String(formData.get("acquiredDate") ?? "") || undefined,
+      note: String(formData.get("note") ?? "").trim() || undefined,
+      isActive: true,
+      createdAt: editingAsset?.createdAt ?? now,
+      updatedAt: now
+    };
+    void (editingAsset ? onUpdateAsset(next) : onAddAsset(next));
+    setEditingAsset(null);
+    setAssetFormVersion((version) => version + 1);
+  }
+
+  function beginEditAsset(asset: InvestmentAsset) {
+    setEditingAsset(asset);
+    setAssetType(asset.assetType);
+    setQuoteCurrency(asset.quoteCurrency);
   }
 
   return (
     <div className="space-y-4">
       <FeatureHero
         icon={<TrendingUp size={18} />}
-        label="投資分類"
-        title="股票與基金目標配置"
-        value={`${totalAllocation.toFixed(0)}%`}
+        label={`投資資產 · ${ledgerCurrency}`}
+        title="股票基金、外匯與加密資產"
+        value={formatMoney(totalValueCents, ledgerCurrency)}
         tone="sky"
         metrics={[
-          { label: "基金類配置", value: `${fundAllocation.toFixed(0)}%`, accent: "border-emerald-300" },
-          { label: "高風險配置", value: `${highRiskAllocation.toFixed(0)}%`, accent: "border-rose-300" },
-          { label: "分類數", value: `${categories.length} 類`, accent: "border-sky-300" }
+          { label: "投入成本", value: formatMoney(totalCostCents, ledgerCurrency), accent: "border-emerald-300" },
+          { label: "未實現損益", value: formatMoney(totalProfitLossCents, ledgerCurrency), accent: totalProfitLossCents >= 0 ? "border-sky-300" : "border-rose-300" },
+          { label: "總報酬率", value: formatPercent(totalReturnRate), accent: "border-violet-300" }
         ]}
       >
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
           <DonutChart
-            segments={investmentRiskRows.map((row, index) => ({ label: row.category, value: row.amountCents, color: getChartColor(index) }))}
-            centerLabel="配置"
-            centerValue={`${totalAllocation.toFixed(0)}%`}
+            segments={(assetDistributionRows.length > 0 ? assetDistributionRows : investmentRiskRows).map((row, index) => ({ label: row.category, value: row.amountCents, color: getChartColor(index) }))}
+            centerLabel={assets.length > 0 ? "持倉" : "配置"}
+            centerValue={assets.length > 0 ? `${assets.length} 筆` : `${totalAllocation.toFixed(0)}%`}
           />
           <div className="flex-1 space-y-3">
-            <Progress label="目標配置合計" value={totalAllocation / 100} colorClass={totalAllocation > 100 ? "bg-rose-500" : "bg-emerald-500"} />
-            <CompactDistributionList data={investmentRiskRows} total={Math.max(totalAllocation, 1)} inverse />
+            <Progress label="投資報酬" value={Math.min(Math.abs(totalReturnRate), 1)} helper={formatPercent(totalReturnRate)} colorClass={totalProfitLossCents >= 0 ? "bg-emerald-500" : "bg-rose-500"} />
+            <CompactDistributionList data={assetDistributionRows.length > 0 ? assetDistributionRows : investmentRiskRows} total={Math.max(assetDistributionRows.length > 0 ? totalValueCents : totalAllocation, 1)} inverse />
           </div>
         </div>
       </FeatureHero>
       <div className="grid gap-4 lg:grid-cols-3">
-        <StatCard label="分類數" value={`${categories.length} 類`} />
-        <StatCard label="目標配置合計" value={`${totalAllocation.toFixed(0)}%`} />
-        <StatCard label="高風險配置" value={`${highRiskAllocation.toFixed(0)}%`} />
+        <StatCard label="外匯資產" value={formatMoney(forexValueCents, ledgerCurrency)} />
+        <StatCard label="加密資產" value={formatMoney(cryptoValueCents, ledgerCurrency)} />
+        <StatCard label="目標配置" value={`${totalAllocation.toFixed(0)}%`} />
       </div>
+
+      <div className="grid gap-4 xl:grid-cols-[380px_1fr]">
+        <section className="panel">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold text-sky-600 dark:text-sky-300">{editingAsset ? "編輯持倉" : "新增持倉"}</p>
+              <h2 className="mt-1 text-lg font-semibold">外匯與加密貨幣</h2>
+            </div>
+            {assetType === "forex" ? <ArrowRightLeft className="text-sky-600 dark:text-sky-300" size={22} /> : <Bitcoin className="text-amber-600 dark:text-amber-300" size={22} />}
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-2 rounded-lg bg-slate-100 p-1 dark:bg-slate-900">
+            <button className={`rounded-md px-3 py-2 text-sm font-semibold ${assetType === "forex" ? "bg-white text-sky-700 shadow-subtle dark:bg-slate-800 dark:text-sky-200" : "text-slate-500 dark:text-slate-400"}`} type="button" onClick={() => { setAssetType("forex"); setQuoteCurrency(ledgerCurrency); setEditingAsset(null); }}>
+              <ArrowRightLeft size={15} />外匯
+            </button>
+            <button className={`rounded-md px-3 py-2 text-sm font-semibold ${assetType === "crypto" ? "bg-white text-amber-700 shadow-subtle dark:bg-slate-800 dark:text-amber-200" : "text-slate-500 dark:text-slate-400"}`} type="button" onClick={() => { setAssetType("crypto"); setQuoteCurrency("USD"); setEditingAsset(null); }}>
+              <Bitcoin size={15} />加密貨幣
+            </button>
+          </div>
+          <form key={`${editingAsset?.id ?? "new"}-${assetType}-${assetFormVersion}`} className="mt-4 space-y-3" onSubmit={handleFormSubmit(saveAsset)}>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="資產代碼"><input className="input uppercase" name="symbol" defaultValue={editingAsset?.symbol} placeholder={assetType === "forex" ? "USD" : "BTC"} maxLength={20} required /></Field>
+              <Field label="資產名稱"><input className="input" name="name" defaultValue={editingAsset?.name} placeholder={assetType === "forex" ? "美元" : "Bitcoin"} maxLength={100} required /></Field>
+            </div>
+            <Field label="持有數量"><input className="input" name="quantity" type="number" min="0.0000000001" step="0.0000000001" defaultValue={editingAsset?.quantity ?? ""} required /></Field>
+            {assetType === "crypto" && (
+              <Field label="報價幣別">
+                <select className="input" name="quoteCurrency" value={quoteCurrency} onChange={(event) => setQuoteCurrency(event.target.value as InvestmentAsset["quoteCurrency"])}>
+                  {[...Object.keys(currencyLabels), "USDT"].map((currency) => <option key={currency} value={currency}>{currency}</option>)}
+                </select>
+              </Field>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <Field label={assetType === "forex" ? `平均買入匯率（${ledgerCurrency}）` : `平均單價（${quoteCurrency}）`}>
+                <input className="input" name="averageUnitCost" type="number" min="0" step="0.00000001" defaultValue={editingAsset?.averageUnitCost ?? ""} required />
+              </Field>
+              <Field label={assetType === "forex" ? `目前匯率（${ledgerCurrency}）` : `目前單價（${quoteCurrency}）`}>
+                <input className="input" name="currentUnitPrice" type="number" min="0" step="0.00000001" defaultValue={editingAsset?.currentUnitPrice ?? ""} required />
+              </Field>
+            </div>
+            {assetType === "crypto" && quoteCurrency !== ledgerCurrency && (
+              <Field label={`1 ${quoteCurrency} 可換多少 ${ledgerCurrency}`}>
+                <input className="input" name="exchangeRateToLedger" type="number" min="0.0000000001" max="1000000" step="0.0000000001" defaultValue={editingAsset?.exchangeRateToLedger ?? 1} required />
+              </Field>
+            )}
+            <Field label="投資分類">
+              <select className="input" name="categoryId" defaultValue={editingAsset?.categoryId ?? ""}>
+                <option value="">不指定分類</option>
+                {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+              </select>
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label={assetType === "forex" ? "持有機構" : "交易平台"}><input className="input" name="platform" defaultValue={editingAsset?.platform} placeholder={assetType === "forex" ? "銀行或外幣帳戶" : "交易所或冷錢包"} maxLength={100} /></Field>
+              <Field label="首次買入日期"><input className="input" name="acquiredDate" type="date" defaultValue={editingAsset?.acquiredDate} /></Field>
+            </div>
+            <Field label="備註"><input className="input" name="note" defaultValue={editingAsset?.note} maxLength={500} placeholder="策略、用途或觀察重點" /></Field>
+            <div className="flex gap-2">
+              <button className="btn-primary flex-1" type="submit">{editingAsset ? <Pencil size={16} /> : <Plus size={16} />}{editingAsset ? "儲存變更" : "新增持倉"}</button>
+              {editingAsset && <button className="btn-secondary" type="button" onClick={() => setEditingAsset(null)}>取消</button>}
+            </div>
+          </form>
+          <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-400">匯率與價格由你手動更新。系統不保存交易所密碼、API 金鑰、助記詞或私鑰。</p>
+        </section>
+
+        <section className="panel">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold">投資持倉總覽</h2>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">所有持倉已換算為帳本基準幣別 {ledgerCurrency}。</p>
+            </div>
+            <Badge>{assets.length} 筆持倉</Badge>
+          </div>
+          {assets.length === 0 ? (
+            <EmptyState label="尚未建立外匯或加密貨幣持倉" />
+          ) : (
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {valuations.map(({ asset, valuation }) => (
+                <article key={asset.id} className="rounded-lg border border-slate-200 bg-white/80 p-4 shadow-subtle dark:border-slate-800 dark:bg-slate-950/70">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${asset.assetType === "forex" ? "bg-sky-50 text-sky-700 dark:bg-sky-950 dark:text-sky-200" : "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-200"}`}>
+                        {asset.assetType === "forex" ? <ArrowRightLeft size={18} /> : <Bitcoin size={18} />}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold">{asset.symbol} · {asset.name}</p>
+                        <p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">{asset.platform || "未填寫持有平台"} · {asset.quantity.toLocaleString("zh-TW", { maximumFractionDigits: 10 })} 單位</p>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 gap-1">
+                      <button className="rounded-md p-2 text-slate-400 hover:bg-sky-50 hover:text-sky-600 dark:hover:bg-sky-950" type="button" title="編輯持倉" onClick={() => beginEditAsset(asset)}><Pencil size={16} /></button>
+                      <button className="rounded-md p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950" type="button" title="刪除持倉" onClick={() => void onDeleteAsset(asset)}><Trash2 size={16} /></button>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-3 border-t border-slate-200 pt-3 dark:border-slate-800">
+                    <div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">目前價值</p>
+                      <p className="mt-1 font-semibold text-slate-950 dark:text-slate-50">{formatMoney(valuation.currentValueCents, ledgerCurrency)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">未實現損益</p>
+                      <p className={`mt-1 font-semibold ${valuation.profitLossCents >= 0 ? "text-emerald-600 dark:text-emerald-300" : "text-rose-600 dark:text-rose-300"}`}>{formatMoney(valuation.profitLossCents, ledgerCurrency)}</p>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
+                    <span>現價 {formatCurrencyAmount(asset.currentUnitPrice, asset.quoteCurrency)}</span>
+                    <span className={valuation.profitLossCents >= 0 ? "font-semibold text-emerald-600 dark:text-emerald-300" : "font-semibold text-rose-600 dark:text-rose-300"}>{formatPercent(valuation.returnRate)}</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+
       <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
         <section className="panel">
           <div className="flex items-center gap-2">
