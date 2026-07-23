@@ -93,7 +93,9 @@ begin
     'ledger_notification_preferences','admin_audit_logs'
   ]
   loop
-    execute format('alter table public.%I enable row level security', table_name);
+    if to_regclass(format('public.%I', table_name)) is not null then
+      execute format('alter table public.%I enable row level security', table_name);
+    end if;
   end loop;
 end;
 $$;
