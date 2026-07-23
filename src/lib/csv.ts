@@ -14,7 +14,7 @@ const requiredHeaders = ["日期", "類型", "金額", "分類"];
 export function parseTransactionsCsv(text: string, limit = 500): CsvPreviewRow[] {
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   if (lines.length === 0) return [];
-  const headers = splitCsvLine(lines[0]);
+  const headers = splitCsvLine(lines[0]).map((header, index) => index === 0 ? header.replace(/^\uFEFF/, "") : header);
   const headerValidation = validateCsvHeaders(headers, requiredHeaders);
   if (!headerValidation.valid) {
     return [{ rowNumber: 1, errors: headerValidation.errors, fingerprint: "header-error" }];
@@ -35,7 +35,11 @@ export function parseTransactionsCsv(text: string, limit = 500): CsvPreviewRow[]
     seen.add(fingerprint);
 
     const validation = combineValidations(validateIsoDate(row["日期"]), validatePositiveAmount(amountCents));
-    const errors = [...validation.errors, ...(duplicate ? ["CSV 內有重複資料"] : [])];
+    const errors = [
+      ...validation.errors,
+      ...(!row["分類"]?.trim() ? ["分類不可空白"] : []),
+      ...(duplicate ? ["CSV 內有重複資料"] : [])
+    ];
     const type = normalizeType(row["類型"]);
 
     return {
@@ -82,7 +86,12 @@ function splitCsvLine(line: string): string[] {
   for (let i = 0; i < line.length; i += 1) {
     const char = line[i];
     if (char === "\"") {
-      quoted = !quoted;
+      if (quoted && line[i + 1] === "\"") {
+        current += "\"";
+        i += 1;
+      } else {
+        quoted = !quoted;
+      }
     } else if (char === "," && !quoted) {
       values.push(current.trim());
       current = "";

@@ -1,4 +1,4 @@
-import type { AiFinancialReport, CreditCard, DashboardSummary, Loan } from "../types/finance";
+import type { AiFinancialReport, CreditCard, CurrencyCode, DashboardSummary, Loan } from "../types/finance";
 import { supabase } from "./supabaseClient";
 
 export interface AiFinancialHealthInput {
@@ -14,6 +14,7 @@ export interface AiFinancialHealthInput {
   };
   fixedExpenseCents: number;
   month: string;
+  currency: CurrencyCode;
 }
 
 export async function requestAiFinancialHealth(input: AiFinancialHealthInput): Promise<AiFinancialReport> {

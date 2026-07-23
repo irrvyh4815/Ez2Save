@@ -4,7 +4,8 @@ import type {
   FinancialAccount,
   Loan,
   Transaction,
-  DashboardSummary
+  DashboardSummary,
+  CurrencyCode
 } from "../types/finance";
 import { formatDate, formatMoney, formatPercent } from "./format";
 
@@ -30,6 +31,7 @@ const transactionTypeLabels: Record<Transaction["type"], string> = {
 
 interface ReportExportInput {
   month: string;
+  currency: CurrencyCode;
   dashboard: DashboardSummary;
   accounts: FinancialAccount[];
   transactions: Transaction[];
@@ -100,17 +102,18 @@ export function exportReportToPdf(input: ReportExportInput) {
   <h1>Ez2SaveMore 財務報表</h1>
   <p>月份：${escapeHtml(input.month)} / 產生時間：${escapeHtml(reportGeneratedAt())}</p>
   <div class="grid">
-    ${summaryCards(input.dashboard).map((item) => `<div class="card"><div class="label">${escapeHtml(item.label)}</div><div class="value">${escapeHtml(item.value)}</div></div>`).join("")}
+    ${summaryCards(input.dashboard, input.currency).map((item) => `<div class="card"><div class="label">${escapeHtml(item.label)}</div><div class="value">${escapeHtml(item.value)}</div></div>`).join("")}
   </div>
   ${sections.slice(1).map(renderHtmlTable).join("")}
-  <p>本報表依使用者已輸入資料產生，金額以新台幣 TWD 顯示；不構成投資或授信建議。</p>
+  <p>本報表依使用者已輸入資料產生，金額以帳本幣別 ${escapeHtml(input.currency)} 顯示；不構成投資或授信建議。</p>
   <script>window.addEventListener("load", () => window.print());</script>
 </body>
 </html>`;
-  const printWindow = window.open("", "_blank", "noopener,noreferrer,width=1024,height=768");
+  const printWindow = window.open("", "_blank", "width=1024,height=768");
   if (!printWindow) {
     throw new Error("瀏覽器封鎖彈出視窗，請允許彈出視窗後再匯出 PDF");
   }
+  printWindow.opener = null;
   printWindow.document.open();
   printWindow.document.write(html);
   printWindow.document.close();
@@ -121,22 +124,22 @@ function buildReportSections(input: ReportExportInput) {
     {
       title: "財務總覽",
       headers: ["項目", "金額 / 比例"],
-      rows: summaryCards(input.dashboard).map((item) => [item.label, item.value])
+      rows: summaryCards(input.dashboard, input.currency).map((item) => [item.label, item.value])
     },
     {
       title: "最近六個月收支趨勢",
       headers: ["月份", "收入", "支出", "結餘"],
       rows: input.monthlyTrend.map((item) => [
         item.month,
-        formatMoney(item.incomeCents),
-        formatMoney(item.expenseCents),
-        formatMoney(item.incomeCents - item.expenseCents)
+        formatMoney(item.incomeCents, input.currency),
+        formatMoney(item.expenseCents, input.currency),
+        formatMoney(item.incomeCents - item.expenseCents, input.currency)
       ])
     },
     {
       title: "本月支出分類",
       headers: ["分類", "金額"],
-      rows: input.categoryBreakdown.map((item) => [item.category, formatMoney(item.amountCents)])
+      rows: input.categoryBreakdown.map((item) => [item.category, formatMoney(item.amountCents, input.currency)])
     },
     {
       title: "全部帳戶",
@@ -145,7 +148,7 @@ function buildReportSections(input: ReportExportInput) {
         account.name,
         accountTypeLabels[account.type],
         account.institution ?? "",
-        formatMoney(account.balanceCents),
+        formatMoney(account.balanceCents, input.currency),
         account.includeInAvailableCash ? "是" : "否",
         account.includeInEmergencyFund ? "是" : "否",
         account.isActive ? "啟用" : "停用"
@@ -161,11 +164,11 @@ function buildReportSections(input: ReportExportInput) {
           card.name,
           card.issuer,
           `**** ${card.last4}`,
-          formatMoney(card.creditLimitCents),
-          formatMoney(card.currentStatementAmountCents),
-          formatMoney(card.unbilledAmountCents),
-          formatMoney(installmentDebt),
-          formatMoney(card.minimumPaymentCents),
+          formatMoney(card.creditLimitCents, input.currency),
+          formatMoney(card.currentStatementAmountCents, input.currency),
+          formatMoney(card.unbilledAmountCents, input.currency),
+          formatMoney(installmentDebt, input.currency),
+          formatMoney(card.minimumPaymentCents, input.currency),
           formatPercent(used / Math.max(card.creditLimitCents, 1))
         ];
       })
@@ -176,11 +179,11 @@ function buildReportSections(input: ReportExportInput) {
       rows: input.loans.map((loan) => [
         loan.name,
         loan.institution ?? "",
-        formatMoney(loan.originalPrincipalCents),
-        formatMoney(loan.remainingPrincipalCents),
+        formatMoney(loan.originalPrincipalCents, input.currency),
+        formatMoney(loan.remainingPrincipalCents, input.currency),
         formatPercent(loan.annualRate),
         `${loan.paidPeriods}/${loan.termMonths}`,
-        formatMoney(loan.paymentPerPeriodCents),
+        formatMoney(loan.paymentPerPeriodCents, input.currency),
         `每月 ${loan.monthlyPaymentDay} 日`,
         loan.status
       ])
@@ -193,12 +196,12 @@ function buildReportSections(input: ReportExportInput) {
         return [
           card?.name ?? "信用卡",
           installment.merchant ?? "",
-          formatMoney(installment.totalAmountCents),
-          formatMoney(installment.paidAmountCents),
-          formatMoney(installment.remainingAmountCents),
+          formatMoney(installment.totalAmountCents, input.currency),
+          formatMoney(installment.paidAmountCents, input.currency),
+          formatMoney(installment.remainingAmountCents, input.currency),
           formatPercent(installment.annualRate),
           `${installment.paidPeriods}/${installment.periods}`,
-          formatMoney(installment.monthlyPaymentCents),
+          formatMoney(installment.monthlyPaymentCents, input.currency),
           installment.nextDueDate ? formatDate(installment.nextDueDate) : ""
         ];
       })
@@ -209,7 +212,7 @@ function buildReportSections(input: ReportExportInput) {
       rows: input.transactions.map((transaction) => [
         formatDate(transaction.date),
         transactionTypeLabels[transaction.type],
-        formatMoney(transaction.amountCents),
+        formatMoney(transaction.amountCents, input.currency),
         transaction.category,
         transaction.merchant ?? "",
         transaction.note ?? ""
@@ -218,18 +221,18 @@ function buildReportSections(input: ReportExportInput) {
   ];
 }
 
-function summaryCards(dashboard: DashboardSummary) {
+function summaryCards(dashboard: DashboardSummary, currency: CurrencyCode) {
   return [
-    { label: "目前總資產", value: formatMoney(dashboard.totalAssetsCents) },
-    { label: "目前總負債", value: formatMoney(dashboard.totalLiabilitiesCents) },
-    { label: "淨資產", value: formatMoney(dashboard.netWorthCents) },
-    { label: "本月收入", value: formatMoney(dashboard.monthlyIncomeCents) },
-    { label: "本月支出", value: formatMoney(dashboard.monthlyExpenseCents) },
-    { label: "本月結餘", value: formatMoney(dashboard.monthlyBalanceCents) },
-    { label: "信用卡待繳", value: formatMoney(dashboard.monthlyCreditCardDueCents) },
-    { label: "貸款應繳", value: formatMoney(dashboard.monthlyLoanDueCents) },
-    { label: "可動用現金", value: formatMoney(dashboard.availableCashCents) },
-    { label: "定期存款", value: formatMoney(dashboard.timeDepositTotalCents) },
+    { label: "目前總資產", value: formatMoney(dashboard.totalAssetsCents, currency) },
+    { label: "目前總負債", value: formatMoney(dashboard.totalLiabilitiesCents, currency) },
+    { label: "淨資產", value: formatMoney(dashboard.netWorthCents, currency) },
+    { label: "本月收入", value: formatMoney(dashboard.monthlyIncomeCents, currency) },
+    { label: "本月支出", value: formatMoney(dashboard.monthlyExpenseCents, currency) },
+    { label: "本月結餘", value: formatMoney(dashboard.monthlyBalanceCents, currency) },
+    { label: "信用卡待繳", value: formatMoney(dashboard.monthlyCreditCardDueCents, currency) },
+    { label: "貸款應繳", value: formatMoney(dashboard.monthlyLoanDueCents, currency) },
+    { label: "可動用現金", value: formatMoney(dashboard.availableCashCents, currency) },
+    { label: "定期存款", value: formatMoney(dashboard.timeDepositTotalCents, currency) },
     { label: "負債比", value: formatPercent(dashboard.debtRatio) },
     { label: "緊急預備金", value: `${dashboard.emergencyFundMonths.toFixed(1)} 個月` }
   ];

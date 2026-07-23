@@ -19,8 +19,13 @@ export function validateNonNegativeAmount(amountCents: number, label = "金額")
 
 export function validateIsoDate(value: string, label = "日期"): ValidationResult {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return invalid(`${label}格式不正確`);
-  const parsed = new Date(`${value}T00:00:00+08:00`);
-  if (Number.isNaN(parsed.getTime())) return invalid(`${label}無效`);
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (
+    parsed.getUTCFullYear() !== year
+    || parsed.getUTCMonth() !== month - 1
+    || parsed.getUTCDate() !== day
+  ) return invalid(`${label}無效`);
   return ok();
 }
 
@@ -37,6 +42,12 @@ export function validateDateRange(startDate: string, endDate?: string): Validati
 export function validateAnnualRate(rate: number): ValidationResult {
   if (!Number.isFinite(rate)) return invalid("利率格式不正確");
   if (rate < 0 || rate > 1) return invalid("利率需介於 0% 到 100%");
+  return ok();
+}
+
+export function validateIntegerRange(value: number, minimum: number, maximum: number, label: string): ValidationResult {
+  if (!Number.isInteger(value)) return invalid(`${label}必須是整數`);
+  if (value < minimum || value > maximum) return invalid(`${label}需介於 ${minimum} 到 ${maximum}`);
   return ok();
 }
 

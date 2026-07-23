@@ -25,6 +25,7 @@ type CacheEntry = {
 const cache = new Map<string, CacheEntry>();
 const rateLimit = new Map<string, number[]>();
 const maxRequestBytes = 32 * 1024;
+const supportedCurrencies = new Set(["TWD", "USD", "JPY", "EUR", "GBP", "CNY", "HKD", "SGD"]);
 const dashboardFields = [
   "totalAssetsCents",
   "totalLiabilitiesCents",
@@ -108,6 +109,9 @@ function minimizeInput(input: unknown, maxItems: number): Record<string, unknown
   const dashboard = Object.fromEntries(dashboardFields.map((field) => [field, finite(sourceDashboard[field])])) as Record<string, number>;
   return {
     month: /^\d{4}-\d{2}$/.test(String(source.month || "")) ? source.month : undefined,
+    currency: supportedCurrencies.has(String(source.currency || "").toUpperCase())
+      ? String(source.currency).toUpperCase()
+      : "TWD",
     dashboard,
     categoryBreakdown: Array.isArray(source.categoryBreakdown)
       ? source.categoryBreakdown.slice(0, maxItems).flatMap((item) => {
@@ -143,11 +147,12 @@ function buildMockReport(summary: Record<string, unknown>, cacheKey: string): Ai
   const emergencyMonths = finite(dashboard.emergencyFundMonths);
   const monthlyBalance = finite(dashboard.monthlyBalanceCents);
   const monthlyCardDue = finite(dashboard.monthlyCreditCardDueCents);
+  const currency = String(summary.currency ?? "TWD");
   const healthScore = Math.max(35, Math.min(92, Math.round(78 - debtRatio * 25 + Math.min(emergencyMonths, 6) * 2)));
 
   return {
     healthScore,
-    summary: `${String(summary.month ?? "本月")} 的收支彙總已完成，結餘為新台幣 ${Math.round(monthlyBalance / 100).toLocaleString("zh-TW")} 元。`,
+    summary: `${String(summary.month ?? "本月")} 的收支彙總已完成，結餘為 ${currency} ${Math.round(monthlyBalance / 100).toLocaleString("zh-TW")}。`,
     biggestRisk:
       monthlyCardDue > monthlyBalance
         ? "信用卡待繳金額高於本月結餘，需優先避免循環信用與只繳最低應繳。"

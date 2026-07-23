@@ -55,7 +55,7 @@ import {
 } from "./lib/financialCalculations";
 import { currentTaipeiMonth, formatCompactMoney, formatCurrencyAmount, formatDate, formatMoney, formatPercent, parseMoneyToCents, setDefaultMoneyCurrency } from "./lib/format";
 import { parseTransactionsCsv } from "./lib/csv";
-import { combineValidations, validateAnnualRate, validateDateRange, validatePositiveAmount } from "./lib/validation";
+import { combineValidations, validateAnnualRate, validateDateRange, validateIntegerRange, validateNonNegativeAmount, validatePositiveAmount } from "./lib/validation";
 import { exportReportToExcel, exportReportToPdf } from "./lib/reportExport";
 import { isSupabaseConfigured } from "./services/supabaseClient";
 import { mockAiFinancialHealth, requestAiFinancialHealth } from "./services/aiFinancialHealth";
@@ -564,6 +564,7 @@ export default function App() {
   const [darkMode, setDarkMode] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
   const [notificationOpen, setNotificationOpen] = useState(false);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const notificationAreaRef = useRef<HTMLDivElement>(null);
   const [accounts, setAccounts] = useState(emptyFinanceData.accounts);
   const [transactions, setTransactions] = useState(emptyFinanceData.transactions);
@@ -1135,13 +1136,15 @@ export default function App() {
     setActiveLedgerId(null);
     setLedgerHomeView("ledgers");
     setNotificationOpen(false);
+    setMobileMoreOpen(false);
     startLedgerTransition();
   }
 
   function navigateToPage(nextPage: Page) {
     if (nextPage === "users") return openUserManagement();
-    if (nextPage === page) return;
+    setMobileMoreOpen(false);
     setNotificationOpen(false);
+    if (nextPage === page) return;
     setPage(nextPage);
   }
 
@@ -1176,7 +1179,7 @@ export default function App() {
 
   async function addAccount(formData: FormData) {
     const balanceCents = parseMoneyToCents(String(formData.get("balance") ?? ""));
-    const validation = combineValidations(validatePositiveAmount(balanceCents, "目前餘額"));
+    const validation = combineValidations(validateNonNegativeAmount(balanceCents, "目前餘額"));
     if (!validation.valid) return notify("error", validation.errors[0]);
     const now = new Date().toISOString();
     const account: FinancialAccount = {
@@ -1430,10 +1433,12 @@ export default function App() {
     const paidClaimAmountCents = parseMoneyToCents(String(formData.get("paidClaimAmount") ?? "0"));
     const pendingClaimAmountCents = parseMoneyToCents(String(formData.get("pendingClaimAmount") ?? "0"));
     const renewalDate = String(formData.get("renewalDate") ?? "");
+    const paymentDay = Number(formData.get("paymentDay") ?? 1);
     const validation = combineValidations(
       validatePositiveAmount(annualPremiumCents, "年保費"),
       validatePositiveAmount(coverageAmountCents, "保障額度"),
-      validateDateRange(renewalDate)
+      validateDateRange(renewalDate),
+      validateIntegerRange(paymentDay, 1, 31, "繳費日")
     );
     if (!validation.valid) return notify("error", validation.errors[0]);
     if (paidClaimAmountCents < 0 || pendingClaimAmountCents < 0) return notify("error", "理賠金額不可為負數");
@@ -1450,7 +1455,7 @@ export default function App() {
       coverageAmountCents,
       paidClaimAmountCents,
       pendingClaimAmountCents,
-      paymentDay: Number(formData.get("paymentDay") ?? 1),
+      paymentDay,
       renewalDate,
       beneficiary: String(formData.get("beneficiary") ?? ""),
       note: String(formData.get("note") ?? ""),
@@ -1639,7 +1644,8 @@ export default function App() {
       })),
       creditCardInstallments: summarizeInstallmentDebt(creditCardInstallments),
       fixedExpenseCents: transactions.filter((transaction) => transaction.isRecurring).reduce((sum, transaction) => sum + transaction.amountCents, 0),
-      month
+      month,
+      currency: activeLedger?.currency ?? "TWD"
     };
     setAiLoading(true);
     try {
@@ -1765,7 +1771,7 @@ export default function App() {
               <div>
                 <p className="text-[11px] font-bold tracking-[0.16em] text-brand-700 dark:text-brand-200">EZ2SAVEMORE</p>
                 <h1 className="text-xl font-bold text-slate-950 dark:text-slate-50">{page === "notification_settings" ? "通知設定" : visibleNavItems.find((item) => item.page === page)?.label ?? "理財總覽"}</h1>
-                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{activeLedger?.name} · Asia/Taipei · TWD</p>
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{activeLedger?.name} · Asia/Taipei · {activeLedger?.currency ?? "TWD"}</p>
               </div>
               <div className="flex items-center gap-2">
                 <button className="btn-secondary h-10 px-2 sm:px-3" onClick={returnToLedgerHome} title="切換帳本">
@@ -1883,6 +1889,7 @@ export default function App() {
                 categoryBreakdown={categoryBreakdown}
                 accounts={accounts}
                 dashboard={dashboard}
+                currency={activeLedger?.currency ?? "TWD"}
               />
             )}
             {page === "ai" && (
@@ -1935,7 +1942,11 @@ export default function App() {
             <MobileNavButton key={item.page} item={item} active={page === item.page} onClick={() => navigateToPage(item.page)} />
           ))}
         </div>
-        <details className="border-t border-slate-200 px-2 pb-2 dark:border-slate-800">
+        <details
+          className="border-t border-slate-200 px-2 pb-2 dark:border-slate-800"
+          open={mobileMoreOpen}
+          onToggle={(event) => setMobileMoreOpen(event.currentTarget.open)}
+        >
           <summary className="flex cursor-pointer list-none items-center justify-center gap-1 py-1 text-xs text-slate-500 dark:text-slate-400">
             更多 <ChevronDown size={14} />
           </summary>
@@ -4582,24 +4593,34 @@ function CardsPage({
 }) {
   function addCard(formData: FormData) {
     const limit = parseMoneyToCents(String(formData.get("limit") ?? ""));
-    const validation = validatePositiveAmount(limit, "信用額度");
+    const annualFeeCents = parseMoneyToCents(String(formData.get("annualFee") ?? "0"));
+    const statementDay = Number(formData.get("statementDay"));
+    const paymentDueDay = Number(formData.get("paymentDueDay"));
+    const last4 = String(formData.get("last4")).trim();
+    const validation = combineValidations(
+      validatePositiveAmount(limit, "信用額度"),
+      validateNonNegativeAmount(annualFeeCents, "年費"),
+      validateIntegerRange(statementDay, 1, 31, "結帳日"),
+      validateIntegerRange(paymentDueDay, 1, 31, "繳款截止日")
+    );
     if (!validation.valid) return notify("error", validation.errors[0]);
+    if (!/^\d{4}$/.test(last4)) return notify("error", "卡片末四碼需為 4 位數字");
     const now = new Date().toISOString();
     void onAdd({
         id: crypto.randomUUID(),
         userId: localUserId,
         name: String(formData.get("name")),
         issuer: String(formData.get("issuer")),
-        last4: String(formData.get("last4")).slice(-4),
+        last4,
         creditLimitCents: limit,
-        statementDay: Number(formData.get("statementDay")),
-        paymentDueDay: Number(formData.get("paymentDueDay")),
+        statementDay,
+        paymentDueDay,
         unbilledAmountCents: 0,
         currentStatementAmountCents: 0,
         minimumPaymentCents: 0,
         installmentBalanceCents: 0,
         autoPayAccountId: String(formData.get("autoPayAccountId") ?? ""),
-        annualFeeCents: parseMoneyToCents(String(formData.get("annualFee") ?? "0")),
+        annualFeeCents,
         annualFeeWaiver: String(formData.get("waiver") ?? ""),
         note: "",
         isActive: true,
@@ -4613,11 +4634,22 @@ function CardsPage({
     const totalAmountCents = parseMoneyToCents(String(formData.get("totalAmount") ?? ""));
     const paidAmountCents = parseMoneyToCents(String(formData.get("paidAmount") ?? "0"));
     const annualRate = Number(formData.get("annualRate")) / 100;
-    const periods = Math.max(1, Number(formData.get("periods")));
-    const paidPeriods = Math.min(periods, Math.max(0, Number(formData.get("paidPeriods"))));
+    const periods = Number(formData.get("periods"));
+    const paidPeriods = Number(formData.get("paidPeriods"));
     const monthlyPaymentInput = parseMoneyToCents(String(formData.get("monthlyPayment") ?? ""));
-    const validation = combineValidations(validatePositiveAmount(totalAmountCents, "分期總額"), validateAnnualRate(annualRate));
+    const startedOn = String(formData.get("startedOn"));
+    const nextDueDate = String(formData.get("nextDueDate") || "");
+    const validation = combineValidations(
+      validatePositiveAmount(totalAmountCents, "分期總額"),
+      validateNonNegativeAmount(paidAmountCents, "已還款金額"),
+      validateNonNegativeAmount(monthlyPaymentInput, "每月應繳"),
+      validateAnnualRate(annualRate),
+      validateIntegerRange(periods, 1, 600, "分期期數"),
+      validateIntegerRange(paidPeriods, 0, periods, "已還期數"),
+      validateDateRange(startedOn, nextDueDate || undefined)
+    );
     if (!validation.valid) return notify("error", validation.errors[0]);
+    if (paidAmountCents > totalAmountCents) return notify("error", "已還款金額不可超過分期總額");
     const now = new Date().toISOString();
     const remainingAmountCents = Math.max(0, totalAmountCents - paidAmountCents);
     const installment: CreditCardInstallment = {
@@ -4632,8 +4664,8 @@ function CardsPage({
       monthlyPaymentCents: monthlyPaymentInput > 0 ? monthlyPaymentInput : Math.ceil(remainingAmountCents / Math.max(1, periods - paidPeriods)),
       paidAmountCents,
       remainingAmountCents,
-      startedOn: String(formData.get("startedOn")),
-      nextDueDate: String(formData.get("nextDueDate") || "") || undefined,
+      startedOn,
+      nextDueDate: nextDueDate || undefined,
       status: remainingAmountCents === 0 ? "paid_off" : "active",
       note: String(formData.get("note") ?? ""),
       createdAt: now,
@@ -4845,9 +4877,17 @@ function LoansPage({
   function addLoan(formData: FormData) {
     const principal = parseMoneyToCents(String(formData.get("principal") ?? ""));
     const annualRate = Number(formData.get("annualRate")) / 100;
-    const validation = combineValidations(validatePositiveAmount(principal, "貸款本金"), validateAnnualRate(annualRate));
-    if (!validation.valid) return notify("error", validation.errors[0]);
     const termMonths = Number(formData.get("termMonths"));
+    const paymentDay = Number(formData.get("paymentDay"));
+    const startDate = String(formData.get("startDate"));
+    const validation = combineValidations(
+      validatePositiveAmount(principal, "貸款本金"),
+      validateAnnualRate(annualRate),
+      validateIntegerRange(termMonths, 1, 600, "貸款期數"),
+      validateIntegerRange(paymentDay, 1, 31, "每月還款日"),
+      validateDateRange(startDate)
+    );
+    if (!validation.valid) return notify("error", validation.errors[0]);
     const payment = calculateLoan({ principalCents: principal, annualRate, termMonths, method: "equal_payment" }).monthlyPaymentCents;
     const now = new Date().toISOString();
     void onAdd({
@@ -4861,8 +4901,8 @@ function LoansPage({
         annualRate,
         termMonths,
         paidPeriods: 0,
-        monthlyPaymentDay: Number(formData.get("paymentDay")),
-        startDate: String(formData.get("startDate")),
+        monthlyPaymentDay: paymentDay,
+        startDate,
         repaymentMethod: "equal_payment",
         paymentPerPeriodCents: payment,
         status: "active",
@@ -5034,9 +5074,14 @@ function DepositsPage({
     const annualRate = Number(formData.get("annualRate")) / 100;
     const startDate = String(formData.get("startDate"));
     const maturityDate = String(formData.get("maturityDate"));
-    const validation = combineValidations(validatePositiveAmount(principal, "本金"), validateAnnualRate(annualRate), validateDateRange(startDate, maturityDate));
-    if (!validation.valid) return notify("error", validation.errors[0]);
     const termMonths = Number(formData.get("termMonths"));
+    const validation = combineValidations(
+      validatePositiveAmount(principal, "本金"),
+      validateAnnualRate(annualRate),
+      validateIntegerRange(termMonths, 1, 600, "存款期間"),
+      validateDateRange(startDate, maturityDate)
+    );
+    if (!validation.valid) return notify("error", validation.errors[0]);
     const estimate = calculateDeposit({ principalCents: principal, annualRate, months: termMonths, interestType: "simple" });
     const now = new Date().toISOString();
     void onAdd({
@@ -5371,24 +5416,20 @@ function FinancialPlansPage({
       notify("error", "請輸入計劃名稱");
       return null;
     }
-    if (!Number.isFinite(targetAmountCents) || targetAmountCents <= 0) {
-      notify("error", "目標金額需大於 0");
+    const validation = combineValidations(
+      validatePositiveAmount(targetAmountCents, "目標金額"),
+      validateNonNegativeAmount(currentAmountCents, "目前金額"),
+      validateNonNegativeAmount(monthlyContributionCents, "每月投入"),
+      validateDateRange(targetDate),
+      validateAnnualRate(expectedAnnualReturn),
+      validateIntegerRange(priority, 1, 5, "優先順序")
+    );
+    if (!validation.valid) {
+      notify("error", validation.errors[0]);
       return null;
     }
-    if (!Number.isFinite(currentAmountCents) || currentAmountCents < 0 || !Number.isFinite(monthlyContributionCents) || monthlyContributionCents < 0) {
-      notify("error", "目前金額與每月投入不可為負數");
-      return null;
-    }
-    if (!targetDate || targetDate <= today) {
+    if (targetDate <= today) {
       notify("error", "目標日期需晚於今天");
-      return null;
-    }
-    if (!Number.isFinite(expectedAnnualReturn) || expectedAnnualReturn < 0 || expectedAnnualReturn > 1) {
-      notify("error", "預估年化成長率需介於 0% 到 100%");
-      return null;
-    }
-    if (!Number.isInteger(priority) || priority < 1 || priority > 5) {
-      notify("error", "優先順序需介於 1 到 5");
       return null;
     }
     const now = new Date().toISOString();
@@ -5669,6 +5710,7 @@ function InvestmentsPage({
     const quantity = Number(formData.get("quantity"));
     const averageUnitCost = Number(formData.get("averageUnitCost"));
     const currentUnitPrice = Number(formData.get("currentUnitPrice"));
+    const acquiredDate = String(formData.get("acquiredDate") ?? "");
     const effectiveQuoteCurrency = assetType === "forex" ? ledgerCurrency : quoteCurrency;
     const exchangeRateToLedger = assetType === "forex" || effectiveQuoteCurrency === ledgerCurrency
       ? 1
@@ -5678,6 +5720,10 @@ function InvestmentsPage({
       return notify("error", "數量、成本、現價與匯率必須是有效數字");
     }
     if (quantity <= 0 || exchangeRateToLedger <= 0) return notify("error", "數量與換算匯率必須大於 0");
+    if (acquiredDate) {
+      const dateValidation = validateDateRange(acquiredDate);
+      if (!dateValidation.valid) return notify("error", dateValidation.errors[0]);
+    }
     const now = new Date().toISOString();
     const next: InvestmentAsset = {
       id: editingAsset?.id ?? crypto.randomUUID(),
@@ -5692,7 +5738,7 @@ function InvestmentsPage({
       currentUnitPrice,
       exchangeRateToLedger,
       platform: String(formData.get("platform") ?? "").trim() || undefined,
-      acquiredDate: String(formData.get("acquiredDate") ?? "") || undefined,
+      acquiredDate: acquiredDate || undefined,
       note: String(formData.get("note") ?? "").trim() || undefined,
       isActive: true,
       createdAt: editingAsset?.createdAt ?? now,
@@ -6293,7 +6339,14 @@ function RemindersPage({
 
   function addReminder(formData: FormData) {
     const amount = parseMoneyToCents(String(formData.get("amount") ?? ""));
-    const validation = combineValidations(validatePositiveAmount(amount), validateDateRange(String(formData.get("startDate"))));
+    const debitDay = Number(formData.get("debitDay"));
+    const remindDaysBefore = Number(formData.get("remindDaysBefore"));
+    const validation = combineValidations(
+      validatePositiveAmount(amount),
+      validateDateRange(String(formData.get("startDate"))),
+      validateIntegerRange(debitDay, 1, 31, "扣款日"),
+      validateIntegerRange(remindDaysBefore, 0, 365, "提醒天數")
+    );
     if (!validation.valid) return notify("error", validation.errors[0]);
     const now = new Date().toISOString();
     void onAdd({
@@ -6302,9 +6355,9 @@ function RemindersPage({
       name: String(formData.get("name")),
       amountCents: amount,
       frequency: String(formData.get("frequency")) as FinancialReminder["frequency"],
-      debitDay: Number(formData.get("debitDay")),
+      debitDay,
       accountId: String(formData.get("accountId") ?? ""),
-      remindDaysBefore: Number(formData.get("remindDaysBefore")),
+      remindDaysBefore,
       autoCreateTransaction: formData.get("autoCreate") === "on",
       isNecessary: formData.get("necessary") === "on",
       startDate: String(formData.get("startDate")),
@@ -6382,7 +6435,8 @@ function ReportsPage({
   monthlyTrend,
   categoryBreakdown,
   accounts,
-  dashboard
+  dashboard,
+  currency
 }: {
   month: string;
   transactions: Transaction[];
@@ -6393,9 +6447,11 @@ function ReportsPage({
   categoryBreakdown: { category: string; amountCents: number }[];
   accounts: FinancialAccount[];
   dashboard: ReturnType<typeof summarizeDashboard>;
+  currency: CurrencyCode;
 }) {
   const reportInput = {
     month,
+    currency,
     dashboard,
     accounts,
     transactions,
