@@ -9,7 +9,9 @@ export const supabase = isSupabaseConfigured
   ? createClient(supabaseUrl as string, supabaseAnonKey as string, {
       auth: {
         persistSession: true,
-        autoRefreshToken: true
+        autoRefreshToken: true,
+        // Keep authentication only for the current browser session; financial data is never stored here.
+        storage: typeof window === "undefined" ? undefined : window.sessionStorage
       },
       global: {
         headers: {

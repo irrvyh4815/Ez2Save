@@ -3,8 +3,17 @@ import { createClient } from "@supabase/supabase-js";
 const rateLimitBuckets = new Map();
 const baseUserFields = "user_id,email,display_name,member_code,role,is_super_admin,created_at,updated_at";
 const managedUserFields = `${baseUserFields},is_active,suspended_at,admin_note`;
+const maxRequestBytes = 16 * 1024;
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export const config = {
+  api: { bodyParser: { sizeLimit: "16kb" } }
+};
 
 function sendJson(response, status, body) {
+  response.setHeader("Cache-Control", "no-store");
+  response.setHeader("X-Content-Type-Options", "nosniff");
+  response.setHeader("X-Frame-Options", "DENY");
   response.status(status).json(body);
 }
 
@@ -16,11 +25,12 @@ function getConfig() {
 
 function getBearerToken(request) {
   const authorization = request.headers.authorization || "";
-  return authorization.startsWith("Bearer ") ? authorization.slice(7) : null;
+  const token = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
+  return token && token.length <= 4096 ? token : null;
 }
 
 function sanitizeSearch(value) {
-  return String(value || "").trim().replace(/[,.()]/g, " ").slice(0, 80);
+  return String(value || "").trim().replace(/[^a-zA-Z0-9@._+\-\s]/g, "").slice(0, 80);
 }
 
 function parsePositiveInteger(value, fallback, maximum) {
@@ -36,6 +46,11 @@ function allowRequest(userId) {
   if (requests.length >= limit) return false;
   requests.push(now);
   rateLimitBuckets.set(userId, requests);
+  if (rateLimitBuckets.size > 5_000) {
+    for (const [key, timestamps] of rateLimitBuckets) {
+      if (timestamps.every((timestamp) => now - timestamp >= windowMs)) rateLimitBuckets.delete(key);
+    }
+  }
   return true;
 }
 
@@ -139,10 +154,16 @@ async function listUsers(request, response, serviceClient, managementReady) {
 
 async function manageUser(request, response, serviceClient, administrator, managementReady) {
   if (!managementReady) return sendJson(response, 503, { error: "帳號管理功能尚未啟用，請先完成雲端資料設定" });
-  const body = typeof request.body === "string" ? JSON.parse(request.body || "{}") : request.body || {};
+  let body;
+  try {
+    body = typeof request.body === "string" ? JSON.parse(request.body || "{}") : request.body || {};
+  } catch {
+    return sendJson(response, 400, { error: "使用者資料格式不正確" });
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return sendJson(response, 400, { error: "使用者資料格式不正確" });
   const action = String(body.action || "");
   const targetUserId = String(body.targetUserId || "");
-  if (!targetUserId) return sendJson(response, 400, { error: "缺少使用者資料" });
+  if (!uuidPattern.test(targetUserId)) return sendJson(response, 400, { error: "使用者資料格式不正確" });
   if (targetUserId === administrator.id) return sendJson(response, 400, { error: "請勿在這裡修改自己的帳號權限" });
   const target = await getTargetUser(serviceClient, targetUserId);
   if (target.is_super_admin) return sendJson(response, 400, { error: "最高管理員帳號不可在此修改" });
@@ -176,7 +197,7 @@ async function manageUser(request, response, serviceClient, administrator, manag
   if (!["role", "status", "note"].includes(action)) return sendJson(response, 400, { error: "不支援的管理操作" });
   const role = action === "role" ? String(body.role || "") : null;
   const isActive = action === "status" ? Boolean(body.isActive) : null;
-  const note = action === "note" ? String(body.note || "") : null;
+  const note = action === "note" ? String(body.note || "").trim().slice(0, 500) : null;
   if (action === "role" && !["user", "admin"].includes(role)) return sendJson(response, 400, { error: "無效的帳號角色" });
   const { data, error } = await serviceClient.rpc("admin_manage_user_profile", {
     p_actor_user_id: administrator.id,
@@ -198,12 +219,14 @@ async function manageUser(request, response, serviceClient, administrator, manag
 
 export default async function handler(request, response) {
   if (request.method !== "GET" && request.method !== "PATCH") return sendJson(response, 405, { error: "不支援的請求方式" });
+  const contentLength = Number(request.headers["content-length"] || 0);
+  if (Number.isFinite(contentLength) && contentLength > maxRequestBytes) return sendJson(response, 413, { error: "請求內容過大" });
   try {
     const context = await getAdministrator(request);
     if (context.error) return sendJson(response, context.status, { error: context.error });
     if (request.method === "GET") return await listUsers(request, response, context.serviceClient, context.managementReady);
     return await manageUser(request, response, context.serviceClient, context.administrator, context.managementReady);
-  } catch (error) {
-    return sendJson(response, 500, { error: error instanceof Error ? error.message : "用戶管理服務暫時無法使用" });
+  } catch {
+    return sendJson(response, 500, { error: "用戶管理服務暫時無法使用" });
   }
 }

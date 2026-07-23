@@ -1,3 +1,5 @@
+import { createClient } from "@supabase/supabase-js";
+
 export const config = {
   runtime: "edge"
 };
@@ -22,18 +24,41 @@ type CacheEntry = {
 
 const cache = new Map<string, CacheEntry>();
 const rateLimit = new Map<string, number[]>();
+const maxRequestBytes = 32 * 1024;
+const dashboardFields = [
+  "totalAssetsCents",
+  "totalLiabilitiesCents",
+  "netWorthCents",
+  "monthlyIncomeCents",
+  "monthlyExpenseCents",
+  "monthlyBalanceCents",
+  "monthlyCreditCardDueCents",
+  "monthlyLoanDueCents",
+  "availableCashCents",
+  "termDepositCents",
+  "debtRatio",
+  "emergencyFundMonths"
+] as const;
 
 export default async function handler(request: Request): Promise<Response> {
   if (request.method !== "POST") {
     return json({ error: "Method not allowed" }, 405);
   }
 
+  const contentLength = Number(request.headers.get("content-length") || 0);
+  if (Number.isFinite(contentLength) && contentLength > maxRequestBytes) {
+    return json({ error: "Request body too large" }, 413);
+  }
+
+  const userId = await getAuthenticatedUserId(request);
+  if (!userId) return json({ error: "Authentication required" }, 401);
+
   const aiEnabled = readBooleanEnv("AI_ENABLED", false);
   const mockMode = readBooleanEnv("AI_MOCK_MODE", true);
   const model = readEnv("AI_MODEL", "mock-finance-advisor");
-  const limitPerHour = Number(readEnv("AI_RATE_LIMIT_PER_HOUR", "5"));
-  const cacheTtlSeconds = Number(readEnv("AI_CACHE_TTL_SECONDS", "86400"));
-  const maxItems = Number(readEnv("MAX_AI_SUMMARY_ITEMS", "120"));
+  const limitPerHour = clamp(Number(readEnv("AI_RATE_LIMIT_PER_HOUR", "5")), 1, 20);
+  const cacheTtlSeconds = clamp(Number(readEnv("AI_CACHE_TTL_SECONDS", "86400")), 60, 604_800);
+  const maxItems = clamp(Number(readEnv("MAX_AI_SUMMARY_ITEMS", "120")), 1, 120);
 
   let input: unknown;
   try {
@@ -41,12 +66,12 @@ export default async function handler(request: Request): Promise<Response> {
   } catch {
     return json({ error: "Invalid request body" }, 400);
   }
+  if (!input || typeof input !== "object" || Array.isArray(input)) return json({ error: "Invalid request body" }, 400);
 
   const summary = minimizeInput(input, maxItems);
-  const cacheKey = stableHash(summary);
-  const clientKey = request.headers.get("x-user-id") ?? request.headers.get("x-forwarded-for") ?? "anonymous";
+  const cacheKey = stableHash({ userId, summary });
 
-  const rate = checkRateLimit(clientKey, limitPerHour);
+  const rate = checkRateLimit(userId, limitPerHour);
   if (!rate.allowed) {
     return json({ error: "Rate limit exceeded" }, 429);
   }
@@ -67,23 +92,49 @@ export default async function handler(request: Request): Promise<Response> {
     return json({ error: "AI service is not configured" }, 503);
   }
 
-  const report = await buildProviderReport(summary, cacheKey, apiKey, model);
-  cache.set(cacheKey, { report, expiresAt: Date.now() + cacheTtlSeconds * 1000 });
-  return json({ ...report, metadata: { cached: false, model, mock: false } });
+  try {
+    const report = await buildProviderReport(summary, cacheKey, apiKey, model);
+    cache.set(cacheKey, { report, expiresAt: Date.now() + cacheTtlSeconds * 1000 });
+    return json({ ...report, metadata: { cached: false, model, mock: false } });
+  } catch {
+    return json({ error: "AI service is temporarily unavailable" }, 503);
+  }
 }
 
 function minimizeInput(input: unknown, maxItems: number): Record<string, unknown> {
   if (!input || typeof input !== "object") return {};
   const source = input as Record<string, unknown>;
+  const sourceDashboard = (source.dashboard && typeof source.dashboard === "object" ? source.dashboard : {}) as Record<string, unknown>;
+  const dashboard = Object.fromEntries(dashboardFields.map((field) => [field, finite(sourceDashboard[field])])) as Record<string, number>;
   return {
-    month: source.month,
-    dashboard: source.dashboard,
-    categoryBreakdown: Array.isArray(source.categoryBreakdown) ? source.categoryBreakdown.slice(0, maxItems) : [],
-    loans: Array.isArray(source.loans) ? source.loans.slice(0, maxItems) : [],
-    creditCards: Array.isArray(source.creditCards) ? source.creditCards.slice(0, maxItems) : [],
-    creditCardInstallments: source.creditCardInstallments,
-    fixedExpenseCents: source.fixedExpenseCents
+    month: /^\d{4}-\d{2}$/.test(String(source.month || "")) ? source.month : undefined,
+    dashboard,
+    categoryBreakdown: Array.isArray(source.categoryBreakdown)
+      ? source.categoryBreakdown.slice(0, maxItems).flatMap((item) => {
+          if (!item || typeof item !== "object") return [];
+          const row = item as Record<string, unknown>;
+          return [{ category: sanitizeCategory(row.category), amountCents: finite(row.amountCents) }];
+        })
+      : [],
+    loans: Array.isArray(source.loans)
+      ? source.loans.slice(0, maxItems).flatMap((item) => numericSummary(item, ["remainingPrincipalCents", "annualRate", "paymentPerPeriodCents"]))
+      : [],
+    creditCards: Array.isArray(source.creditCards)
+      ? source.creditCards.slice(0, maxItems).flatMap((item) => numericSummary(item, ["creditLimitCents", "unbilledAmountCents", "currentStatementAmountCents"]))
+      : [],
+    creditCardInstallments: numericSummary(source.creditCardInstallments, ["totalRemainingCents", "monthlyDueCents", "weightedAverageAnnualRate", "activeCount"])[0] ?? {},
+    fixedExpenseCents: finite(source.fixedExpenseCents)
   };
+}
+
+function numericSummary(value: unknown, fields: string[]): Record<string, number>[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const row = value as Record<string, unknown>;
+  return [Object.fromEntries(fields.map((field) => [field, finite(row[field])])) as Record<string, number>];
+}
+
+function sanitizeCategory(value: unknown): string {
+  return String(value || "未分類").replace(/[^\p{L}\p{N}\s&/()_-]/gu, "").trim().slice(0, 48) || "未分類";
 }
 
 function buildMockReport(summary: Record<string, unknown>, cacheKey: string): AiReport {
@@ -166,7 +217,26 @@ function checkRateLimit(clientKey: string, limitPerHour: number): { allowed: boo
   }
   entries.push(now);
   rateLimit.set(clientKey, entries);
+  if (rateLimit.size > 5_000) {
+    for (const [key, timestamps] of rateLimit) {
+      if (timestamps.every((timestamp) => timestamp <= windowStart)) rateLimit.delete(key);
+    }
+  }
   return { allowed: true };
+}
+
+async function getAuthenticatedUserId(request: Request): Promise<string | null> {
+  const authorization = request.headers.get("authorization") || "";
+  const token = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
+  if (!token || token.length > 4096) return null;
+
+  const url = readEnv("SUPABASE_URL", readEnv("VITE_SUPABASE_URL", ""));
+  const key = readEnv("SUPABASE_SERVICE_ROLE_KEY", readEnv("VITE_SUPABASE_ANON_KEY", ""));
+  if (!url || !key) return null;
+
+  const client = createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
+  const { data, error } = await client.auth.getUser(token);
+  return error || !data.user ? null : data.user.id;
 }
 
 function stableHash(value: unknown): string {
@@ -203,7 +273,9 @@ function json(body: unknown, status = 200): Response {
     status,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "no-store"
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+      "X-Frame-Options": "DENY"
     }
   });
 }
@@ -222,5 +294,6 @@ function finite(value: unknown): number {
 }
 
 function clamp(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
   return Math.max(min, Math.min(max, value));
 }

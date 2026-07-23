@@ -3,14 +3,23 @@ import { createClient } from "@supabase/supabase-js";
 const requestBuckets = new Map();
 const purposes = new Set(["personal", "family", "business", "investment", "custom"]);
 const colors = new Set(["emerald", "sky", "violet", "amber", "rose"]);
+const maxRequestBytes = 16 * 1024;
+
+export const config = {
+  api: { bodyParser: { sizeLimit: "16kb" } }
+};
 
 function sendJson(response, status, body) {
+  response.setHeader("Cache-Control", "no-store");
+  response.setHeader("X-Content-Type-Options", "nosniff");
+  response.setHeader("X-Frame-Options", "DENY");
   response.status(status).json(body);
 }
 
 function getBearerToken(request) {
   const authorization = request.headers.authorization || "";
-  return authorization.startsWith("Bearer ") ? authorization.slice(7) : null;
+  const token = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
+  return token && token.length <= 4096 ? token : null;
 }
 
 function isSchemaUnavailable(error) {
@@ -24,6 +33,11 @@ function allowRequest(userId) {
   if (requests.length >= 12) return false;
   requests.push(now);
   requestBuckets.set(userId, requests);
+  if (requestBuckets.size > 5_000) {
+    for (const [key, timestamps] of requestBuckets) {
+      if (timestamps.every((timestamp) => now - timestamp >= windowMs)) requestBuckets.delete(key);
+    }
+  }
   return true;
 }
 
@@ -43,6 +57,8 @@ function readInput(body) {
 
 export default async function handler(request, response) {
   if (request.method !== "POST") return sendJson(response, 405, { error: "不支援的請求方式" });
+  const contentLength = Number(request.headers["content-length"] || 0);
+  if (Number.isFinite(contentLength) && contentLength > maxRequestBytes) return sendJson(response, 413, { error: "請求內容過大" });
 
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -58,6 +74,7 @@ export default async function handler(request, response) {
   } catch {
     return sendJson(response, 400, { error: "帳本資料格式不正確" });
   }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return sendJson(response, 400, { error: "帳本資料格式不正確" });
   const input = readInput(body);
   if (input.error) return sendJson(response, 400, { error: input.error });
 

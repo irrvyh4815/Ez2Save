@@ -12,6 +12,16 @@
 
 `supabase/migrations/202607150004_ledgers_sharing_insurance_security.sql`
 
+套用 `supabase/migrations/202607230011_security_hardening.sql` 後，帳本建立者、帳本成員身分、邀請建立者，以及財務資料的 `user_id` 與 `ledger_id` 都不能在更新時被改寫。
+
+## 基本防護
+
+- 瀏覽器只保存當前工作階段的登入資訊，不保存財務資料。
+- 前端不持有 Supabase service role 或 AI 金鑰。
+- 管理、帳本建立與 AI 端點均驗證 Supabase 登入權杖，並限制請求大小與頻率。
+- Vercel 設定內容安全、禁止嵌入與禁止 MIME 猜測等回應標頭。
+- AI 快取與呼叫限制依真實登入帳號分開計算，不接受前端自訂使用者編號。
+
 包含：
 
 - `profiles.member_code`

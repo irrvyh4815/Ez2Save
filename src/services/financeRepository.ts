@@ -190,6 +190,7 @@ export async function signInWithPassword(email: string, password: string): Promi
 
 export async function signUpWithPassword(email: string, password: string, displayName: string): Promise<{ needsEmailConfirmation: boolean }> {
   if (!supabase) throw new Error("Supabase 尚未設定");
+  assertSecurePassword(password);
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
@@ -231,9 +232,14 @@ export async function updateOwnProfile(input: { displayName: string; locale?: st
 
 export async function updateOwnPassword(password: string): Promise<void> {
   if (!supabase) throw new Error("請先完成雲端設定");
-  if (password.length < 8) throw new Error("密碼至少需要 8 碼");
+  assertSecurePassword(password);
   const { error } = await supabase.auth.updateUser({ password });
   if (error) throw new Error("密碼更新失敗，請重新登入後再試");
+}
+
+function assertSecurePassword(password: string): void {
+  if (password.length < 10 || password.length > 128) throw new Error("密碼請使用 10 至 128 碼");
+  if (!/[A-Za-z]/.test(password) || !/\d/.test(password)) throw new Error("密碼需同時包含英文字母與數字");
 }
 
 export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceResult> {

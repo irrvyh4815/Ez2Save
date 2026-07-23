@@ -1,4 +1,5 @@
 import type { AiFinancialReport, CreditCard, DashboardSummary, Loan } from "../types/finance";
+import { supabase } from "./supabaseClient";
 
 export interface AiFinancialHealthInput {
   dashboard: DashboardSummary;
@@ -16,9 +17,15 @@ export interface AiFinancialHealthInput {
 }
 
 export async function requestAiFinancialHealth(input: AiFinancialHealthInput): Promise<AiFinancialReport> {
+  if (!supabase) throw new Error("Supabase 尚未設定");
+  const { data, error } = await supabase.auth.getSession();
+  if (error || !data.session?.access_token) throw new Error("請先登入再使用 AI 理財健檢");
   const response = await fetch("/api/ai-financial-health", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${data.session.access_token}`
+    },
     body: JSON.stringify(input)
   });
 

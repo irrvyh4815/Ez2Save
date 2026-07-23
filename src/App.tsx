@@ -2684,8 +2684,8 @@ function AuthPage({
     const email = String(formData.get("email") ?? "").trim();
     const password = String(formData.get("password") ?? "");
     const displayName = String(formData.get("displayName") ?? "").trim();
-    if (password.length < 8) {
-      setMessage("密碼至少需要 8 碼。");
+    if (mode === "signup" && (password.length < 10 || !/[A-Za-z]/.test(password) || !/\d/.test(password))) {
+      setMessage("註冊密碼請至少 10 碼，並包含英文字母與數字。");
       return;
     }
     setLoading(true);
@@ -2810,7 +2810,8 @@ function AuthPage({
           <form className="mt-5 space-y-4" onSubmit={handleFormSubmit((formData) => void submitAuth(formData))}>
             {mode === "signup" && <Field label="顯示名稱"><input className="input" name="displayName" placeholder="例如 Renault" /></Field>}
             <Field label="Email"><input className="input" name="email" type="email" autoComplete="email" required /></Field>
-            <Field label="密碼"><input className="input" name="password" type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} minLength={8} required /></Field>
+            <Field label="密碼"><input className="input" name="password" type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} minLength={mode === "signup" ? 10 : 1} required /></Field>
+            {mode === "signup" && <p className="-mt-2 text-xs text-slate-500 dark:text-slate-400">至少 10 碼，包含英文字母與數字。</p>}
             <button className="btn-primary h-11 w-full" type="submit" disabled={loading}>
               {loading ? "處理中" : mode === "signup" ? "建立帳號並寄送認證信" : "登入 Ez2SaveMore"}
             </button>
@@ -6529,8 +6530,9 @@ function SettingsPage({
       <section className="panel">
         <h2 className="text-lg font-semibold">變更密碼</h2>
         <form className="mt-4 grid gap-3" onSubmit={handleFormSubmit((formData) => void onChangePassword(String(formData.get("password") ?? ""), String(formData.get("confirmation") ?? "")))}>
-          <Field label="新密碼"><input className="input" name="password" type="password" autoComplete="new-password" minLength={8} required /></Field>
-          <Field label="再次輸入新密碼"><input className="input" name="confirmation" type="password" autoComplete="new-password" minLength={8} required /></Field>
+          <Field label="新密碼"><input className="input" name="password" type="password" autoComplete="new-password" minLength={10} required /></Field>
+          <Field label="再次輸入新密碼"><input className="input" name="confirmation" type="password" autoComplete="new-password" minLength={10} required /></Field>
+          <p className="text-xs text-slate-500 dark:text-slate-400">至少 10 碼，包含英文字母與數字。</p>
           <button className="btn-primary justify-self-start" type="submit" disabled={!sessionEmail}>更新密碼</button>
         </form>
       </section>
