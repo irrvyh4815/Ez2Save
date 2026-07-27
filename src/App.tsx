@@ -2663,7 +2663,7 @@ function getLedgerToneClasses(color: LedgerBook["color"]) {
 function Brand() {
   return (
     <div className="flex items-center gap-3">
-      <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-slate-950 text-white shadow-md dark:bg-white dark:text-slate-950">
+      <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-slate-950 text-white shadow-md dark:bg-emerald-500/15 dark:text-emerald-300">
         <ShieldCheck size={22} />
       </div>
       <div>
@@ -2680,12 +2680,12 @@ function NavButton({ item, active, onClick }: { item: NavItem; active: boolean; 
     <button
       className={`group flex min-h-10 w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm font-medium transition duration-200 ${
         active
-          ? "bg-slate-950 text-white shadow-card dark:bg-white dark:text-slate-950"
+          ? "bg-slate-950 text-white shadow-card dark:bg-emerald-500/15 dark:text-emerald-200"
           : "text-slate-600 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-white"
       }`}
       onClick={onClick}
     >
-      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition ${active ? "bg-white/12 text-emerald-300 dark:bg-slate-900 dark:text-emerald-300" : "text-slate-400 group-hover:text-slate-700 dark:text-slate-500 dark:group-hover:text-slate-200"}`}>
+      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition ${active ? "bg-white/12 text-emerald-300 dark:bg-emerald-950 dark:text-emerald-300" : "text-slate-400 group-hover:text-slate-700 dark:text-slate-500 dark:group-hover:text-slate-200"}`}>
         <Icon size={16} />
       </span>
       {item.label}
@@ -2698,7 +2698,7 @@ function MobileNavButton({ item, active, onClick }: { item: NavItem; active: boo
   return (
     <button
       className={`flex min-h-12 flex-col items-center justify-center gap-1 rounded-md text-[11px] font-semibold transition ${
-        active ? "bg-slate-950 text-white dark:bg-white dark:text-slate-950" : "text-slate-500 dark:text-slate-400"
+        active ? "bg-slate-950 text-white dark:bg-emerald-500/15 dark:text-emerald-200" : "text-slate-500 dark:text-slate-400"
       }`}
       onClick={onClick}
     >
@@ -2808,7 +2808,7 @@ function PeriodSelector({
     <div className="mt-4 flex flex-wrap items-end gap-2 border-t border-slate-200/80 pt-4 dark:border-slate-700">
       <div className="flex max-w-full flex-wrap rounded-md border border-slate-200 bg-white/90 p-1 shadow-sm dark:border-slate-700 dark:bg-slate-950">
         {(["month", "three_months", "six_months", "year", "range"] as const).map((item) => (
-          <button key={item} className={`rounded px-3 py-1.5 text-sm font-semibold transition ${mode === item ? "bg-slate-950 text-white shadow-sm dark:bg-white dark:text-slate-950" : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"}`} onClick={() => onModeChange(item)}>{item === "month" ? "單月" : item === "three_months" ? "近三月" : item === "six_months" ? "近半年" : item === "year" ? "全年" : "自訂"}</button>
+          <button key={item} className={`rounded px-3 py-1.5 text-sm font-semibold transition ${mode === item ? "bg-slate-950 text-white shadow-sm dark:bg-emerald-600 dark:text-white" : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"}`} onClick={() => onModeChange(item)}>{item === "month" ? "單月" : item === "three_months" ? "近三月" : item === "six_months" ? "近半年" : item === "year" ? "全年" : "自訂"}</button>
         ))}
       </div>
       {mode === "month" && <input className="input mt-0 w-36" type="month" value={month} onChange={(event) => onMonthChange(event.target.value)} aria-label="選擇月份" />}
