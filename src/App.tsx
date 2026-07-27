@@ -2184,7 +2184,7 @@ function LedgerHomePage({
                     </button>
                   )}
                 </div>
-                <div className="mt-7 grid gap-3 sm:grid-cols-3">
+                <div className="mt-7 grid grid-cols-3 gap-2 sm:gap-3">
                   <LedgerOfficialMetric label="帳本數" value={`${ledgerBooks.length} 本`} detail={`${sharedLedgerCount} 本共用`} />
                   <LedgerOfficialMetric label="淨資產總覽" value={sharedSummaryCurrency ? formatMoney(totalNetWorthCents, sharedSummaryCurrency) : "多幣別"} detail={sharedSummaryCurrency ? "跨帳本彙整" : "請分帳本查看"} />
                   <LedgerOfficialMetric label="本月支出" value={sharedSummaryCurrency ? formatMoney(totalMonthlyExpenseCents, sharedSummaryCurrency) : "多幣別"} detail={sharedSummaryCurrency ? "全部帳本合計" : "避免錯誤加總"} />
@@ -2192,7 +2192,7 @@ function LedgerHomePage({
               </div>
             </div>
 
-            <div className="flex border-t border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900/60 lg:border-l lg:border-t-0">
+            <div className="hidden border-t border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900/60 lg:flex lg:border-l lg:border-t-0">
               <LedgerProductPreview
                 ledgerChartRows={ledgerChartRows}
                 totalInsuranceCoverageCents={totalInsuranceCoverageCents}
@@ -2498,10 +2498,10 @@ function TransitionOverlay({ label }: { label: string }) {
 
 function LedgerOfficialMetric({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-subtle dark:border-slate-800 dark:bg-slate-900">
+    <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-3 shadow-subtle dark:border-slate-800 dark:bg-slate-900">
       <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">{label}</p>
-      <p className="mt-2 truncate text-lg font-bold text-slate-950 dark:text-slate-50">{value}</p>
-      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{detail}</p>
+      <p className="mt-2 truncate text-base font-bold text-slate-950 dark:text-slate-50 sm:text-lg">{value}</p>
+      <p className="mt-1 hidden text-xs text-slate-500 dark:text-slate-400 sm:block">{detail}</p>
     </div>
   );
 }
