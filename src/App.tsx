@@ -608,7 +608,16 @@ export default function App() {
   const [periodYear, setPeriodYear] = useState(currentTaipeiMonth().slice(0, 4));
   const [rangeStart, setRangeStart] = useState(`${currentTaipeiMonth()}-01`);
   const [rangeEnd, setRangeEnd] = useState(getTaipeiTodayIso());
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    try {
+      const savedTheme = window.localStorage.getItem("ez2savemore-theme");
+      if (savedTheme === "dark") return true;
+      if (savedTheme === "light") return false;
+    } catch {
+      // Use the device preference when browser storage is unavailable.
+    }
+    return window.matchMedia("(prefers-color-scheme: dark)").matches;
+  });
   const [toast, setToast] = useState<Toast>(null);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
@@ -635,6 +644,14 @@ export default function App() {
   const [currentProfile, setCurrentProfile] = useState<UserProfile | null>(null);
   const [csvPreview, setCsvPreview] = useState<ReturnType<typeof parseTransactionsCsv>>([]);
   const [aiReport, setAiReport] = useState<AiFinancialReport | null>(null);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("ez2savemore-theme", darkMode ? "dark" : "light");
+    } catch {
+      // Theme persistence is optional.
+    }
+  }, [darkMode]);
   const [aiLoading, setAiLoading] = useState(false);
   const refreshFinanceDataRef = useRef<() => Promise<void>>(async () => undefined);
 
