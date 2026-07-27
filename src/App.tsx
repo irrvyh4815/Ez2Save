@@ -1816,7 +1816,7 @@ export default function App() {
         </aside>
 
         <main className="min-w-0 flex-1 pb-24 lg:pb-0">
-          <header className="app-topbar sticky top-0 z-20 border-b border-slate-200/70 px-4 py-2.5 backdrop-blur-xl dark:border-slate-800 sm:px-6">
+          <header className="app-topbar sticky top-0 z-50 border-b border-slate-200/70 px-4 py-2.5 backdrop-blur-xl dark:border-slate-800 sm:px-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h1 className="text-lg font-bold text-slate-950 dark:text-slate-50">{page === "notification_settings" ? "通知設定" : visibleNavItems.find((item) => item.page === page)?.label ?? "理財總覽"}</h1>
@@ -1827,7 +1827,7 @@ export default function App() {
                   <BookOpen size={16} />
                   <span className="hidden sm:inline">切換帳本</span>
                 </button>
-                <div className="relative" ref={notificationAreaRef}>
+                <div className="static sm:relative" ref={notificationAreaRef}>
                   <button
                     className="icon-button relative"
                     title="通知中心"
@@ -2153,13 +2153,13 @@ function LedgerHomePage({
   const memberCode = profile ? formatMemberCode(profile.userId) : null;
 
   return (
-    <main className="min-h-screen overflow-hidden bg-[#f5f7fb] p-3 dark:bg-slate-950 sm:p-6">
+    <main className="min-h-screen overflow-x-hidden bg-[#f5f7fb] p-3 dark:bg-slate-950 sm:p-6">
       <div className="mx-auto max-w-7xl space-y-4">
-        <header className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white/95 p-3 shadow-subtle backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
+        <header className="relative z-50 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white/95 p-3 shadow-subtle backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
           <Brand />
           <div className="flex items-center gap-2">
             {profile && <Badge>{getRoleLabel(profile)}</Badge>}
-            <div className="relative" ref={globalNotificationAreaRef}>
+            <div className="static sm:relative" ref={globalNotificationAreaRef}>
               <button className="btn-secondary relative h-10 w-10 px-0" title="全部帳本通知中心" aria-label={"全部帳本通知中心，共 " + globalNotifications.length + " 則提醒"} onClick={() => setGlobalNotificationOpen((value) => !value)}>
                 <Bell size={18} />
                 {globalNotifications.length > 0 && <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white ring-2 ring-white dark:ring-slate-950">{globalNotifications.length > 9 ? "9+" : globalNotifications.length}</span>}
@@ -3029,7 +3029,11 @@ function AuthPreviewRow({ label, value, color }: { label: string; value: string;
 
 function NotificationPanel({ notifications, onClose, onOpen, onManage }: { notifications: FinanceNotification[]; onClose: () => void; onOpen: (notification: FinanceNotification) => void; onManage?: () => void }) {
   return (
-    <div className="absolute right-0 top-12 z-40 w-[calc(100vw-2rem)] max-w-md rounded-lg border border-slate-200 bg-white p-3 shadow-lg dark:border-slate-800 dark:bg-slate-950">
+    <div
+      className="absolute inset-x-3 top-full z-[70] mt-2 rounded-lg border border-slate-200 bg-white p-3 shadow-lg dark:border-slate-800 dark:bg-slate-950 sm:inset-x-auto sm:right-0 sm:top-12 sm:mt-0 sm:w-[calc(100vw-2rem)] sm:max-w-md"
+      role="dialog"
+      aria-label="通知中心"
+    >
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="font-semibold text-slate-950 dark:text-slate-50">通知中心</p>
@@ -3040,7 +3044,7 @@ function NotificationPanel({ notifications, onClose, onOpen, onManage }: { notif
           <button className="btn-secondary px-2 py-1" onClick={onClose}>關閉</button>
         </div>
       </div>
-      <div className="mt-3 max-h-[420px] space-y-2 overflow-y-auto">
+      <div className="mt-3 max-h-[calc(100vh-9rem)] space-y-2 overflow-y-auto sm:max-h-[420px]">
         {notifications.length === 0 ? (
           <div className="rounded-md border border-slate-200 p-4 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
             目前沒有本月提醒。
