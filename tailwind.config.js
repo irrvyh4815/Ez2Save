@@ -16,7 +16,8 @@ export default {
         }
       },
       boxShadow: {
-        subtle: "0 1px 2px rgb(15 23 42 / 0.08)"
+        subtle: "0 1px 2px rgb(15 23 42 / 0.08)",
+        card: "0 12px 32px -20px rgb(15 23 42 / 0.28)"
       }
     }
   },

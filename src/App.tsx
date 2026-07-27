@@ -25,7 +25,6 @@ import {
   ReceiptText,
   Settings,
   ShieldCheck,
-  Sparkles,
   Table,
   Target,
   TrendingUp,
@@ -167,6 +166,9 @@ type DatePeriod = {
 
 type ToastType = "success" | "error";
 type Toast = { type: ToastType; message: string } | null;
+type ViewTransitionDocument = Document & {
+  startViewTransition?: (update: () => void) => { finished: Promise<void> };
+};
 type FinanceNotification = {
   id: string;
   title: string;
@@ -268,107 +270,107 @@ type NavItem = (typeof navGroups)[number]["items"][number];
 
 const pageIntros: Record<Page, { eyebrow: string; title: string; description: string; accent: string; tint: string }> = {
   dashboard: {
-    eyebrow: "本月財務概覽",
-    title: "你的財務全景已整理好",
-    description: "快速掌握資產、負債、現金流與近期到期事項，先看方向，再處理細節。",
+    eyebrow: "財務概覽",
+    title: "本月財務全景",
+    description: "資產、負債、現金流與近期提醒。",
     accent: "#059669",
     tint: "#ecfdf5"
   },
   transactions: {
     eyebrow: "日常收支管理",
-    title: "讓每筆收支都有清楚位置",
-    description: "分類記憶、CSV 匯入與近期交易，協助你把資料整理成可分析的帳本。",
+    title: "收支與交易",
+    description: "新增、匯入並依分類整理每筆交易。",
     accent: "#0284c7",
     tint: "#eff6ff"
   },
   accounts: {
     eyebrow: "資金帳戶管理",
-    title: "整理所有帳戶與可動用資金",
-    description: "從現金、活存到定存，建立你的資產底圖，後續報表才會更準。",
+    title: "帳戶與可用資金",
+    description: "管理現金、活存、定存與其他資產帳戶。",
     accent: "#0f766e",
     tint: "#f0fdfa"
   },
   cards: {
     eyebrow: "信用與分期管理",
-    title: "信用卡、帳單與分期一次看清",
-    description: "追蹤本期帳款、未出帳、額度使用率與分期負債，降低漏繳與高使用率風險。",
+    title: "信用卡與分期",
+    description: "追蹤帳單、額度、分期負債與繳款日。",
     accent: "#7c3aed",
     tint: "#f5f3ff"
   },
   loans: {
     eyebrow: "還款規劃",
-    title: "把貸款變成可規劃的路線",
-    description: "集中檢視本金、利率、期數與還款日，搭配試算器評估提前還款效果。",
+    title: "貸款與還款",
+    description: "檢視本金、利率、期數與提前還款效果。",
     accent: "#d97706",
     tint: "#fffbeb"
   },
   deposits: {
     eyebrow: "存款規劃",
-    title: "掌握存款到期與預估收益",
-    description: "整理活存、定存與定期儲蓄，讓資金配置更有節奏。",
+    title: "存款與到期收益",
+    description: "管理定存、到期日與預估利息。",
     accent: "#16a34a",
     tint: "#f0fdf4"
   },
   insurance: {
     eyebrow: "保障規劃",
-    title: "保費、保障與理賠一眼看懂",
-    description: "集中管理壽險、醫療、意外、車險與其他保單，快速掌握保險費用與賠付狀態。",
+    title: "保費與保障",
+    description: "管理保單、保障額與理賠進度。",
     accent: "#0d9488",
     tint: "#f0fdfa"
   },
   financial_plan: {
     eyebrow: "目標財務規劃",
-    title: "把近期、中期與長期目標放進同一張路線圖",
-    description: "以你的目標金額、期限與每月投入進行試算，清楚看見還差多少與下一步該準備多少。",
+    title: "財務目標路線圖",
+    description: "試算目標期限、每月投入與預估缺口。",
     accent: "#2563eb",
     tint: "#eff6ff"
   },
   stocks: {
     eyebrow: "股票配置",
     title: "分開管理台股與美股策略",
-    description: "建立股票配置分類、目標比例與風險等級，讓不同市場的投資方向保持清楚。",
+    description: "設定股票市場、目標比例與風險等級。",
     accent: "#2563eb",
     tint: "#eff6ff"
   },
   etfs: {
     eyebrow: "ETF 配置",
     title: "整理指數與主題型 ETF",
-    description: "集中規劃 ETF 的市場、風險與目標比例，掌握被動投資的配置方向。",
+    description: "設定 ETF 市場、風險與目標比例。",
     accent: "#0891b2",
     tint: "#ecfeff"
   },
   funds: {
     eyebrow: "基金配置",
     title: "掌握共同基金與貨幣市場配置",
-    description: "依投資市場與風險層級整理基金，清楚分配中長期資金。",
+    description: "依市場與風險層級管理基金配置。",
     accent: "#7c3aed",
     tint: "#f5f3ff"
   },
   bonds: {
     eyebrow: "債券配置",
     title: "整理收益與防禦型資產",
-    description: "集中管理債券基金配置，平衡投資組合的收益、波動與資金用途。",
+    description: "管理收益、防禦與債券基金配置。",
     accent: "#d97706",
     tint: "#fffbeb"
   },
   forex: {
     eyebrow: "外匯資產",
     title: "掌握外幣成本、匯率與損益",
-    description: "以帳本基準幣別換算外匯持倉，清楚查看平均成本與目前價值。",
+    description: "換算外幣成本、目前價值與損益。",
     accent: "#0284c7",
     tint: "#eff6ff"
   },
   crypto: {
     eyebrow: "加密貨幣",
-    title: "集中整理數位資產持倉",
-    description: "手動維護數量、成本與現價，不連接交易所憑證也能掌握配置與損益。",
+    title: "數位資產持倉",
+    description: "管理數量、成本、現價與損益。",
     accent: "#2563eb",
     tint: "#eff6ff"
   },
   calculators: {
     eyebrow: "財務試算",
-    title: "把常用試算集中在計算機",
-    description: "貸款、存款、淨資產、負債比與預備金月數都能快速試算，先模擬，再行動。",
+    title: "常用財務試算",
+    description: "貸款、存款、淨資產與預備金試算。",
     accent: "#0891b2",
     tint: "#ecfeff"
   },
@@ -382,28 +384,28 @@ const pageIntros: Record<Page, { eyebrow: string; title: string; description: st
   reminders: {
     eyebrow: "付款提醒",
     title: "重要扣款與帳單到期都在這裡",
-    description: "固定帳單、信用卡與貸款提醒會集中顯示，讓付款節奏更穩。",
+    description: "管理固定帳單、扣款日與付款狀態。",
     accent: "#ea580c",
     tint: "#fff7ed"
   },
   reports: {
     eyebrow: "財務回顧",
-    title: "把你的總帳輸出成報表",
-    description: "查看趨勢、分類、帳戶與負債報表，並匯出 CSV、Excel 或 PDF。",
+    title: "報表與趨勢",
+    description: "檢視財務趨勢，匯出 CSV、Excel 或 PDF。",
     accent: "#4f46e5",
     tint: "#eef2ff"
   },
   ai: {
     eyebrow: "財務洞察",
     title: "把數字轉成下一步行動",
-    description: "AI 只在你主動點擊時分析彙總資料，協助整理風險、優先順序與建議。",
+    description: "主動產生財務摘要、風險與行動建議。",
     accent: "#9333ea",
     tint: "#faf5ff"
   },
   notification_settings: {
     eyebrow: "帳本通知設定",
     title: "依你的付款節奏安排提醒",
-    description: "針對信用卡、分期、貸款、固定帳單、定存與保險，設定是否提醒、提前天數與單次或持續提示。",
+    description: "設定提醒項目、提前天數與通知頻率。",
     accent: "#ea580c",
     tint: "#fff7ed"
   },
@@ -417,7 +419,7 @@ const pageIntros: Record<Page, { eyebrow: string; title: string; description: st
   users: {
     eyebrow: "平台管理",
     title: "管理使用者與帳號權限",
-    description: "搜尋帳號、調整角色、停用帳號與查看近期管理紀錄，所有異動都會保留記錄。",
+    description: "搜尋帳號、調整角色與管理存取狀態。",
     accent: "#0f766e",
     tint: "#f0fdfa"
   }
@@ -996,7 +998,7 @@ export default function App() {
 
   function startLedgerTransition() {
     setLedgerTransitioning(true);
-    window.setTimeout(() => setLedgerTransitioning(false), 720);
+    window.setTimeout(() => setLedgerTransitioning(false), 560);
   }
 
   async function openLedger(ledgerId: string, forceReload = false) {
@@ -1190,7 +1192,13 @@ export default function App() {
     setMobileMoreOpen(false);
     setNotificationOpen(false);
     if (nextPage === page) return;
-    setPage(nextPage);
+    const update = () => setPage(nextPage);
+    const transition = (document as ViewTransitionDocument).startViewTransition;
+    if (transition) {
+      transition.call(document, update);
+    } else {
+      update();
+    }
   }
 
   function openNotification(item: FinanceNotification) {
@@ -1709,10 +1717,10 @@ export default function App() {
     return (
       <div className={`${rootClass} app-shell`}>
         <AuthPage
-          dataNotice={dataNotice}
           onSignIn={handlePasswordSignIn}
           onSignUp={handlePasswordSignUp}
           onMagicLink={handleMagicLink}
+          onToggleDarkMode={() => setDarkMode((value) => !value)}
         />
       </div>
     );
@@ -1753,10 +1761,10 @@ export default function App() {
     <div className={`${rootClass} app-shell`}>
       {ledgerTransitioning && <TransitionOverlay label={activeLedger ? `進入 ${activeLedger.name}` : "切換帳本中"} />}
       <div className="flex min-h-screen">
-        <aside className="app-sidebar hidden w-64 shrink-0 border-r border-slate-200/80 p-4 shadow-sm backdrop-blur dark:border-slate-700 lg:block">
+        <aside className="app-sidebar sticky top-0 hidden h-screen w-[272px] shrink-0 overflow-y-auto border-r border-slate-200/80 p-4 backdrop-blur dark:border-slate-800 lg:block">
           <Brand />
           {activeLedger && (
-            <div className="mt-4 rounded-lg border border-sky-100 bg-sky-50/80 p-3 text-sm dark:border-sky-900 dark:bg-sky-950/30">
+            <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-800 dark:bg-slate-900">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="truncate font-semibold text-slate-950 dark:text-slate-50">{activeLedger.name}</p>
@@ -1770,53 +1778,32 @@ export default function App() {
               </button>
             </div>
           )}
+          <nav className="mt-5 space-y-4">
+            {visibleNavGroups.map((group) => (
+              <div key={group.title}>
+                <p className="mb-1.5 px-2 text-[11px] font-bold tracking-[0.12em] text-slate-400 dark:text-slate-500">{group.title}</p>
+                <div className="space-y-0.5">
+                  {group.items.map((item) => (
+                    <NavButton key={item.page} item={item} active={page === item.page} onClick={() => navigateToPage(item.page)} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </nav>
           {currentProfile && (
-            <div className="mt-4 rounded-lg border border-emerald-100 bg-emerald-50/80 p-3 text-sm dark:border-emerald-900 dark:bg-emerald-950/30">
-              <p className="truncate font-semibold text-slate-950 dark:text-slate-50">{currentProfile.displayName || currentProfile.email}</p>
-              <p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">{currentProfile.email}</p>
-              <div className="mt-2"><Badge>{getRoleLabel(currentProfile)}</Badge></div>
+            <div className="mt-5 border-t border-slate-200 pt-4 dark:border-slate-800">
+              <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{currentProfile.displayName || currentProfile.email}</p>
+              <p className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">{getRoleLabel(currentProfile)}</p>
             </div>
           )}
-          <nav className="mt-6 space-y-5">
-            {visibleNavGroups.map((group) => {
-              const primaryItems = group.title === "理財" ? group.items.slice(0, 5) : group.items;
-              const secondaryItems = group.title === "理財" ? group.items.slice(5) : [];
-              const hasActiveSecondary = secondaryItems.some((item) => item.page === page);
-
-              return (
-                <div key={group.title}>
-                  <p className="mb-2 px-2 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">{group.title}</p>
-                  <div className="space-y-1">
-                    {primaryItems.map((item) => (
-                      <NavButton key={item.page} item={item} active={page === item.page} onClick={() => navigateToPage(item.page)} />
-                    ))}
-                  </div>
-                  {secondaryItems.length > 0 && (
-                    <details className="group mt-1" open={hasActiveSecondary}>
-                      <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg px-3 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-white">
-                        更多理財功能
-                        <ChevronDown size={16} className="transition group-open:rotate-180" />
-                      </summary>
-                      <div className="mt-1 space-y-1">
-                        {secondaryItems.map((item) => (
-                          <NavButton key={item.page} item={item} active={page === item.page} onClick={() => navigateToPage(item.page)} />
-                        ))}
-                      </div>
-                    </details>
-                  )}
-                </div>
-              );
-            })}
-          </nav>
         </aside>
 
         <main className="min-w-0 flex-1 pb-24 lg:pb-0">
-          <header className="app-topbar sticky top-0 z-20 border-b border-slate-200/70 px-4 py-3 backdrop-blur dark:border-slate-700 sm:px-6">
+          <header className="app-topbar sticky top-0 z-20 border-b border-slate-200/70 px-4 py-2.5 backdrop-blur-xl dark:border-slate-800 sm:px-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-[11px] font-bold tracking-[0.16em] text-brand-700 dark:text-brand-200">EZ2SAVEMORE</p>
-                <h1 className="text-xl font-bold text-slate-950 dark:text-slate-50">{page === "notification_settings" ? "通知設定" : visibleNavItems.find((item) => item.page === page)?.label ?? "理財總覽"}</h1>
-                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{activeLedger?.name} · Asia/Taipei · {activeLedger?.currency ?? "TWD"}</p>
+                <h1 className="text-lg font-bold text-slate-950 dark:text-slate-50">{page === "notification_settings" ? "通知設定" : visibleNavItems.find((item) => item.page === page)?.label ?? "理財總覽"}</h1>
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{activeLedger?.name} · {activeLedger?.currency ?? "TWD"}</p>
               </div>
               <div className="flex items-center gap-2">
                 <button className="btn-secondary h-10 px-2 sm:px-3" onClick={returnToLedgerHome} title="切換帳本">
@@ -1825,7 +1812,7 @@ export default function App() {
                 </button>
                 <div className="relative" ref={notificationAreaRef}>
                   <button
-                    className="btn-secondary relative h-10 w-10 px-0"
+                    className="icon-button relative"
                     title="通知中心"
                     aria-label={`通知中心，共 ${financeNotifications.length} 則提醒`}
                     onClick={() => setNotificationOpen((value) => !value)}
@@ -1839,14 +1826,14 @@ export default function App() {
                   </button>
                   {notificationOpen && <NotificationPanel notifications={financeNotifications} onClose={() => setNotificationOpen(false)} onOpen={openNotification} onManage={() => navigateToPage("notification_settings")} />}
                 </div>
-                <button className="btn-secondary h-10 w-10 px-0" title="切換深色模式" onClick={() => setDarkMode((value) => !value)}>
+                <button className="icon-button" title="切換深色模式" onClick={() => setDarkMode((value) => !value)}>
                   <Moon size={18} />
                 </button>
               </div>
             </div>
           </header>
 
-          <div key={`${activeLedgerId}-${page}`} className="route-transition mx-auto max-w-7xl space-y-4 p-4 sm:p-6">
+          <div key={`${activeLedgerId}-${page}`} className="route-transition mx-auto max-w-[1440px] space-y-4 p-4 sm:p-6">
             {page !== "users" && <PageExperience page={page} dashboard={dashboard} period={period} month={month} periodYear={periodYear} rangeStart={rangeStart} rangeEnd={rangeEnd} onMonthChange={setMonth} onPeriodModeChange={setPeriodMode} onPeriodYearChange={setPeriodYear} onRangeStartChange={setRangeStart} onRangeEndChange={setRangeEnd} notifications={financeNotifications.length} />}
             {toast && <ToastBanner toast={toast} />}
             {page === "dashboard" && (
@@ -1982,9 +1969,9 @@ export default function App() {
         </main>
       </div>
 
-      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-700 dark:bg-slate-950/95 lg:hidden">
-        <div className="grid grid-cols-6 gap-1 px-2 py-2">
-          {visibleNavItems.slice(0, 6).map((item) => (
+      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/96 shadow-[0_-8px_24px_-20px_rgba(15,23,42,0.5)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/96 lg:hidden">
+        <div className="grid grid-cols-5 gap-1 px-2 py-2">
+          {visibleNavItems.slice(0, 5).map((item) => (
             <MobileNavButton key={item.page} item={item} active={page === item.page} onClick={() => navigateToPage(item.page)} />
           ))}
         </div>
@@ -2001,7 +1988,7 @@ export default function App() {
               <div key={group.title}>
                 <p className="px-1 pb-1 text-[10px] font-bold tracking-[0.16em] text-slate-400 dark:text-slate-500">{group.title}</p>
                 <div className="grid grid-cols-5 gap-1">
-                  {group.items.filter((item) => !visibleNavItems.slice(0, 6).some((primary) => primary.page === item.page)).map((item) => (
+                  {group.items.filter((item) => !visibleNavItems.slice(0, 5).some((primary) => primary.page === item.page)).map((item) => (
                     <MobileNavButton key={item.page} item={item} active={page === item.page} onClick={() => navigateToPage(item.page)} />
                   ))}
                 </div>
@@ -2177,13 +2164,13 @@ function LedgerHomePage({
               <div>
                 <div className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-1 text-sm font-semibold text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
                   <ShieldCheck size={16} />
-                  多帳本財務平台
+                  帳本管理
                 </div>
-                <h1 className="mt-5 max-w-2xl text-4xl font-bold tracking-normal text-slate-950 dark:text-slate-50 sm:text-5xl">
-                  像雲端服務一樣，管理你的每一本財務帳本。
+                <h1 className="mt-5 max-w-2xl text-3xl font-bold tracking-normal text-slate-950 dark:text-slate-50 sm:text-4xl">
+                  所有帳本，一個入口。
                 </h1>
                 <p className="mt-4 max-w-xl text-base leading-7 text-slate-600 dark:text-slate-300">
-                  將家庭、個人、投資、副業與保險資料拆成獨立帳本，集中切換、清楚共用，讓每一筆財務決策都有正確歸屬。
+                  分開管理個人、家庭與投資資料，需要時再邀請成員共用。
                 </p>
                 <div className="mt-6 flex flex-wrap gap-3">
                   <a className="btn-primary h-11 px-4" href="#create-ledger">
@@ -2203,11 +2190,6 @@ function LedgerHomePage({
                   <LedgerOfficialMetric label="本月支出" value={sharedSummaryCurrency ? formatMoney(totalMonthlyExpenseCents, sharedSummaryCurrency) : "多幣別"} detail={sharedSummaryCurrency ? "全部帳本合計" : "避免錯誤加總"} />
                 </div>
               </div>
-              <div className="mt-7 flex flex-wrap items-center gap-3 text-xs font-semibold text-slate-500 dark:text-slate-400">
-                <span className="rounded-md bg-emerald-50 px-3 py-1.5 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-100">資料分帳管理</span>
-                <span className="rounded-md bg-sky-50 px-3 py-1.5 text-sky-700 dark:bg-sky-950 dark:text-sky-100">雲端安全保存</span>
-                <span className="rounded-md bg-violet-50 px-3 py-1.5 text-violet-700 dark:bg-violet-950 dark:text-violet-100">彈性成員共用</span>
-              </div>
             </div>
 
             <div className="flex border-t border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900/60 lg:border-l lg:border-t-0">
@@ -2225,8 +2207,8 @@ function LedgerHomePage({
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-card dark:border-slate-800 dark:bg-slate-950">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-lg font-bold text-slate-950 dark:text-slate-50">帳本工作區</p>
-                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">選擇要管理的帳本，或直接調整共用與基本設定。</p>
+                <p className="text-lg font-bold text-slate-950 dark:text-slate-50">我的帳本</p>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">選擇帳本，或調整共用與幣別。</p>
               </div>
               <Badge>{ledgerBooks.length} 個工作區</Badge>
             </div>
@@ -2395,7 +2377,6 @@ function LedgerHomePage({
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="font-bold text-slate-950 dark:text-slate-50">新增帳本</p>
-                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">建立新的財務工作區。</p>
                 </div>
                 <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-100">
                   <Plus size={16} />
@@ -2437,8 +2418,8 @@ function LedgerHomePage({
             <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-card dark:border-slate-800 dark:bg-slate-950">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="font-bold text-slate-950 dark:text-slate-50">安全與共用中心</p>
-                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">你可掌握每本帳本的共用範圍與成員邀請。</p>
+                  <p className="font-bold text-slate-950 dark:text-slate-50">共用管理</p>
+                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">帳本成員與邀請。</p>
                 </div>
                 <ShieldCheck className="text-emerald-600 dark:text-emerald-300" size={24} />
               </div>
@@ -2468,7 +2449,7 @@ function LedgerHomePage({
             )}
 
             <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-card dark:border-slate-800 dark:bg-slate-950">
-              <p className="font-bold text-slate-950 dark:text-slate-50">帳本排行</p>
+              <p className="font-bold text-slate-950 dark:text-slate-50">帳本資產</p>
               <div className="mt-4 space-y-3">
                 {ledgerChartRows.length === 0 ? (
                   <p className="text-sm text-slate-500 dark:text-slate-400">尚無帳本可排序</p>
@@ -2501,10 +2482,15 @@ function LedgerHomePage({
 
 function TransitionOverlay({ label }: { label: string }) {
   return (
-    <div className="pointer-events-none fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm ledger-transition">
-      <div className="rounded-xl border border-white/10 bg-white/10 px-5 py-4 text-center text-white shadow-card">
-        <div className="mx-auto mb-3 h-9 w-9 animate-spin rounded-full border-2 border-white/20 border-t-emerald-300" />
-        <p className="text-sm font-semibold">{label}</p>
+    <div className="pointer-events-none fixed inset-0 z-[80] flex items-center justify-center bg-white/72 backdrop-blur-md ledger-transition dark:bg-slate-950/78">
+      <div className="min-w-56 rounded-lg border border-slate-200 bg-white px-5 py-4 text-center text-slate-950 shadow-card dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+        <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-lg bg-slate-950 text-emerald-300 dark:bg-white dark:text-emerald-700">
+          <BookOpen size={19} />
+        </div>
+        <p className="mt-3 text-sm font-semibold">{label}</p>
+        <div className="mt-3 h-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+          <div className="h-full w-2/3 animate-pulse rounded-full bg-emerald-500" />
+        </div>
       </div>
     </div>
   );
@@ -2675,15 +2661,15 @@ function NavButton({ item, active, onClick }: { item: NavItem; active: boolean; 
   const Icon = item.icon;
   return (
     <button
-      className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition ${
+      className={`group flex min-h-10 w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm font-medium transition duration-200 ${
         active
-          ? "border border-emerald-100 bg-emerald-50 text-brand-700 shadow-subtle dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-brand-100"
+          ? "bg-slate-950 text-white shadow-card dark:bg-white dark:text-slate-950"
           : "text-slate-600 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-white"
       }`}
       onClick={onClick}
     >
-      <span className={`flex h-8 w-8 items-center justify-center rounded-md ${active ? "bg-white text-brand-700 dark:bg-slate-950 dark:text-brand-100" : "bg-slate-100 text-slate-500 dark:bg-slate-900 dark:text-slate-400"}`}>
-        <Icon size={17} />
+      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition ${active ? "bg-white/12 text-emerald-300 dark:bg-slate-900 dark:text-emerald-300" : "text-slate-400 group-hover:text-slate-700 dark:text-slate-500 dark:group-hover:text-slate-200"}`}>
+        <Icon size={16} />
       </span>
       {item.label}
     </button>
@@ -2694,8 +2680,8 @@ function MobileNavButton({ item, active, onClick }: { item: NavItem; active: boo
   const Icon = item.icon;
   return (
     <button
-      className={`flex min-h-12 flex-col items-center justify-center gap-1 rounded-md text-[11px] font-medium ${
-        active ? "bg-emerald-50 text-brand-700 dark:bg-brand-950 dark:text-brand-100" : "text-slate-500 dark:text-slate-400"
+      className={`flex min-h-12 flex-col items-center justify-center gap-1 rounded-md text-[11px] font-semibold transition ${
+        active ? "bg-slate-950 text-white dark:bg-white dark:text-slate-950" : "text-slate-500 dark:text-slate-400"
       }`}
       onClick={onClick}
     >
@@ -2735,24 +2721,29 @@ function PageExperience({
   notifications: number;
 }) {
   const intro = pageIntros[page];
+  const PageIcon = navGroups.flatMap((group) => group.items).find((item) => item.page === page)?.icon ?? Bell;
   return (
     <section
-      className="page-experience overflow-hidden rounded-lg border border-slate-200 p-4 shadow-subtle dark:border-slate-700 sm:p-5"
+      className="page-experience overflow-hidden rounded-lg border border-slate-200/90 p-4 shadow-card dark:border-slate-800 sm:p-5"
       style={{ "--page-tint": intro.tint } as React.CSSProperties}
     >
-      <div className="grid gap-4 lg:grid-cols-[1.4fr_0.9fr] lg:items-center">
-        <div>
-          <div className="inline-flex items-center gap-2 rounded-md bg-white/80 px-3 py-1 text-xs font-semibold text-slate-600 shadow-subtle dark:bg-slate-900 dark:text-slate-300">
-            <Sparkles size={14} style={{ color: intro.accent }} />
-            {intro.eyebrow}
+      <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white shadow-subtle dark:bg-slate-900" style={{ color: intro.accent }}>
+            <PageIcon size={18} />
+          </span>
+          <div className="min-w-0">
+            <p className="text-xs font-bold" style={{ color: intro.accent }}>{intro.eyebrow}</p>
+            <h2 className="mt-1 text-xl font-bold tracking-normal text-slate-950 dark:text-slate-50">{intro.title}</h2>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300">{intro.description}</p>
           </div>
-          <h2 className="mt-3 text-2xl font-bold tracking-normal text-slate-950 dark:text-slate-50">{intro.title}</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300">{intro.description}</p>
         </div>
-        <div className="grid grid-cols-3 gap-2">
-          <PageMiniStat label="期間" value={period.label} accent={intro.accent} />
-          <PageMiniStat label="期間結餘" value={formatCompactMoney(dashboard.monthlyBalanceCents)} accent={dashboard.monthlyBalanceCents >= 0 ? "#059669" : "#dc2626"} />
-          <PageMiniStat label="提醒" value={`${notifications}`} accent={notifications > 0 ? "#dc2626" : "#64748b"} />
+        <div className="flex shrink-0 flex-wrap items-center gap-2 text-xs font-semibold">
+          <span className="rounded-md border border-slate-200 bg-white/80 px-2.5 py-1.5 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">{period.label}</span>
+          <span className={`rounded-md px-2.5 py-1.5 ${dashboard.monthlyBalanceCents >= 0 ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-200" : "bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-200"}`}>
+            結餘 {formatCompactMoney(dashboard.monthlyBalanceCents)}
+          </span>
+          {notifications > 0 && <span className="rounded-md bg-rose-50 px-2.5 py-1.5 text-rose-700 dark:bg-rose-950 dark:text-rose-200">{notifications} 則提醒</span>}
         </div>
       </div>
       {!["settings", "users", "calculators", "stocks", "etfs", "funds", "bonds", "forex", "crypto", "financial_plan", "notification_settings"].includes(page) && (
@@ -2797,24 +2788,15 @@ function PeriodSelector({
   onRangeEndChange: (value: string) => void;
 }) {
   return (
-    <div className="mt-4 flex flex-wrap items-end gap-2 border-t border-slate-200 pt-4 dark:border-slate-700">
-      <div className="flex max-w-full flex-wrap rounded-md border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-950">
+    <div className="mt-4 flex flex-wrap items-end gap-2 border-t border-slate-200/80 pt-4 dark:border-slate-700">
+      <div className="flex max-w-full flex-wrap rounded-md border border-slate-200 bg-white/90 p-1 shadow-sm dark:border-slate-700 dark:bg-slate-950">
         {(["month", "three_months", "six_months", "year", "range"] as const).map((item) => (
-          <button key={item} className={`rounded px-3 py-1.5 text-sm font-semibold ${mode === item ? "bg-emerald-600 text-white" : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"}`} onClick={() => onModeChange(item)}>{item === "month" ? "月份" : item === "three_months" ? "近三個月" : item === "six_months" ? "近半年" : item === "year" ? "年份" : "指定區間"}</button>
+          <button key={item} className={`rounded px-3 py-1.5 text-sm font-semibold transition ${mode === item ? "bg-slate-950 text-white shadow-sm dark:bg-white dark:text-slate-950" : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"}`} onClick={() => onModeChange(item)}>{item === "month" ? "單月" : item === "three_months" ? "近三月" : item === "six_months" ? "近半年" : item === "year" ? "全年" : "自訂"}</button>
         ))}
       </div>
       {mode === "month" && <input className="input mt-0 w-36" type="month" value={month} onChange={(event) => onMonthChange(event.target.value)} aria-label="選擇月份" />}
       {mode === "year" && <input className="input mt-0 w-28" type="number" min="2000" max="2100" value={year} onChange={(event) => onYearChange(event.target.value)} aria-label="選擇年份" />}
       {mode === "range" && <><input className="input mt-0 w-40" type="date" value={rangeStart} onChange={(event) => onRangeStartChange(event.target.value)} aria-label="開始日期" /><span className="pb-2 text-sm text-slate-500 dark:text-slate-400">至</span><input className="input mt-0 w-40" type="date" min={rangeStart} value={rangeEnd} onChange={(event) => onRangeEndChange(event.target.value)} aria-label="結束日期" /></>}
-    </div>
-  );
-}
-
-function PageMiniStat({ label, value, accent }: { label: string; value: string; accent: string }) {
-  return (
-    <div className="rounded-md border border-white/80 bg-white/85 p-3 shadow-subtle dark:border-slate-700 dark:bg-slate-900">
-      <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
-      <p className="mt-1 truncate text-lg font-bold text-slate-950 dark:text-slate-50" style={{ color: accent }}>{value}</p>
     </div>
   );
 }
@@ -2835,15 +2817,15 @@ function ToastBanner({ toast }: { toast: NonNullable<Toast> }) {
 }
 
 function AuthPage({
-  dataNotice,
   onSignIn,
   onSignUp,
-  onMagicLink
+  onMagicLink,
+  onToggleDarkMode
 }: {
-  dataNotice: string;
   onSignIn: (email: string, password: string) => Promise<void>;
   onSignUp: (email: string, password: string, displayName: string) => Promise<void>;
   onMagicLink: (email: string) => Promise<void>;
+  onToggleDarkMode: () => void;
 }) {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [loading, setLoading] = useState(false);
@@ -2889,8 +2871,8 @@ function AuthPage({
 
   return (
     <main className="min-h-screen bg-[#f6f8fb] text-slate-950 dark:bg-slate-950 dark:text-slate-50">
-      <section className="mx-auto grid min-h-screen w-full max-w-7xl gap-8 px-4 py-6 sm:px-6 lg:grid-cols-[1.08fr_0.92fr] lg:items-center lg:px-8">
-        <div className="relative overflow-hidden rounded-lg border border-slate-200 bg-white p-5 shadow-lg dark:border-slate-800 dark:bg-slate-900 sm:p-8">
+      <section className="mx-auto grid min-h-screen w-full max-w-7xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[1.08fr_0.92fr] lg:items-center lg:px-8">
+        <div className="order-last relative overflow-hidden rounded-lg border border-slate-200 bg-white p-5 shadow-card dark:border-slate-800 dark:bg-slate-900 sm:p-8 lg:order-none">
           <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-emerald-500 via-sky-500 to-amber-400" />
           <div className="flex items-center justify-between gap-3">
             <Brand />
@@ -2898,48 +2880,48 @@ function AuthPage({
               TWD · Asia/Taipei
             </span>
           </div>
-          <div className="mt-10 max-w-3xl">
+          <div className="mt-9 max-w-3xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
               <span className="h-2 w-2 rounded-full bg-emerald-500" />
-              個人財務管理服務
+              多帳本財務管理
             </div>
-            <h1 className="mt-4 text-4xl font-bold tracking-normal text-slate-950 dark:text-slate-50 sm:text-5xl">
-              把你的總帳，整理成可以行動的財務決策。
+            <h1 className="mt-4 text-4xl font-bold tracking-normal text-slate-950 dark:text-slate-50">
+              財務，都在正確的位置。
             </h1>
             <p className="mt-5 max-w-2xl text-base leading-7 text-slate-600 dark:text-slate-300">
-              用一個清楚、安靜、專業的介面，管理帳戶、收支、信用卡、貸款、預算與提醒。從每月現金流到完整負債結構，都能快速看懂。
+              從日常收支到資產、負債與投資，用一本清楚的總帳掌握每個重要決定。
             </p>
           </div>
 
           <div className="mt-8 grid gap-3 sm:grid-cols-3">
-            <AuthMetric label="帳本管理" value="即時" helper="依帳本分開整理" />
-            <AuthMetric label="負債追蹤" value="集中" helper="卡費、分期、貸款" />
-            <AuthMetric label="報表輸出" value="可用" helper="PDF / Excel / CSV" />
+            <AuthMetric label="分帳管理" value="多帳本" helper="個人、家庭與投資" />
+            <AuthMetric label="負債管理" value="全景" helper="卡費、分期與貸款" />
+            <AuthMetric label="報表" value="完整" helper="PDF、Excel、CSV" />
           </div>
 
-          <div className="mt-8 rounded-lg border border-slate-200 bg-slate-950 p-4 text-white shadow-lg dark:border-slate-700">
+          <div className="mt-8 rounded-lg border border-slate-800 bg-slate-950 p-4 text-white shadow-card">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-xs font-medium text-emerald-300">清楚掌握每月財務狀態</p>
-                <p className="mt-1 text-lg font-semibold">登入後建立你的財務指揮台</p>
+                <p className="text-xs font-medium text-emerald-300">本月財務摘要</p>
+                <p className="mt-1 text-lg font-semibold">重要數據一次掌握</p>
               </div>
               <div className="flex items-center gap-2 rounded-md bg-white/10 px-3 py-1 text-xs text-slate-200">
                 <span className="h-2 w-2 rounded-full bg-emerald-300" />
-                資料安全保存
+                私人帳本
               </div>
             </div>
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
               <div className="rounded-md bg-white/10 p-3">
                 <p className="text-xs text-slate-300">帳戶總覽</p>
-                <p className="mt-2 text-2xl font-bold">即時整理</p>
+                <p className="mt-2 text-2xl font-bold">完整</p>
               </div>
               <div className="rounded-md bg-white/10 p-3">
                 <p className="text-xs text-slate-300">收支趨勢</p>
-                <p className="mt-2 text-2xl font-bold text-emerald-300">清楚呈現</p>
+                <p className="mt-2 text-2xl font-bold text-emerald-300">可視化</p>
               </div>
               <div className="rounded-md bg-white/10 p-3">
                 <p className="text-xs text-slate-300">負債規劃</p>
-                <p className="mt-2 text-2xl font-bold text-amber-300">自主掌握</p>
+                <p className="mt-2 text-2xl font-bold text-amber-300">可規劃</p>
               </div>
             </div>
             <div className="mt-5 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
@@ -2954,22 +2936,23 @@ function AuthPage({
                 </div>
               </div>
               <div className="space-y-3 rounded-md bg-white/10 p-4">
-                <AuthPreviewRow label="信用卡與分期" value="集中追蹤" color="bg-sky-400" />
-                <AuthPreviewRow label="貸款規劃" value="清楚安排" color="bg-amber-300" />
-                <AuthPreviewRow label="固定帳單" value="即時提醒" color="bg-rose-300" />
+                <AuthPreviewRow label="信用卡與分期" value="72%" color="bg-sky-400" />
+                <AuthPreviewRow label="貸款進度" value="54%" color="bg-amber-300" />
+                <AuthPreviewRow label="預算使用" value="38%" color="bg-rose-300" />
               </div>
             </div>
           </div>
         </div>
 
-        <div className="relative rounded-lg border border-slate-200 bg-white p-5 shadow-lg dark:border-slate-800 dark:bg-slate-900 sm:p-8">
+        <div className="order-first relative rounded-lg border border-slate-200 bg-white p-5 shadow-card dark:border-slate-800 dark:bg-slate-900 sm:p-8 lg:order-none">
           <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-emerald-400 to-transparent" />
-          <div>
-            <p className="text-sm font-semibold text-brand-700 dark:text-brand-100">開始使用</p>
-            <h2 className="mt-2 text-2xl font-bold tracking-normal">登入你的財務工作台</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">
-              {dataNotice || "登入或註冊後，系統會載入你已儲存的個人財務資料。"}
-            </p>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold text-brand-700 dark:text-brand-100">{mode === "signin" ? "歡迎回來" : "建立帳號"}</p>
+              <h2 className="mt-2 text-2xl font-bold tracking-normal">{mode === "signin" ? "登入 Ez2SaveMore" : "開始管理你的財務"}</h2>
+              <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">使用 Email 登入，帳本會自動載入。</p>
+            </div>
+            <button className="icon-button" type="button" title="切換深色模式" onClick={onToggleDarkMode}><Moon size={18} /></button>
           </div>
           {message && <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">{message}</div>}
           <div className="mt-6 grid grid-cols-2 gap-2 rounded-lg bg-slate-100 p-1 dark:bg-slate-950">
@@ -2982,20 +2965,20 @@ function AuthPage({
             <Field label="密碼"><input className="input" name="password" type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} minLength={mode === "signup" ? 10 : 1} required /></Field>
             {mode === "signup" && <p className="-mt-2 text-xs text-slate-500 dark:text-slate-400">至少 10 碼，包含英文字母與數字。</p>}
             <button className="btn-primary h-11 w-full" type="submit" disabled={loading}>
-              {loading ? "處理中" : mode === "signup" ? "建立帳號並寄送認證信" : "登入 Ez2SaveMore"}
+              {loading ? "處理中" : mode === "signup" ? "建立帳號" : "登入"}
             </button>
           </form>
           <div className="my-6 flex items-center gap-3 text-xs text-slate-400">
             <span className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
-            免密碼登入
+            或使用登入連結
             <span className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
           </div>
           <form className="space-y-4" onSubmit={handleFormSubmit((formData) => void submitMagicLink(formData))}>
-            <Field label="Email 認證登入信"><input className="input" name="magicEmail" type="email" autoComplete="email" required /></Field>
-            <button className="btn-secondary h-11 w-full" type="submit" disabled={loading}>寄送 Magic Link</button>
+            <Field label="Email"><input className="input" name="magicEmail" type="email" autoComplete="email" required /></Field>
+            <button className="btn-secondary h-11 w-full" type="submit" disabled={loading}>寄送登入連結</button>
           </form>
           <p className="mt-5 text-center text-xs leading-5 text-slate-500 dark:text-slate-400">
-            帳號權限由系統管理；一般使用者無法自行調整管理權限。
+            私人帳本只對你開放；受邀成員僅能存取指定帳本。
           </p>
         </div>
       </section>
@@ -3463,15 +3446,24 @@ function DashboardPage({
 
   return (
     <div className="space-y-4">
-      {dataLoading && <InlineNotice tone="neutral" message="正在讀取已儲存的財務資料..." />}
+      {dataLoading && <InlineNotice tone="neutral" message="載入資料中..." />}
       {!dataLoading && dataNotice && <InlineNotice tone="warning" message={dataNotice} />}
       <DashboardPulse dashboard={dashboard} monthlyTrend={monthlyTrend} onNavigate={onNavigate} />
       <DashboardFinanceCenter dashboard={dashboard} onNavigate={onNavigate} />
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        {stats.map(([label, value]) => (
-          <StatCard key={label} label={label} value={formatMoney(value)} />
-        ))}
-      </div>
+      <details className="panel group">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+          <div>
+            <h2 className="section-heading">完整財務指標</h2>
+            <p className="helper-text">資產、負債、收入與應繳款項</p>
+          </div>
+          <span className="icon-button" aria-hidden="true"><ChevronDown size={17} className="transition group-open:rotate-180" /></span>
+        </summary>
+        <div className="mt-4 grid gap-3 border-t border-slate-200 pt-4 sm:grid-cols-2 xl:grid-cols-5 dark:border-slate-800">
+          {stats.map(([label, value]) => (
+            <StatCard key={label} label={label} value={formatMoney(value)} />
+          ))}
+        </div>
+      </details>
       <div className="grid gap-4 lg:grid-cols-3">
         <section className="panel lg:col-span-2">
           <h2 className="text-lg font-semibold">全部帳戶餘額分布</h2>
@@ -3506,9 +3498,6 @@ function DashboardPage({
           <div className="mt-4 space-y-4">
             <Progress label="負債比" value={dashboard.debtRatio} colorClass={dashboard.debtRatio > 0.5 ? "bg-rose-600" : "bg-amber-500"} />
             <Progress label="緊急預備金月數" value={Math.min(dashboard.emergencyFundMonths / 6, 1)} helper={`${dashboard.emergencyFundMonths.toFixed(1)} 個月`} colorClass="bg-emerald-600" />
-            <p className="rounded-md bg-slate-50 p-3 text-sm text-slate-600 dark:bg-slate-900 dark:text-slate-300">
-              淨資產 = 總資產 - 總負債；若分母為 0，比例會安全顯示為 0。
-            </p>
           </div>
         </section>
       </div>
@@ -3558,9 +3547,9 @@ function DashboardPulse({
     <section className="finance-today-hero overflow-hidden rounded-lg border border-emerald-100 p-4 shadow-subtle dark:border-emerald-900 sm:p-5">
       <div className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr] lg:items-center">
         <div>
-          <span className="inline-flex rounded-full bg-white/80 px-2.5 py-1 text-xs font-semibold text-rose-600 shadow-sm dark:bg-slate-900 dark:text-rose-200">今日狀態：{positiveBalance ? "資金節奏穩定" : "本月支出需要留意"}</span>
-          <h2 className="mt-3 text-2xl font-bold text-slate-950 dark:text-slate-50 sm:text-3xl">你的本月財務節奏已經整理好了</h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">{hasBalance ? `本月收入 ${formatMoney(dashboard.monthlyIncomeCents)}，支出 ${formatMoney(dashboard.monthlyExpenseCents)}。` : "先新增一筆收入、支出或帳戶餘額，這裡就會自動整理你的資金狀態。"}</p>
+          <span className="inline-flex rounded-full bg-white/80 px-2.5 py-1 text-xs font-semibold text-rose-600 shadow-sm dark:bg-slate-900 dark:text-rose-200">{positiveBalance ? "現金流穩定" : "支出高於收入"}</span>
+          <h2 className="mt-3 text-2xl font-bold text-slate-950 dark:text-slate-50 sm:text-3xl">{hasBalance ? `本月結餘 ${formatMoney(dashboard.monthlyBalanceCents)}` : "從第一筆紀錄開始"}</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">{hasBalance ? `收入 ${formatMoney(dashboard.monthlyIncomeCents)} · 支出 ${formatMoney(dashboard.monthlyExpenseCents)}` : "新增收入、支出或帳戶餘額後，摘要會自動更新。"}</p>
           <div className="mt-4 flex flex-wrap gap-2">
             <button className="btn-primary" onClick={() => onNavigate("transactions")}><Plus size={16} />記一筆</button>
             <button className="btn-secondary bg-white/80 dark:bg-slate-900" onClick={() => onNavigate("budgets")}><Banknote size={16} />設定預算</button>
@@ -3606,8 +3595,7 @@ function DashboardFinanceCenter({ dashboard, onNavigate }: { dashboard: ReturnTy
     <section className="finance-goal-panel rounded-lg border border-slate-200 p-4 shadow-subtle dark:border-slate-700 sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold text-slate-950 dark:text-slate-50">本月財務中心</h2>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">用資產、負債與預算，快速看懂現在的資金位置。</p>
+          <h2 className="text-lg font-bold text-slate-950 dark:text-slate-50">關鍵資金</h2>
         </div>
         <button className="btn-primary" onClick={() => onNavigate("budgets")}><Banknote size={16} />規劃預算</button>
       </div>
@@ -6979,13 +6967,11 @@ function FormDisclosure({
     <details className="panel group" open={defaultOpen}>
       <summary className="flex cursor-pointer list-none items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">{description}</p>
+          <h2 className="section-heading">{title}</h2>
+          <p className="helper-text">{description}</p>
         </div>
-        <span className="btn-secondary h-10 shrink-0 px-3" aria-hidden="true">
+        <span className="icon-button" aria-hidden="true">
           <Plus size={16} />
-          <span className="hidden sm:inline">新增</span>
-          <ChevronDown size={16} className="transition group-open:rotate-180" />
         </span>
       </summary>
       <div className="mt-4 border-t border-slate-200 pt-4 dark:border-slate-800">{children}</div>
@@ -7028,7 +7014,7 @@ function InfoBlock({ title, value }: { title: string; value: string }) {
 }
 
 function Badge({ children }: { children: React.ReactNode }) {
-  return <span className="rounded bg-brand-50 px-2 py-1 text-xs font-medium text-brand-700 dark:bg-brand-950 dark:text-brand-100">{children}</span>;
+  return <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{children}</span>;
 }
 
 function getRoleLabel(profile: UserProfile) {
@@ -7046,7 +7032,7 @@ function EmptyState({ label }: { label: string }) {
     <div className="flex min-h-36 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white/70 p-5 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-400">
       <div>
         <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300">
-          <Sparkles size={18} />
+          <FileText size={18} />
         </div>
         {label}
       </div>
