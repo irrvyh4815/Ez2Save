@@ -60,6 +60,7 @@ input[type="checkbox"] {
     #f4f7fb;
 }
 
+.dark.app-shell,
 .dark .app-shell {
   background:
     linear-gradient(180deg, rgb(6 78 59 / 0.12) 0, rgb(7 12 23 / 0) 260px),
