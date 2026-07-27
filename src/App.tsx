@@ -141,7 +141,12 @@ type Page =
   | "deposits"
   | "insurance"
   | "financial_plan"
-  | "investments"
+  | "stocks"
+  | "etfs"
+  | "funds"
+  | "bonds"
+  | "forex"
+  | "crypto"
   | "calculators"
   | "budgets"
   | "reminders"
@@ -236,7 +241,12 @@ const navGroups: { title: "理財" | "投資" | "其他" | "設定"; items: { pa
   {
     title: "投資",
     items: [
-      { page: "investments", label: "投資資產", icon: TrendingUp }
+      { page: "stocks", label: "股票", icon: TrendingUp },
+      { page: "etfs", label: "ETF", icon: BarChart3 },
+      { page: "funds", label: "基金", icon: PiggyBank },
+      { page: "bonds", label: "債券", icon: Landmark },
+      { page: "forex", label: "外匯", icon: ArrowRightLeft },
+      { page: "crypto", label: "加密貨幣", icon: Bitcoin }
     ]
   },
   {
@@ -313,10 +323,45 @@ const pageIntros: Record<Page, { eyebrow: string; title: string; description: st
     accent: "#2563eb",
     tint: "#eff6ff"
   },
-  investments: {
-    eyebrow: "投資資產",
-    title: "股票基金、外匯與加密貨幣",
-    description: "用帳本基準幣別整理配置、外匯與加密持倉，清楚掌握成本、現值與損益。",
+  stocks: {
+    eyebrow: "股票配置",
+    title: "分開管理台股與美股策略",
+    description: "建立股票配置分類、目標比例與風險等級，讓不同市場的投資方向保持清楚。",
+    accent: "#2563eb",
+    tint: "#eff6ff"
+  },
+  etfs: {
+    eyebrow: "ETF 配置",
+    title: "整理指數與主題型 ETF",
+    description: "集中規劃 ETF 的市場、風險與目標比例，掌握被動投資的配置方向。",
+    accent: "#0891b2",
+    tint: "#ecfeff"
+  },
+  funds: {
+    eyebrow: "基金配置",
+    title: "掌握共同基金與貨幣市場配置",
+    description: "依投資市場與風險層級整理基金，清楚分配中長期資金。",
+    accent: "#7c3aed",
+    tint: "#f5f3ff"
+  },
+  bonds: {
+    eyebrow: "債券配置",
+    title: "整理收益與防禦型資產",
+    description: "集中管理債券基金配置，平衡投資組合的收益、波動與資金用途。",
+    accent: "#d97706",
+    tint: "#fffbeb"
+  },
+  forex: {
+    eyebrow: "外匯資產",
+    title: "掌握外幣成本、匯率與損益",
+    description: "以帳本基準幣別換算外匯持倉，清楚查看平均成本與目前價值。",
+    accent: "#0284c7",
+    tint: "#eff6ff"
+  },
+  crypto: {
+    eyebrow: "加密貨幣",
+    title: "集中整理數位資產持倉",
+    description: "手動維護數量、成本與現價，不連接交易所憑證也能掌握配置與損益。",
     accent: "#2563eb",
     tint: "#eff6ff"
   },
@@ -1860,8 +1905,9 @@ export default function App() {
                 notify={notify}
               />
             )}
-            {page === "investments" && (
+            {["stocks", "etfs", "funds", "bonds", "forex", "crypto"].includes(page) && (
               <InvestmentsPage
+                section={page as InvestmentSection}
                 categories={investmentCategories}
                 assets={investmentAssets}
                 ledgerCurrency={activeLedger?.currency ?? "TWD"}
@@ -2709,7 +2755,7 @@ function PageExperience({
           <PageMiniStat label="提醒" value={`${notifications}`} accent={notifications > 0 ? "#dc2626" : "#64748b"} />
         </div>
       </div>
-      {!["settings", "users", "calculators", "investments", "financial_plan", "notification_settings"].includes(page) && (
+      {!["settings", "users", "calculators", "stocks", "etfs", "funds", "bonds", "forex", "crypto", "financial_plan", "notification_settings"].includes(page) && (
         <PeriodSelector
           mode={period.mode}
           month={month}
@@ -5626,7 +5672,24 @@ function getFinancialPlanActions(dashboard: ReturnType<typeof summarizeDashboard
   ];
 }
 
+type InvestmentSection = "stocks" | "etfs" | "funds" | "bonds" | "forex" | "crypto";
+
+const investmentSectionConfig: Record<InvestmentSection, {
+  label: string;
+  kinds: InvestmentCategory["kind"][];
+  defaultKind: InvestmentCategory["kind"];
+  defaultMarket: InvestmentCategory["market"];
+}> = {
+  stocks: { label: "股票", kinds: ["tw_stock", "us_stock"], defaultKind: "tw_stock", defaultMarket: "TW" },
+  etfs: { label: "ETF", kinds: ["etf"], defaultKind: "etf", defaultMarket: "TW" },
+  funds: { label: "基金", kinds: ["mutual_fund", "money_market"], defaultKind: "mutual_fund", defaultMarket: "GLOBAL" },
+  bonds: { label: "債券", kinds: ["bond_fund"], defaultKind: "bond_fund", defaultMarket: "GLOBAL" },
+  forex: { label: "外匯", kinds: ["forex"], defaultKind: "forex", defaultMarket: "FX" },
+  crypto: { label: "加密貨幣", kinds: ["crypto"], defaultKind: "crypto", defaultMarket: "CRYPTO" }
+};
+
 function InvestmentsPage({
+  section,
   categories,
   assets,
   ledgerCurrency,
@@ -5637,6 +5700,7 @@ function InvestmentsPage({
   onDeleteAsset,
   notify
 }: {
+  section: InvestmentSection;
   categories: InvestmentCategory[];
   assets: InvestmentAsset[];
   ledgerCurrency: CurrencyCode;
@@ -5647,25 +5711,36 @@ function InvestmentsPage({
   onDeleteAsset: (asset: InvestmentAsset) => Promise<void>;
   notify: (type: ToastType, message: string) => void;
 }) {
-  const [assetType, setAssetType] = useState<InvestmentAsset["assetType"]>("forex");
+  const config = investmentSectionConfig[section];
+  const supportsHoldings = section === "forex" || section === "crypto";
+  const selectedAssetType: InvestmentAsset["assetType"] = section === "crypto" ? "crypto" : "forex";
+  const [assetType, setAssetType] = useState<InvestmentAsset["assetType"]>(selectedAssetType);
   const [quoteCurrency, setQuoteCurrency] = useState<InvestmentAsset["quoteCurrency"]>(ledgerCurrency);
   const [editingAsset, setEditingAsset] = useState<InvestmentAsset | null>(null);
   const [assetFormVersion, setAssetFormVersion] = useState(0);
 
-  const totalAllocation = categories.reduce((sum, category) => sum + category.targetAllocation, 0);
-  const highRiskAllocation = categories
+  useEffect(() => {
+    setAssetType(selectedAssetType);
+    setQuoteCurrency(section === "crypto" ? "USD" : ledgerCurrency);
+    setEditingAsset(null);
+  }, [ledgerCurrency, section, selectedAssetType]);
+
+  const visibleCategories = categories.filter((category) => config.kinds.includes(category.kind));
+  const visibleAssets = supportsHoldings ? assets.filter((asset) => asset.assetType === selectedAssetType) : [];
+  const totalAllocation = visibleCategories.reduce((sum, category) => sum + category.targetAllocation, 0);
+  const highRiskAllocation = visibleCategories
     .filter((category) => category.risk === "high")
     .reduce((sum, category) => sum + category.targetAllocation, 0);
-  const fundAllocation = categories
+  const fundAllocation = visibleCategories
     .filter((category) => category.kind === "mutual_fund" || category.kind === "bond_fund" || category.kind === "money_market")
     .reduce((sum, category) => sum + category.targetAllocation, 0);
   const investmentRiskRows = Object.entries(
-    categories.reduce<Record<string, number>>((acc, category) => {
+    visibleCategories.reduce<Record<string, number>>((acc, category) => {
       acc[investmentRiskLabels[category.risk]] = (acc[investmentRiskLabels[category.risk]] ?? 0) + category.targetAllocation;
       return acc;
     }, {})
   ).map(([category, amountCents]) => ({ category, amountCents }));
-  const valuations = assets.map((asset) => ({ asset, valuation: calculateInvestmentAssetValuation(asset) }));
+  const valuations = visibleAssets.map((asset) => ({ asset, valuation: calculateInvestmentAssetValuation(asset) }));
   const totalCostCents = valuations.reduce((sum, row) => sum + row.valuation.costCents, 0);
   const totalValueCents = valuations.reduce((sum, row) => sum + row.valuation.currentValueCents, 0);
   const totalProfitLossCents = totalValueCents - totalCostCents;
@@ -5759,9 +5834,9 @@ function InvestmentsPage({
     <div className="space-y-4">
       <FeatureHero
         icon={<TrendingUp size={18} />}
-        label={`投資資產 · ${ledgerCurrency}`}
-        title="股票基金、外匯與加密資產"
-        value={formatMoney(totalValueCents, ledgerCurrency)}
+        label={`${config.label} · ${ledgerCurrency}`}
+        title={`${config.label}資產與配置`}
+        value={supportsHoldings ? formatMoney(totalValueCents, ledgerCurrency) : `${totalAllocation.toFixed(0)}%`}
         tone="sky"
         metrics={[
           { label: "投入成本", value: formatMoney(totalCostCents, ledgerCurrency), accent: "border-emerald-300" },
@@ -5772,8 +5847,8 @@ function InvestmentsPage({
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
           <DonutChart
             segments={(assetDistributionRows.length > 0 ? assetDistributionRows : investmentRiskRows).map((row, index) => ({ label: row.category, value: row.amountCents, color: getChartColor(index) }))}
-            centerLabel={assets.length > 0 ? "持倉" : "配置"}
-            centerValue={assets.length > 0 ? `${assets.length} 筆` : `${totalAllocation.toFixed(0)}%`}
+            centerLabel={visibleAssets.length > 0 ? "持倉" : "配置"}
+            centerValue={visibleAssets.length > 0 ? `${visibleAssets.length} 筆` : `${totalAllocation.toFixed(0)}%`}
           />
           <div className="flex-1 space-y-3">
             <Progress label="投資報酬" value={Math.min(Math.abs(totalReturnRate), 1)} helper={formatPercent(totalReturnRate)} colorClass={totalProfitLossCents >= 0 ? "bg-emerald-500" : "bg-rose-500"} />
@@ -5782,27 +5857,20 @@ function InvestmentsPage({
         </div>
       </FeatureHero>
       <div className="grid gap-4 lg:grid-cols-3">
-        <StatCard label="外匯資產" value={formatMoney(forexValueCents, ledgerCurrency)} />
-        <StatCard label="加密資產" value={formatMoney(cryptoValueCents, ledgerCurrency)} />
+        <StatCard label={supportsHoldings ? "目前價值" : "分類數"} value={supportsHoldings ? formatMoney(totalValueCents, ledgerCurrency) : `${visibleCategories.length} 項`} />
+        <StatCard label={supportsHoldings ? "投入成本" : "高風險配置"} value={supportsHoldings ? formatMoney(totalCostCents, ledgerCurrency) : `${highRiskAllocation.toFixed(0)}%`} />
         <StatCard label="目標配置" value={`${totalAllocation.toFixed(0)}%`} />
       </div>
 
+      {supportsHoldings && (
       <div className="grid gap-4 xl:grid-cols-[380px_1fr]">
         <section className="panel">
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-xs font-semibold text-sky-600 dark:text-sky-300">{editingAsset ? "編輯持倉" : "新增持倉"}</p>
-              <h2 className="mt-1 text-lg font-semibold">外匯與加密貨幣</h2>
+              <h2 className="mt-1 text-lg font-semibold">{config.label}</h2>
             </div>
             {assetType === "forex" ? <ArrowRightLeft className="text-sky-600 dark:text-sky-300" size={22} /> : <Bitcoin className="text-amber-600 dark:text-amber-300" size={22} />}
-          </div>
-          <div className="mt-4 grid grid-cols-2 gap-2 rounded-lg bg-slate-100 p-1 dark:bg-slate-900">
-            <button className={`rounded-md px-3 py-2 text-sm font-semibold ${assetType === "forex" ? "bg-white text-sky-700 shadow-subtle dark:bg-slate-800 dark:text-sky-200" : "text-slate-500 dark:text-slate-400"}`} type="button" onClick={() => { setAssetType("forex"); setQuoteCurrency(ledgerCurrency); setEditingAsset(null); }}>
-              <ArrowRightLeft size={15} />外匯
-            </button>
-            <button className={`rounded-md px-3 py-2 text-sm font-semibold ${assetType === "crypto" ? "bg-white text-amber-700 shadow-subtle dark:bg-slate-800 dark:text-amber-200" : "text-slate-500 dark:text-slate-400"}`} type="button" onClick={() => { setAssetType("crypto"); setQuoteCurrency("USD"); setEditingAsset(null); }}>
-              <Bitcoin size={15} />加密貨幣
-            </button>
           </div>
           <form key={`${editingAsset?.id ?? "new"}-${assetType}-${assetFormVersion}`} className="mt-4 space-y-3" onSubmit={handleFormSubmit(saveAsset)}>
             <div className="grid grid-cols-2 gap-3">
@@ -5833,7 +5901,7 @@ function InvestmentsPage({
             <Field label="投資分類">
               <select className="input" name="categoryId" defaultValue={editingAsset?.categoryId ?? ""}>
                 <option value="">不指定分類</option>
-                {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+                {visibleCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
               </select>
             </Field>
             <div className="grid grid-cols-2 gap-3">
@@ -5855,10 +5923,10 @@ function InvestmentsPage({
               <h2 className="text-lg font-semibold">投資持倉總覽</h2>
               <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">所有持倉已換算為帳本基準幣別 {ledgerCurrency}。</p>
             </div>
-            <Badge>{assets.length} 筆持倉</Badge>
+            <Badge>{visibleAssets.length} 筆持倉</Badge>
           </div>
-          {assets.length === 0 ? (
-            <EmptyState label="尚未建立外匯或加密貨幣持倉" />
+          {visibleAssets.length === 0 ? (
+            <EmptyState label={`尚未建立${config.label}持倉`} />
           ) : (
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               {valuations.map(({ asset, valuation }) => (
@@ -5898,6 +5966,7 @@ function InvestmentsPage({
           )}
         </section>
       </div>
+      )}
 
       <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
         <section className="panel">
@@ -5908,12 +5977,12 @@ function InvestmentsPage({
           <form className="mt-4 space-y-3" onSubmit={handleFormSubmit(addCategory)}>
             <Field label="分類名稱"><input className="input" name="name" placeholder="例如：台股高股息 ETF" required /></Field>
             <Field label="投資類型">
-              <select className="input" name="kind" defaultValue="etf">
-                {Object.entries(investmentKindLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              <select className="input" name="kind" defaultValue={config.defaultKind}>
+                {config.kinds.map((value) => <option key={value} value={value}>{investmentKindLabels[value]}</option>)}
               </select>
             </Field>
             <Field label="市場">
-              <select className="input" name="market" defaultValue="TW">
+              <select className="input" name="market" defaultValue={config.defaultMarket}>
                 {Object.entries(investmentMarketLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
             </Field>
@@ -5931,16 +6000,16 @@ function InvestmentsPage({
         <section className="panel">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-lg font-semibold">股票基金分類</h2>
-              <p className="text-sm text-slate-500 dark:text-slate-400">目前基金類配置 {fundAllocation.toFixed(0)}%，高風險配置 {highRiskAllocation.toFixed(0)}%。</p>
+              <h2 className="text-lg font-semibold">{config.label}配置</h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400">目前配置 {fundAllocation > 0 ? `${fundAllocation.toFixed(0)}%` : `${totalAllocation.toFixed(0)}%`}，高風險配置 {highRiskAllocation.toFixed(0)}%。</p>
             </div>
             <Badge>{totalAllocation > 100 ? "配置超過 100%" : "配置可用"}</Badge>
           </div>
-          {categories.length === 0 ? (
-            <EmptyState label="尚未建立股票或基金分類" />
+          {visibleCategories.length === 0 ? (
+            <EmptyState label={`尚未建立${config.label}分類`} />
           ) : (
             <div className="mt-4 grid gap-3 md:grid-cols-2">
-              {categories.map((category) => (
+              {visibleCategories.map((category) => (
                 <div key={category.id} className="rounded-lg border border-slate-200 bg-white/80 p-4 shadow-subtle dark:border-slate-800 dark:bg-slate-950/70">
                   <div className="flex items-start justify-between gap-3">
                     <div>
