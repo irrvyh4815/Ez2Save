@@ -187,6 +187,33 @@ export function calculateEqualPayment(principalCents: number, annualRate: number
   return cents(principalCents * factor);
 }
 
+export function inferAnnualRateFromPayment(principalCents: number, paymentCents: number, termMonths: number): number | null {
+  if (!Number.isFinite(principalCents) || !Number.isFinite(paymentCents) || !Number.isFinite(termMonths)) return null;
+  if (principalCents <= 0 || paymentCents <= 0 || termMonths <= 0) return null;
+
+  const normalizedPrincipal = cents(principalCents);
+  const normalizedPayment = cents(paymentCents);
+  const normalizedTerm = Math.round(termMonths);
+  const zeroRatePayment = calculateEqualPayment(normalizedPrincipal, 0, normalizedTerm);
+  if (normalizedPayment < zeroRatePayment) return null;
+  if (normalizedPayment === zeroRatePayment) return 0;
+
+  let low = 0;
+  let high = 1;
+  if (calculateEqualPayment(normalizedPrincipal, high, normalizedTerm) < normalizedPayment) return null;
+
+  for (let iteration = 0; iteration < 80; iteration += 1) {
+    const candidate = (low + high) / 2;
+    const candidatePayment = calculateEqualPayment(normalizedPrincipal, candidate, normalizedTerm);
+    if (candidatePayment < normalizedPayment) {
+      low = candidate;
+    } else {
+      high = candidate;
+    }
+  }
+  return (low + high) / 2;
+}
+
 export function calculateLoan(input: LoanCalculationInput): LoanCalculationResult {
   const base = amortize({ ...input, extraMonthlyPaymentCents: 0, oneTimePrepaymentCents: 0 });
   const adjusted = amortize(input);

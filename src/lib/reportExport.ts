@@ -175,12 +175,13 @@ function buildReportSections(input: ReportExportInput) {
     },
     {
       title: "貸款",
-      headers: ["貸款", "金融機構", "原始本金", "剩餘本金", "年利率", "期數", "每期應繳", "還款日", "狀態"],
+      headers: ["貸款", "金融機構", "原始本金", "剩餘本金", "目前已繳款", "年利率", "期數", "每期應繳", "還款日", "狀態"],
       rows: input.loans.map((loan) => [
         loan.name,
         loan.institution ?? "",
         formatMoney(loan.originalPrincipalCents, input.currency),
         formatMoney(loan.remainingPrincipalCents, input.currency),
+        formatMoney(loan.paidAmountCents, input.currency),
         formatPercent(loan.annualRate),
         `${loan.paidPeriods}/${loan.termMonths}`,
         formatMoney(loan.paymentPerPeriodCents, input.currency),

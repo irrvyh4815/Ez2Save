@@ -130,6 +130,7 @@ export interface Loan extends BaseEntity {
   annualRate: number;
   termMonths: number;
   paidPeriods: number;
+  paidAmountCents: number;
   monthlyPaymentDay: number;
   startDate: string;
   expectedPayoffDate?: string;
@@ -137,6 +138,7 @@ export interface Loan extends BaseEntity {
   paymentPerPeriodCents: number;
   prepaymentPenaltyNote?: string;
   note?: string;
+  metadata?: Record<string, unknown>;
   status: "active" | "paid_off" | "paused" | "defaulted";
 }
 

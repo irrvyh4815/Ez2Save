@@ -8,6 +8,7 @@ import {
   calculateFinancialPlan,
   calculateInvestmentAssetValuation,
   calculateLoan,
+  inferAnnualRateFromPayment,
   calculateMonthlyBalance,
   calculateNetWorth,
   calculateSavingsRate,
@@ -25,6 +26,21 @@ const base = {
 };
 
 describe("loan calculations", () => {
+  it("infers annual rate from principal, term, and equal payment", () => {
+    const principalCents = 600_000_00;
+    const expectedAnnualRate = 0.0275;
+    const paymentCents = calculateEqualPayment(principalCents, expectedAnnualRate, 60);
+    const inferredRate = inferAnnualRateFromPayment(principalCents, paymentCents, 60);
+
+    expect(inferredRate).not.toBeNull();
+    expect(inferredRate ?? 0).toBeCloseTo(expectedAnnualRate, 4);
+  });
+
+  it("returns zero for an interest-free payment and rejects insufficient payments", () => {
+    expect(inferAnnualRateFromPayment(120_000_00, 10_000_00, 12)).toBe(0);
+    expect(inferAnnualRateFromPayment(120_000_00, 9_999_00, 12)).toBeNull();
+  });
+
   it("calculates equal payment amortization", () => {
     const payment = calculateEqualPayment(1_000_000_00, 0.02, 12);
     expect(payment).toBeGreaterThan(8_400_000);
@@ -243,6 +259,7 @@ describe("summary calculations", () => {
         annualRate: 0.025,
         termMonths: 60,
         paidPeriods: 10,
+        paidAmountCents: 60_000_00,
         monthlyPaymentDay: 10,
         startDate: "2025-09-01",
         repaymentMethod: "equal_payment",

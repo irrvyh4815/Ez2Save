@@ -47,6 +47,7 @@ import {
   calculateFinancialPlan,
   calculateInvestmentAssetValuation,
   getFinancialPlanAllocation,
+  inferAnnualRateFromPayment,
   calculateLoan,
   calculateSavingsRate,
   summarizeExpenseNature,
@@ -3278,7 +3279,7 @@ function buildFinanceNotifications({
       push({
         id: "loan-" + loan.id + "-" + date,
         title: loan.name + " 貸款還款",
-        detail: (loan.institution || "貸款") + "，剩餘本金 " + formatMoney(loan.remainingPrincipalCents) + "，已繳 " + loan.paidPeriods + "/" + loan.termMonths + " 期",
+        detail: (loan.institution || "貸款") + "，剩餘本金 " + formatMoney(loan.remainingPrincipalCents) + "，已繳 " + loan.paidPeriods + "/" + loan.termMonths + " 期，共 " + formatMoney(loan.paidAmountCents),
         date,
         amountCents: loan.paymentPerPeriodCents,
         source: "loan"
@@ -5299,6 +5300,44 @@ function CardsPage({
   );
 }
 
+function updateLoanRateEstimate(form: HTMLFormElement | null) {
+  if (!form) return;
+  const principalInput = form.elements.namedItem("principal");
+  const termInput = form.elements.namedItem("termMonths");
+  const paymentInput = form.elements.namedItem("payment");
+  const annualRateInput = form.elements.namedItem("annualRate");
+  const hint = form.querySelector<HTMLElement>("[data-loan-rate-hint]");
+  if (!(principalInput instanceof HTMLInputElement)
+    || !(termInput instanceof HTMLInputElement)
+    || !(paymentInput instanceof HTMLInputElement)
+    || !(annualRateInput instanceof HTMLInputElement)) return;
+
+  const principalCents = parseMoneyToCents(principalInput.value);
+  const paymentCents = parseMoneyToCents(paymentInput.value);
+  const termMonths = Number(termInput.value);
+  paymentInput.setCustomValidity("");
+
+  if (!paymentInput.value.trim()) {
+    if (hint) hint.textContent = "留空時會依本金、年利率與期數計算每期金額。";
+    return;
+  }
+  if (principalCents <= 0 || termMonths <= 0) {
+    if (hint) hint.textContent = "請先輸入原始本金與貸款期數。";
+    return;
+  }
+
+  const inferredRate = inferAnnualRateFromPayment(principalCents, paymentCents, termMonths);
+  if (inferredRate === null) {
+    paymentInput.setCustomValidity("每期還款金額無法在設定期數內攤還本金");
+    if (hint) hint.textContent = "此金額無法在設定期數內攤還本金，請提高每期金額或延長期數。";
+    return;
+  }
+
+  const ratePercent = inferredRate * 100;
+  annualRateInput.value = ratePercent.toFixed(ratePercent < 0.1 ? 4 : 3).replace(/\.?0+$/, "");
+  if (hint) hint.textContent = `估算年利率 ${annualRateInput.value}%（本息平均攤還，不含手續費、寬限期與尾款）`;
+}
+
 function LoansPage({
   loans,
   onAdd,
@@ -5326,6 +5365,7 @@ function LoansPage({
   const loanPrincipalCents = activeLoans.reduce((sum, loan) => sum + loan.remainingPrincipalCents, 0);
   const loanOriginalPrincipalCents = activeLoans.reduce((sum, loan) => sum + loan.originalPrincipalCents, 0);
   const loanMonthlyDueCents = activeLoans.reduce((sum, loan) => sum + loan.paymentPerPeriodCents, 0);
+  const loanPaidAmountCents = loans.reduce((sum, loan) => sum + loan.paidAmountCents, 0);
   const weightedLoanRate = loanPrincipalCents > 0
     ? activeLoans.reduce((sum, loan) => sum + loan.remainingPrincipalCents * loan.annualRate, 0) / loanPrincipalCents
     : 0;
@@ -5337,19 +5377,29 @@ function LoansPage({
 
   function addLoan(formData: FormData) {
     const principal = parseMoneyToCents(String(formData.get("principal") ?? ""));
-    const annualRate = Number(formData.get("annualRate")) / 100;
     const termMonths = Number(formData.get("termMonths"));
+    const paidPeriods = Number(formData.get("paidPeriods") ?? 0);
+    const paidAmountCents = parseMoneyToCents(String(formData.get("paidAmount") ?? "0"));
+    const paymentInputCents = parseMoneyToCents(String(formData.get("payment") ?? "0"));
+    const inferredAnnualRate = paymentInputCents > 0 ? inferAnnualRateFromPayment(principal, paymentInputCents, termMonths) : null;
+    const annualRate = inferredAnnualRate ?? Number(formData.get("annualRate")) / 100;
     const paymentDay = Number(formData.get("paymentDay"));
     const startDate = String(formData.get("startDate"));
     const validation = combineValidations(
       validatePositiveAmount(principal, "貸款本金"),
+      validateNonNegativeAmount(paidAmountCents, "已繳款金額"),
+      validateNonNegativeAmount(paymentInputCents, "每期還款金額"),
       validateAnnualRate(annualRate),
       validateIntegerRange(termMonths, 1, 600, "貸款期數"),
+      validateIntegerRange(paidPeriods, 0, termMonths, "已繳期數"),
       validateIntegerRange(paymentDay, 1, 31, "每月還款日"),
       validateDateRange(startDate)
     );
     if (!validation.valid) return notify("error", validation.errors[0]);
-    const payment = calculateLoan({ principalCents: principal, annualRate, termMonths, method: "equal_payment" }).monthlyPaymentCents;
+    if (paymentInputCents > 0 && inferredAnnualRate === null) return notify("error", "每期還款金額無法在設定期數內攤還本金，請調整金額或期數");
+    const payment = paymentInputCents > 0
+      ? paymentInputCents
+      : calculateLoan({ principalCents: principal, annualRate, termMonths, method: "equal_payment" }).monthlyPaymentCents;
     const now = new Date().toISOString();
     void onAdd({
         id: crypto.randomUUID(),
@@ -5361,7 +5411,8 @@ function LoansPage({
         remainingPrincipalCents: principal,
         annualRate,
         termMonths,
-        paidPeriods: 0,
+        paidPeriods,
+        paidAmountCents,
         monthlyPaymentDay: paymentDay,
         startDate,
         repaymentMethod: "equal_payment",
@@ -5383,6 +5434,7 @@ function LoansPage({
         metrics={[
           { label: "每月應繳", value: formatMoney(loanMonthlyDueCents), accent: "border-rose-300" },
           { label: "平均利率", value: formatPercent(weightedLoanRate), accent: "border-amber-300" },
+          { label: "累計已繳", value: formatMoney(loanPaidAmountCents), accent: "border-sky-300" },
           { label: "已清償比例", value: formatPercent(Math.max(0, paidDownRatio)), accent: "border-emerald-300" }
         ]}
       >
@@ -5407,9 +5459,15 @@ function LoansPage({
           <form className="space-y-3" onSubmit={handleFormSubmit(addLoan)}>
             <Field label="貸款名稱"><input className="input" name="name" required /></Field>
             <Field label="金融機構"><input className="input" name="institution" /></Field>
-            <Field label="原始本金"><input className="input" name="principal" inputMode="decimal" required /></Field>
+            <Field label="原始本金"><input className="input" name="principal" inputMode="decimal" onChange={(event) => updateLoanRateEstimate(event.currentTarget.form)} required /></Field>
             <Field label="年利率 %"><input className="input" name="annualRate" inputMode="decimal" defaultValue="2.75" required /></Field>
-            <Field label="貸款期數（月）"><input className="input" name="termMonths" type="number" min={1} defaultValue={60} /></Field>
+            <Field label="貸款期數（月）"><input className="input" name="termMonths" type="number" min={1} defaultValue={60} onChange={(event) => updateLoanRateEstimate(event.currentTarget.form)} /></Field>
+            <Field label="每期還款金額"><input className="input" name="payment" inputMode="decimal" placeholder="輸入後自動估算利率" onChange={(event) => updateLoanRateEstimate(event.currentTarget.form)} /></Field>
+            <p data-loan-rate-hint className="helper-text">留空時會依本金、年利率與期數計算每期金額。</p>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="已繳期數"><input className="input" name="paidPeriods" type="number" min={0} defaultValue={0} /></Field>
+              <Field label="目前已繳款金額"><input className="input" name="paidAmount" inputMode="decimal" defaultValue="0" /></Field>
+            </div>
             <Field label="每月還款日"><input className="input" name="paymentDay" type="number" min={1} max={31} defaultValue={12} /></Field>
             <Field label="起始日期"><input className="input" name="startDate" type="date" defaultValue={today} /></Field>
             <button className="btn-primary w-full" type="submit"><Plus size={16} />新增貸款</button>
@@ -5423,6 +5481,7 @@ function LoansPage({
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                 <Info label="剩餘本金" value={formatMoney(loan.remainingPrincipalCents)} />
                 <Info label="每期應繳" value={formatMoney(loan.paymentPerPeriodCents)} />
+                <Info label="目前已繳款" value={formatMoney(loan.paidAmountCents)} />
                 <Info label="已繳期數" value={`${loan.paidPeriods}/${loan.termMonths}`} />
                 <Info label="還款日" value={`每月 ${loan.monthlyPaymentDay} 日`} />
               </div>
@@ -5432,22 +5491,37 @@ function LoansPage({
                 <form className="mt-3 space-y-3" onSubmit={handleFormSubmit((formData) => {
                   const remainingPrincipalCents = Math.max(0, parseMoneyToCents(String(formData.get("remaining") ?? "0")));
                   const annualRate = Math.max(0, Number(formData.get("annualRate") ?? 0) / 100);
+                  const paidAmountCents = Math.max(0, parseMoneyToCents(String(formData.get("paidAmount") ?? "0")));
+                  const paymentPerPeriodCents = Math.max(0, parseMoneyToCents(String(formData.get("payment") ?? "0")));
+                  const paidPeriods = Math.min(loan.termMonths, Math.max(0, Number(formData.get("paidPeriods") ?? loan.paidPeriods)));
+                  const validation = combineValidations(
+                    validateNonNegativeAmount(remainingPrincipalCents, "剩餘本金"),
+                    validateNonNegativeAmount(paidAmountCents, "目前已繳款金額"),
+                    validatePositiveAmount(paymentPerPeriodCents, "每期應繳"),
+                    validateAnnualRate(annualRate),
+                    validateIntegerRange(paidPeriods, 0, loan.termMonths, "已繳期數")
+                  );
+                  if (!validation.valid) return notify("error", validation.errors[0]);
                   void onUpdate({
                     ...loan,
                     name: String(formData.get("name") ?? "").trim() || loan.name,
                     institution: String(formData.get("institution") ?? "").trim() || undefined,
                     remainingPrincipalCents,
                     annualRate,
-                    paidPeriods: Math.min(loan.termMonths, Math.max(0, Number(formData.get("paidPeriods") ?? loan.paidPeriods))),
+                    paidPeriods,
+                    paidAmountCents,
                     monthlyPaymentDay: Math.min(31, Math.max(1, Number(formData.get("paymentDay") ?? loan.monthlyPaymentDay))),
-                    paymentPerPeriodCents: Math.max(0, parseMoneyToCents(String(formData.get("payment") ?? "0"))),
+                    paymentPerPeriodCents,
                     status: String(formData.get("status") ?? loan.status) as Loan["status"]
                   });
                 })}>
+                  <input name="principal" type="hidden" value={loan.originalPrincipalCents / 100} />
+                  <input name="termMonths" type="hidden" value={loan.termMonths} />
                   <div className="grid grid-cols-2 gap-3"><Field label="貸款名稱"><input className="input" name="name" defaultValue={loan.name} required /></Field><Field label="金融機構"><input className="input" name="institution" defaultValue={loan.institution ?? ""} /></Field></div>
                   <div className="grid grid-cols-2 gap-3"><Field label="剩餘本金"><input className="input" name="remaining" defaultValue={loan.remainingPrincipalCents / 100} inputMode="decimal" required /></Field><Field label="年利率 %"><input className="input" name="annualRate" defaultValue={loan.annualRate * 100} inputMode="decimal" required /></Field></div>
-                  <div className="grid grid-cols-2 gap-3"><Field label="已繳期數"><input className="input" name="paidPeriods" type="number" min={0} max={loan.termMonths} defaultValue={loan.paidPeriods} /></Field><Field label="每月還款日"><input className="input" name="paymentDay" type="number" min={1} max={31} defaultValue={loan.monthlyPaymentDay} /></Field></div>
-                  <Field label="每期應繳"><input className="input" name="payment" defaultValue={loan.paymentPerPeriodCents / 100} inputMode="decimal" required /></Field>
+                  <div className="grid grid-cols-2 gap-3"><Field label="已繳期數"><input className="input" name="paidPeriods" type="number" min={0} max={loan.termMonths} defaultValue={loan.paidPeriods} /></Field><Field label="目前已繳款金額"><input className="input" name="paidAmount" defaultValue={loan.paidAmountCents / 100} inputMode="decimal" /></Field></div>
+                  <div className="grid grid-cols-2 gap-3"><Field label="每月還款日"><input className="input" name="paymentDay" type="number" min={1} max={31} defaultValue={loan.monthlyPaymentDay} /></Field><Field label="每期應繳"><input className="input" name="payment" defaultValue={loan.paymentPerPeriodCents / 100} inputMode="decimal" onChange={(event) => updateLoanRateEstimate(event.currentTarget.form)} required /></Field></div>
+                  <p data-loan-rate-hint className="helper-text">調整每期金額後，系統會依原始本金與總期數估算年利率。</p>
                   <Field label="狀態"><select className="input" name="status" defaultValue={loan.status}><option value="active">進行中</option><option value="paid_off">已結清</option><option value="paused">已暫停</option></select></Field>
                   <button className="btn-primary w-full" type="submit">儲存變更</button>
                 </form>

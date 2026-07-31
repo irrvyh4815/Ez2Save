@@ -295,7 +295,7 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
       .order("next_due_date", { ascending: true }),
     scoped(supabase
       .from("loans")
-      .select("id,user_id,name,loan_type,institution,original_principal_cents,remaining_principal_cents,annual_rate,term_months,paid_periods,monthly_payment_day,start_date,expected_payoff_date,repayment_method,payment_per_period_cents,prepayment_penalty_note,note,status,created_at,updated_at"))
+      .select("id,user_id,name,loan_type,institution,original_principal_cents,remaining_principal_cents,annual_rate,term_months,paid_periods,monthly_payment_day,start_date,expected_payoff_date,repayment_method,payment_per_period_cents,prepayment_penalty_note,note,status,metadata,created_at,updated_at"))
       .is("deleted_at", null)
       .order("created_at", { ascending: false }),
     scoped(supabase
@@ -696,6 +696,7 @@ export async function createLoan(loan: Loan, ledgerId?: string): Promise<Loan> {
       annual_rate: loan.annualRate,
       term_months: loan.termMonths,
       paid_periods: loan.paidPeriods,
+      metadata: { ...(loan.metadata ?? {}), paid_amount_cents: loan.paidAmountCents },
       monthly_payment_day: loan.monthlyPaymentDay,
       start_date: loan.startDate,
       expected_payoff_date: loan.expectedPayoffDate || null,
@@ -705,7 +706,7 @@ export async function createLoan(loan: Loan, ledgerId?: string): Promise<Loan> {
       note: loan.note || null,
       status: loan.status
     })
-    .select("id,user_id,name,loan_type,institution,original_principal_cents,remaining_principal_cents,annual_rate,term_months,paid_periods,monthly_payment_day,start_date,expected_payoff_date,repayment_method,payment_per_period_cents,prepayment_penalty_note,note,status,created_at,updated_at")
+    .select("id,user_id,name,loan_type,institution,original_principal_cents,remaining_principal_cents,annual_rate,term_months,paid_periods,monthly_payment_day,start_date,expected_payoff_date,repayment_method,payment_per_period_cents,prepayment_penalty_note,note,status,metadata,created_at,updated_at")
     .single();
   if (error) throw new Error("貸款儲存失敗");
   return mapLoan(data);
@@ -724,6 +725,7 @@ export async function updateLoan(loan: Loan): Promise<Loan> {
       annual_rate: loan.annualRate,
       term_months: loan.termMonths,
       paid_periods: loan.paidPeriods,
+      metadata: { ...(loan.metadata ?? {}), paid_amount_cents: loan.paidAmountCents },
       monthly_payment_day: loan.monthlyPaymentDay,
       start_date: loan.startDate,
       expected_payoff_date: loan.expectedPayoffDate || null,
@@ -734,7 +736,7 @@ export async function updateLoan(loan: Loan): Promise<Loan> {
       status: loan.status
     })
     .eq("id", loan.id)
-    .select("id,user_id,name,loan_type,institution,original_principal_cents,remaining_principal_cents,annual_rate,term_months,paid_periods,monthly_payment_day,start_date,expected_payoff_date,repayment_method,payment_per_period_cents,prepayment_penalty_note,note,status,created_at,updated_at")
+    .select("id,user_id,name,loan_type,institution,original_principal_cents,remaining_principal_cents,annual_rate,term_months,paid_periods,monthly_payment_day,start_date,expected_payoff_date,repayment_method,payment_per_period_cents,prepayment_penalty_note,note,status,metadata,created_at,updated_at")
     .single();
   if (error) throw new Error("貸款更新失敗");
   return mapLoan(data);
@@ -1265,6 +1267,7 @@ function mapCreditCardInstallment(row: Record<string, unknown>): CreditCardInsta
 }
 
 function mapLoan(row: Record<string, unknown>): Loan {
+  const metadata = isRecord(row.metadata) ? row.metadata : {};
   return {
     id: String(row.id),
     userId: String(row.user_id),
@@ -1276,6 +1279,7 @@ function mapLoan(row: Record<string, unknown>): Loan {
     annualRate: Number(row.annual_rate ?? 0),
     termMonths: toNumber(row.term_months),
     paidPeriods: toNumber(row.paid_periods),
+    paidAmountCents: toNumber(metadata.paid_amount_cents),
     monthlyPaymentDay: toNumber(row.monthly_payment_day),
     startDate: String(row.start_date),
     expectedPayoffDate: nullableString(row.expected_payoff_date),
@@ -1283,6 +1287,7 @@ function mapLoan(row: Record<string, unknown>): Loan {
     paymentPerPeriodCents: toNumber(row.payment_per_period_cents),
     prepaymentPenaltyNote: nullableString(row.prepayment_penalty_note),
     note: nullableString(row.note),
+    metadata,
     status: String(row.status) as Loan["status"],
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)
