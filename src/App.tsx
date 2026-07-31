@@ -56,6 +56,7 @@ import {
   summarizeCreditCardLimit,
   summarizeCreditCardLimits,
   summarizeExpenseNature,
+  summarizeLoanProgress,
   summarizeDashboard,
   type DepositCalculationInput,
   type FinancialPlanCalculationResult,
@@ -3347,13 +3348,14 @@ function buildFinanceNotifications({
 
   loans
     .filter((loan) => loan.status === "active")
-    .filter((loan) => loan.remainingPrincipalCents > 0)
+    .filter((loan) => summarizeLoanProgress(loan).remainingPrincipalCents > 0)
     .forEach((loan) => {
       const date = createMonthlyDate(month, loan.monthlyPaymentDay);
+      const progress = summarizeLoanProgress(loan);
       push({
         id: "loan-" + loan.id + "-" + date,
         title: loan.name + " 貸款還款",
-        detail: (loan.institution || "貸款") + "，剩餘本金 " + formatMoney(loan.remainingPrincipalCents) + "，已繳 " + loan.paidPeriods + "/" + loan.termMonths + " 期，共 " + formatMoney(loan.paidAmountCents),
+        detail: (loan.institution || "貸款") + "，剩餘本金 " + formatMoney(progress.remainingPrincipalCents) + "，已繳 " + loan.paidPeriods + "/" + loan.termMonths + " 期，累計實付 " + formatMoney(progress.totalCashPaidCents),
         date,
         amountCents: loan.paymentPerPeriodCents,
         source: "loan"
@@ -4399,7 +4401,7 @@ function LiabilityChart({ creditCards, installments, loans }: { creditCards: Cre
   const creditSummary = summarizeCreditCardLimits(creditCards, installments);
   const cardDebt = creditSummary.currentStatementCents + creditSummary.unbilledCents;
   const installmentDebt = creditSummary.installmentOccupancyCents;
-  const loanDebt = loans.reduce((sum, loan) => sum + loan.remainingPrincipalCents, 0);
+  const loanDebt = loans.reduce((sum, loan) => sum + summarizeLoanProgress(loan).remainingPrincipalCents, 0);
   const monthlyPressure = creditCards.reduce((sum, card) => sum + card.minimumPaymentCents, 0) + getInstallmentMonthlyDueCents(installments) + loans.reduce((sum, loan) => sum + loan.paymentPerPeriodCents, 0);
   return (
     <div>
@@ -7757,7 +7759,10 @@ function ReportsPage({
           const summary = summarizeCreditCardLimit(card, creditCardInstallments);
           return <Progress key={card.id} label={card.name} value={summary.utilizationRate} helper={`${formatMoney(summary.usedCreditCents)} / ${formatMoney(summary.creditLimitCents)}`} colorClass={index % 2 === 0 ? "bg-sky-600" : "bg-violet-600"} />;
         })}</section>
-        <section className="panel lg:col-span-5"><h3 className="font-semibold">貸款餘額報表</h3><div className="mt-4 space-y-4">{loans.length === 0 ? <EmptyState label="尚無貸款資料" /> : loans.map((loan, index) => <Progress key={loan.id} label={loan.name} value={loan.remainingPrincipalCents / Math.max(loan.originalPrincipalCents, 1)} helper={formatMoney(loan.remainingPrincipalCents)} colorClass={index % 2 === 0 ? "bg-rose-600" : "bg-amber-500"} />)}</div></section>
+        <section className="panel lg:col-span-5"><h3 className="font-semibold">貸款餘額報表</h3><div className="mt-4 space-y-4">{loans.length === 0 ? <EmptyState label="尚無貸款資料" /> : loans.map((loan, index) => {
+          const progress = summarizeLoanProgress(loan);
+          return <Progress key={loan.id} label={loan.name} value={progress.remainingPrincipalCents / Math.max(loan.originalPrincipalCents, 1)} helper={formatMoney(progress.remainingPrincipalCents)} colorClass={index % 2 === 0 ? "bg-rose-600" : "bg-amber-500"} />;
+        })}</div></section>
         <section className="panel lg:col-span-7"><h3 className="font-semibold">分期負債明細</h3><InstallmentDebtTable cards={creditCards} installments={creditCardInstallments} /></section>
       </div>
     </div>

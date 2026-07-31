@@ -726,7 +726,7 @@ export function summarizeDashboard(args: {
   const monthlyLoanDueCents = args.loans
     .filter((loan) => loan.status === "active")
     .reduce((sum, loan) => sum + loan.paymentPerPeriodCents, 0);
-  const loanLiabilities = args.loans.reduce((sum, loan) => sum + loan.remainingPrincipalCents, 0);
+  const loanLiabilities = args.loans.reduce((sum, loan) => sum + summarizeLoanProgress(loan).remainingPrincipalCents, 0);
   const cardLiabilities = args.creditCards.reduce((sum, card) => sum + card.unbilledAmountCents + card.currentStatementAmountCents, 0);
   const totalLiabilitiesCents = loanLiabilities + cardLiabilities;
   const monthlyTransactions = args.dateRange
