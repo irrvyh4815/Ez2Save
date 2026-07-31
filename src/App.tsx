@@ -158,7 +158,7 @@ type Page =
   | "settings"
   | "users";
 
-type PeriodMode = "month" | "three_months" | "six_months" | "year" | "range";
+type PeriodMode = "all" | "month" | "three_months" | "six_months" | "year" | "range";
 
 type DatePeriod = {
   mode: PeriodMode;
@@ -274,7 +274,7 @@ type NavItem = (typeof navGroups)[number]["items"][number];
 const pageIntros: Record<Page, { eyebrow: string; title: string; description: string; accent: string; tint: string }> = {
   dashboard: {
     eyebrow: "財務概覽",
-    title: "本月財務全景",
+    title: "財務全景",
     description: "資產、負債、現金流與近期提醒。",
     accent: "#059669",
     tint: "#ecfdf5"
@@ -607,7 +607,7 @@ export default function App() {
   const [ledgerTransitioning, setLedgerTransitioning] = useState(false);
   const [page, setPage] = useState<Page>("dashboard");
   const [month, setMonth] = useState(currentTaipeiMonth());
-  const [periodMode, setPeriodMode] = useState<PeriodMode>("month");
+  const [periodMode, setPeriodMode] = useState<PeriodMode>("all");
   const [periodYear, setPeriodYear] = useState(currentTaipeiMonth().slice(0, 4));
   const [rangeStart, setRangeStart] = useState(`${currentTaipeiMonth()}-01`);
   const [rangeEnd, setRangeEnd] = useState(getTaipeiTodayIso());
@@ -872,6 +872,9 @@ export default function App() {
   }
 
   const period = useMemo<DatePeriod>(() => {
+    if (periodMode === "all") {
+      return { mode: periodMode, startDate: "0001-01-01", endDate: "9999-12-31", label: "全部" };
+    }
     if (periodMode === "three_months" || periodMode === "six_months") {
       const [year, monthNumber] = month.split("-").map(Number);
       const periodMonths = periodMode === "three_months" ? 3 : 6;
@@ -881,7 +884,7 @@ export default function App() {
         mode: periodMode,
         startDate: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-01`,
         endDate: `${month}-${String(endDay).padStart(2, "0")}`,
-        label: `近 ${periodMonths} 個月`
+        label: periodMonths === 3 ? "近三個月" : "近半年"
       };
     }
     if (periodMode === "year") {
@@ -903,13 +906,13 @@ export default function App() {
   );
 
   const recentNecessaryAverage = useMemo(() => {
-    const months = getRecentMonthKeys(period.endDate.slice(0, 7), 3);
+    const months = getRecentMonthKeys(period.mode === "all" ? month : period.endDate.slice(0, 7), 3);
     const total = transactions
       .filter((transaction) => months.some((candidate) => transaction.date.startsWith(candidate)))
       .filter((transaction) => transaction.isNecessary && ["expense", "credit_card_purchase", "loan_payment"].includes(transaction.type))
       .reduce((sum, transaction) => sum + transaction.amountCents, 0);
     return Math.round(total / Math.max(months.length, 1));
-  }, [period.endDate, transactions]);
+  }, [month, period.endDate, period.mode, transactions]);
 
   const creditCardsForSummary = useMemo(
     () =>
@@ -943,8 +946,11 @@ export default function App() {
   }, [periodTransactions]);
 
   const monthlyTrend = useMemo(() => {
-    const months = getMonthsInPeriod(period, month);
-    return months.map((candidate) => {
+    const months = period.mode === "all"
+      ? [...new Set(transactions.map((transaction) => transaction.date.slice(0, 7)).filter((value) => /^\d{4}-\d{2}$/.test(value)))].sort().slice(-24)
+      : getMonthsInPeriod(period, month);
+    const visibleMonths = months.length > 0 ? months : getRecentMonthKeys(month, 6).reverse();
+    return visibleMonths.map((candidate) => {
       const items = transactions.filter((transaction) => transaction.date.startsWith(candidate));
       return {
         month: candidate,
@@ -1859,6 +1865,7 @@ export default function App() {
             {page === "dashboard" && (
               <DashboardPage
                 dashboard={dashboard}
+                period={period}
                 categoryBreakdown={categoryBreakdown}
                 monthlyTrend={monthlyTrend}
                 notifications={financeNotifications}
@@ -1877,6 +1884,7 @@ export default function App() {
                 accounts={accounts}
                 creditCards={creditCards}
                 transactions={periodTransactions}
+                period={period}
                 onAdd={addTransaction}
                 onDelete={softDeleteTransaction}
                 onCsvUpload={handleCsvUpload}
@@ -1935,6 +1943,7 @@ export default function App() {
             {page === "reports" && (
               <ReportsPage
                 month={month}
+                period={period}
                 transactions={periodTransactions}
                 loans={loans}
                 creditCards={creditCards}
@@ -2742,6 +2751,9 @@ function PageExperience({
   notifications: number;
 }) {
   const intro = pageIntros[page];
+  const dashboardCopy = getDashboardPeriodCopy(period);
+  const title = page === "dashboard" ? dashboardCopy.heroTitle : intro.title;
+  const description = page === "dashboard" ? `${period.label}的資產、負債、現金流與近期提醒。` : intro.description;
   const PageIcon = navGroups.flatMap((group) => group.items).find((item) => item.page === page)?.icon ?? Bell;
   return (
     <section
@@ -2755,8 +2767,8 @@ function PageExperience({
           </span>
           <div className="min-w-0">
             <p className="text-xs font-bold" style={{ color: intro.accent }}>{intro.eyebrow}</p>
-            <h2 className="mt-1 text-xl font-bold tracking-normal text-slate-950 dark:text-slate-50">{intro.title}</h2>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300">{intro.description}</p>
+            <h2 className="mt-1 text-xl font-bold tracking-normal text-slate-950 dark:text-slate-50">{title}</h2>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300">{description}</p>
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2 text-xs font-semibold">
@@ -2811,8 +2823,8 @@ function PeriodSelector({
   return (
     <div className="mt-4 flex flex-wrap items-end gap-2 border-t border-slate-200/80 pt-4 dark:border-slate-700">
       <div className="flex max-w-full flex-wrap rounded-md border border-slate-200 bg-white/90 p-1 shadow-sm dark:border-slate-700 dark:bg-slate-950">
-        {(["month", "three_months", "six_months", "year", "range"] as const).map((item) => (
-          <button key={item} className={`rounded px-3 py-1.5 text-sm font-semibold transition ${mode === item ? "bg-slate-950 text-white shadow-sm dark:bg-emerald-600 dark:text-white" : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"}`} onClick={() => onModeChange(item)}>{item === "month" ? "單月" : item === "three_months" ? "近三月" : item === "six_months" ? "近半年" : item === "year" ? "全年" : "自訂"}</button>
+        {(["all", "month", "three_months", "six_months", "year", "range"] as const).map((item) => (
+          <button key={item} className={`rounded px-3 py-1.5 text-sm font-semibold transition ${mode === item ? "bg-slate-950 text-white shadow-sm dark:bg-emerald-600 dark:text-white" : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"}`} onClick={() => onModeChange(item)}>{item === "all" ? "全部" : item === "month" ? "單月" : item === "three_months" ? "近三月" : item === "six_months" ? "近半年" : item === "year" ? "全年" : "自訂"}</button>
         ))}
       </div>
       {mode === "month" && <input className="input mt-0 w-36" type="month" value={month} onChange={(event) => onMonthChange(event.target.value)} aria-label="選擇月份" />}
@@ -3385,6 +3397,73 @@ function getMonthsInPeriod(period: DatePeriod, fallbackMonth: string): string[] 
   return months.length > 0 ? months : [fallbackMonth];
 }
 
+function getDashboardPeriodCopy(period: DatePeriod) {
+  if (period.mode === "all") {
+    return {
+      heroTitle: "全部財務全景",
+      incomeLabel: "累計收入",
+      expenseLabel: "累計支出",
+      balanceLabel: "累計結餘",
+      scoreLabel: "整體節奏",
+      trendTitle: "全部收支趨勢",
+      categoryTitle: "全部支出分類"
+    };
+  }
+  if (period.mode === "month") {
+    return {
+      heroTitle: `${period.label} 財務全景`,
+      incomeLabel: "單月收入",
+      expenseLabel: "單月支出",
+      balanceLabel: "單月結餘",
+      scoreLabel: "單月節奏",
+      trendTitle: "最近六個月收支趨勢",
+      categoryTitle: "單月支出分類"
+    };
+  }
+  if (period.mode === "three_months") {
+    return {
+      heroTitle: "近三個月財務全景",
+      incomeLabel: "近三月收入",
+      expenseLabel: "近三月支出",
+      balanceLabel: "近三月結餘",
+      scoreLabel: "近三月節奏",
+      trendTitle: "近三個月收支趨勢",
+      categoryTitle: "近三月支出分類"
+    };
+  }
+  if (period.mode === "six_months") {
+    return {
+      heroTitle: "近半年財務全景",
+      incomeLabel: "近半年收入",
+      expenseLabel: "近半年支出",
+      balanceLabel: "近半年結餘",
+      scoreLabel: "近半年節奏",
+      trendTitle: "近半年收支趨勢",
+      categoryTitle: "近半年支出分類"
+    };
+  }
+  if (period.mode === "year") {
+    return {
+      heroTitle: `${period.label}財務全景`,
+      incomeLabel: "全年收入",
+      expenseLabel: "全年支出",
+      balanceLabel: "全年結餘",
+      scoreLabel: "全年節奏",
+      trendTitle: `${period.label}收支趨勢`,
+      categoryTitle: "全年支出分類"
+    };
+  }
+  return {
+    heroTitle: "指定期間財務全景",
+    incomeLabel: "期間收入",
+    expenseLabel: "期間支出",
+    balanceLabel: "期間結餘",
+    scoreLabel: "期間節奏",
+    trendTitle: "指定期間收支趨勢",
+    categoryTitle: "指定期間支出分類"
+  };
+}
+
 function getNotificationStatus(date: string, todayIso: string, remindDaysBefore: number): FinanceNotification["status"] {
   const diff = getDaysBetween(todayIso, date);
   if (diff < 0) return "overdue";
@@ -3433,6 +3512,7 @@ function getNotificationClass(status: FinanceNotification["status"]) {
 
 function DashboardPage({
   dashboard,
+  period,
   categoryBreakdown,
   monthlyTrend,
   notifications,
@@ -3446,6 +3526,7 @@ function DashboardPage({
   onNavigate
 }: {
   dashboard: ReturnType<typeof summarizeDashboard>;
+  period: DatePeriod;
   categoryBreakdown: { category: string; amountCents: number }[];
   monthlyTrend: { month: string; incomeCents: number; expenseCents: number }[];
   notifications: FinanceNotification[];
@@ -3458,15 +3539,16 @@ function DashboardPage({
   dataNotice: string;
   onNavigate: (page: Page) => void;
 }) {
+  const periodCopy = getDashboardPeriodCopy(period);
   const stats = [
     ["目前總資產", dashboard.totalAssetsCents],
     ["目前總負債", dashboard.totalLiabilitiesCents],
     ["淨資產", dashboard.netWorthCents],
-    ["本月收入", dashboard.monthlyIncomeCents],
-    ["本月支出", dashboard.monthlyExpenseCents],
-    ["本月結餘", dashboard.monthlyBalanceCents],
-    ["本月信用卡待繳", dashboard.monthlyCreditCardDueCents],
-    ["本月貸款應繳", dashboard.monthlyLoanDueCents],
+    [periodCopy.incomeLabel, dashboard.monthlyIncomeCents],
+    [periodCopy.expenseLabel, dashboard.monthlyExpenseCents],
+    [periodCopy.balanceLabel, dashboard.monthlyBalanceCents],
+    ["目前信用卡待繳", dashboard.monthlyCreditCardDueCents],
+    ["每月貸款應繳", dashboard.monthlyLoanDueCents],
     ["可動用現金", dashboard.availableCashCents],
     ["定期存款總額", dashboard.timeDepositTotalCents]
   ] as const;
@@ -3475,8 +3557,8 @@ function DashboardPage({
     <div className="space-y-4">
       {dataLoading && <InlineNotice tone="neutral" message="載入資料中..." />}
       {!dataLoading && dataNotice && <InlineNotice tone="warning" message={dataNotice} />}
-      <DashboardPulse dashboard={dashboard} monthlyTrend={monthlyTrend} onNavigate={onNavigate} />
-      <DashboardFinanceCenter dashboard={dashboard} onNavigate={onNavigate} />
+      <DashboardPulse dashboard={dashboard} monthlyTrend={monthlyTrend} period={period} onNavigate={onNavigate} />
+      <DashboardFinanceCenter dashboard={dashboard} period={period} onNavigate={onNavigate} />
       <FinancialDecisionCenter
         dashboard={dashboard}
         monthlyTrend={monthlyTrend}
@@ -3533,7 +3615,7 @@ function DashboardPage({
       </details>
       <div className="grid gap-4 lg:grid-cols-3">
         <section className="panel lg:col-span-2">
-          <h2 className="text-lg font-semibold">最近六個月收支趨勢</h2>
+          <h2 className="text-lg font-semibold">{periodCopy.trendTitle}</h2>
           <TrendChart data={monthlyTrend} />
         </section>
         <section className="panel">
@@ -3546,13 +3628,13 @@ function DashboardPage({
       </div>
       <div className="grid gap-4 lg:grid-cols-3">
         <section className="panel lg:col-span-2">
-          <h2 className="text-lg font-semibold">本月支出分類</h2>
+          <h2 className="text-lg font-semibold">{periodCopy.categoryTitle}</h2>
           <CategoryBars data={categoryBreakdown} />
         </section>
         <section className="panel">
           <h2 className="text-lg font-semibold">最近即將到期項目</h2>
           <div className="mt-3 space-y-3">
-            {notifications.length === 0 && <EmptyState label="本月尚無信用卡、貸款或帳單提醒" />}
+            {notifications.length === 0 && <EmptyState label="目前尚無信用卡、貸款或帳單提醒" />}
             {notifications.slice(0, 5).map((item) => (
               <div key={item.id} className={`rounded-md border p-3 ${getNotificationClass(item.status)}`}>
                 <div className="flex items-center justify-between gap-2">
@@ -3572,12 +3654,15 @@ function DashboardPage({
 function DashboardPulse({
   dashboard,
   monthlyTrend,
+  period,
   onNavigate
 }: {
   dashboard: ReturnType<typeof summarizeDashboard>;
   monthlyTrend: { month: string; incomeCents: number; expenseCents: number }[];
+  period: DatePeriod;
   onNavigate: (page: Page) => void;
 }) {
+  const periodCopy = getDashboardPeriodCopy(period);
   const latest = monthlyTrend.at(-1);
   const prior = monthlyTrend.at(-2);
   const latestBalance = latest ? latest.incomeCents - latest.expenseCents : dashboard.monthlyBalanceCents;
@@ -3591,7 +3676,7 @@ function DashboardPulse({
       <div className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr] lg:items-center">
         <div>
           <span className="inline-flex rounded-full bg-white/80 px-2.5 py-1 text-xs font-semibold text-rose-600 shadow-sm dark:bg-slate-900 dark:text-rose-200">{positiveBalance ? "現金流穩定" : "支出高於收入"}</span>
-          <h2 className="mt-3 text-2xl font-bold text-slate-950 dark:text-slate-50 sm:text-3xl">{hasBalance ? `本月結餘 ${formatMoney(dashboard.monthlyBalanceCents)}` : "從第一筆紀錄開始"}</h2>
+          <h2 className="mt-3 text-2xl font-bold text-slate-950 dark:text-slate-50 sm:text-3xl">{hasBalance ? `${periodCopy.balanceLabel} ${formatMoney(dashboard.monthlyBalanceCents)}` : "從第一筆紀錄開始"}</h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">{hasBalance ? `收入 ${formatMoney(dashboard.monthlyIncomeCents)} · 支出 ${formatMoney(dashboard.monthlyExpenseCents)}` : "新增收入、支出或帳戶餘額後，摘要會自動更新。"}</p>
           <div className="mt-4 flex flex-wrap gap-2">
             <button className="btn-primary" onClick={() => onNavigate("transactions")}><Plus size={16} />記一筆</button>
@@ -3601,13 +3686,13 @@ function DashboardPulse({
           <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
             <span>可動用現金 {formatMoney(dashboard.availableCashCents)}</span>
             <span>信用卡待繳 {formatMoney(dashboard.monthlyCreditCardDueCents)}</span>
-            <span>本月結餘 {formatMoney(dashboard.monthlyBalanceCents)}</span>
+            <span>{periodCopy.balanceLabel} {formatMoney(dashboard.monthlyBalanceCents)}</span>
           </div>
         </div>
         <div className="grid gap-3 sm:grid-cols-[132px_1fr] sm:items-center lg:grid-cols-[132px_1fr]">
           <div className="mx-auto flex h-32 w-32 flex-col items-center justify-center rounded-full border-[10px] border-emerald-200 bg-white text-center shadow-sm dark:border-emerald-900 dark:bg-slate-900">
             <strong className="text-3xl text-slate-950 dark:text-slate-50">{flowScore}</strong>
-            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">本月節奏</span>
+            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">{periodCopy.scoreLabel}</span>
           </div>
           <div className="rounded-lg border border-white/80 bg-white/60 p-3 dark:border-slate-700 dark:bg-slate-900/70">
             <div className="flex items-center justify-between gap-3">
@@ -3627,10 +3712,11 @@ function DashboardPulse({
   );
 }
 
-function DashboardFinanceCenter({ dashboard, onNavigate }: { dashboard: ReturnType<typeof summarizeDashboard>; onNavigate: (page: Page) => void }) {
+function DashboardFinanceCenter({ dashboard, period, onNavigate }: { dashboard: ReturnType<typeof summarizeDashboard>; period: DatePeriod; onNavigate: (page: Page) => void }) {
+  const periodCopy = getDashboardPeriodCopy(period);
   const tiles = [
     { label: "可動用現金", value: formatMoney(dashboard.availableCashCents), className: "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-100", page: "accounts" as const },
-    { label: "本月結餘", value: formatMoney(dashboard.monthlyBalanceCents), className: "bg-sky-50 text-sky-800 dark:bg-sky-950/50 dark:text-sky-100", page: "transactions" as const },
+    { label: periodCopy.balanceLabel, value: formatMoney(dashboard.monthlyBalanceCents), className: "bg-sky-50 text-sky-800 dark:bg-sky-950/50 dark:text-sky-100", page: "transactions" as const },
     { label: "信用卡待繳", value: formatMoney(dashboard.monthlyCreditCardDueCents), className: "bg-rose-50 text-rose-800 dark:bg-rose-950/50 dark:text-rose-100", page: "cards" as const },
     { label: "預備金", value: `${dashboard.emergencyFundMonths.toFixed(1)} 個月`, className: "bg-violet-50 text-violet-800 dark:bg-violet-950/50 dark:text-violet-100", page: "budgets" as const }
   ];
@@ -3729,7 +3815,7 @@ function FinancialDecisionCenter({
           <ExpenseNatureChart transactions={transactions} />
         </section>
         <section className="panel lg:col-span-5">
-          <h3 className="font-semibold">本月還款負擔</h3>
+          <h3 className="font-semibold">目前還款負擔</h3>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">貸款與已記錄卡費占收入比例</p>
           <DebtBurdenChart
             monthlyIncomeCents={latestIncomeCents}
@@ -4123,7 +4209,7 @@ function TrendChart({ data }: { data: { month: string; incomeCents: number; expe
 
 function CategoryBars({ data }: { data: { category: string; amountCents: number }[] }) {
   const total = data.reduce((sum, item) => sum + item.amountCents, 0);
-  if (data.length === 0) return <EmptyState label="本月尚無支出資料" />;
+  if (data.length === 0) return <EmptyState label="所選期間尚無支出資料" />;
   const topItems = data.slice(0, 6);
   return (
     <div className="mt-4 space-y-4">
@@ -4588,6 +4674,7 @@ function TransactionsPage({
   accounts,
   creditCards,
   transactions,
+  period,
   onAdd,
   onDelete,
   onCsvUpload,
@@ -4598,6 +4685,7 @@ function TransactionsPage({
   accounts: FinancialAccount[];
   creditCards: CreditCard[];
   transactions: Transaction[];
+  period: DatePeriod;
   onAdd: (formData: FormData) => void;
   onDelete: (id: string) => void;
   onCsvUpload: (file: File | null) => void;
@@ -4605,20 +4693,19 @@ function TransactionsPage({
   onImportCsv: () => void;
   rememberedCategories: string[];
 }) {
-  const currentMonth = currentTaipeiMonth();
-  const monthlyTransactions = transactions.filter((transaction) => transaction.date.startsWith(currentMonth));
-  const monthlyIncomeCents = monthlyTransactions
+  const periodCopy = getDashboardPeriodCopy(period);
+  const periodIncomeCents = transactions
     .filter((transaction) => transaction.type === "income")
     .reduce((sum, transaction) => sum + transaction.amountCents, 0);
-  const monthlyExpenseCents = monthlyTransactions
+  const periodExpenseCents = transactions
     .filter((transaction) => transaction.type === "expense" || transaction.type === "credit_card_purchase")
     .reduce((sum, transaction) => sum + transaction.amountCents, 0);
-  const monthlyBalanceCents = monthlyIncomeCents - monthlyExpenseCents;
-  const monthlyTransferCents = monthlyTransactions
+  const periodBalanceCents = periodIncomeCents - periodExpenseCents;
+  const periodTransferCents = transactions
     .filter((transaction) => transaction.type === "transfer" || transaction.type === "credit_card_payment" || transaction.type === "loan_payment" || transaction.type === "deposit_transfer")
     .reduce((sum, transaction) => sum + transaction.amountCents, 0);
   const transactionCategoryBreakdown = Object.entries(
-    monthlyTransactions
+    transactions
       .filter((transaction) => transaction.type === "expense" || transaction.type === "credit_card_purchase")
       .reduce<Record<string, number>>((acc, transaction) => {
         acc[transaction.category] = (acc[transaction.category] ?? 0) + transaction.amountCents;
@@ -4634,28 +4721,28 @@ function TransactionsPage({
       <FeatureHero
         icon={<ReceiptText size={18} />}
         label="收支紀錄"
-        title="本月已記錄現金流"
-        value={formatMoney(monthlyBalanceCents)}
+        title={`${period.label}已記錄現金流`}
+        value={formatMoney(periodBalanceCents)}
         tone="sky"
         metrics={[
-          { label: "本月收入", value: formatMoney(monthlyIncomeCents), accent: "border-emerald-300" },
-          { label: "本月支出", value: formatMoney(monthlyExpenseCents), accent: "border-rose-300" },
-          { label: "內部轉帳", value: formatMoney(monthlyTransferCents), accent: "border-sky-300" }
+          { label: periodCopy.incomeLabel, value: formatMoney(periodIncomeCents), accent: "border-emerald-300" },
+          { label: periodCopy.expenseLabel, value: formatMoney(periodExpenseCents), accent: "border-rose-300" },
+          { label: "內部轉帳", value: formatMoney(periodTransferCents), accent: "border-sky-300" }
         ]}
       >
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
           <DonutChart
             segments={transactionCategoryBreakdown.map((item, index) => ({ label: item.category, value: item.amountCents, color: getChartColor(index) }))}
             centerLabel="支出"
-            centerValue={formatCompactMoney(monthlyExpenseCents)}
+            centerValue={formatCompactMoney(periodExpenseCents)}
           />
           <div className="flex-1 space-y-3">
             <div className="flex items-center justify-between gap-3 text-sm">
-              <span className="text-slate-300">本月交易數</span>
-              <span className="font-semibold text-white">{monthlyTransactions.length} 筆</span>
+              <span className="text-slate-300">交易筆數</span>
+              <span className="font-semibold text-white">{transactions.length} 筆</span>
             </div>
-            <StackedDistribution data={transactionCategoryBreakdown} total={monthlyExpenseCents} />
-            <CompactDistributionList data={transactionCategoryBreakdown} total={monthlyExpenseCents} inverse />
+            <StackedDistribution data={transactionCategoryBreakdown} total={periodExpenseCents} />
+            <CompactDistributionList data={transactionCategoryBreakdown} total={periodExpenseCents} inverse />
           </div>
         </div>
       </FeatureHero>
@@ -6825,6 +6912,7 @@ function RemindersPage({
 
 function ReportsPage({
   month,
+  period,
   transactions,
   loans,
   creditCards,
@@ -6836,6 +6924,7 @@ function ReportsPage({
   currency
 }: {
   month: string;
+  period: DatePeriod;
   transactions: Transaction[];
   loans: Loan[];
   creditCards: CreditCard[];
@@ -6846,6 +6935,7 @@ function ReportsPage({
   dashboard: ReturnType<typeof summarizeDashboard>;
   currency: CurrencyCode;
 }) {
+  const periodCopy = getDashboardPeriodCopy(period);
   const reportInput = {
     month,
     currency,
@@ -6888,9 +6978,9 @@ function ReportsPage({
         value={formatMoney(dashboard.netWorthCents)}
         tone="slate"
         metrics={[
-          { label: "本月結餘", value: formatMoney(dashboard.monthlyBalanceCents), accent: "border-sky-300" },
+          { label: periodCopy.balanceLabel, value: formatMoney(dashboard.monthlyBalanceCents), accent: "border-sky-300" },
           { label: "支出分類", value: `${categoryBreakdown.length} 類`, accent: "border-emerald-300" },
-          { label: "報表月份", value: month.replace("-", "/"), accent: "border-violet-300" }
+          { label: "資料範圍", value: period.label, accent: "border-violet-300" }
         ]}
       >
         <div className="space-y-4">
