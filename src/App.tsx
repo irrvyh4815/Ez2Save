@@ -47,8 +47,10 @@ import {
   calculateFinancialPlan,
   calculateFutureCashFlow,
   calculateInvestmentAssetValuation,
+  calculateLoanProgress,
   getFinancialPlanAllocation,
   inferAnnualRateFromPayment,
+  inferLoanTrackingMode,
   calculateLoan,
   calculateSavingsRate,
   summarizeCreditCardLimit,
@@ -57,7 +59,8 @@ import {
   summarizeDashboard,
   type DepositCalculationInput,
   type FinancialPlanCalculationResult,
-  type LoanCalculationInput
+  type LoanCalculationInput,
+  type LoanTrackingMode
 } from "./lib/financialCalculations";
 import { currentTaipeiMonth, formatCompactMoney, formatCurrencyAmount, formatDate, formatMoney, formatPercent, parseMoneyToCents, setDefaultMoneyCurrency } from "./lib/format";
 import { parseTransactionsCsv } from "./lib/csv";
@@ -5433,16 +5436,27 @@ function updateLoanRateEstimate(form: HTMLFormElement | null) {
   const termInput = form.elements.namedItem("termMonths");
   const paymentInput = form.elements.namedItem("payment");
   const annualRateInput = form.elements.namedItem("annualRate");
+  const trackingModeInput = form.elements.namedItem("trackingMode");
   const hint = form.querySelector<HTMLElement>("[data-loan-rate-hint]");
   if (!(principalInput instanceof HTMLInputElement)
     || !(termInput instanceof HTMLInputElement)
     || !(paymentInput instanceof HTMLInputElement)
     || !(annualRateInput instanceof HTMLInputElement)) return;
 
+  const trackingMode = trackingModeInput instanceof HTMLSelectElement ? trackingModeInput.value as LoanTrackingMode : "amortized";
+  paymentInput.setCustomValidity("");
+  if (trackingMode === "prepaid_interest") {
+    if (hint) hint.textContent = "合約利率會保留；每期款主要沖減本金，不用月付金反推利率。";
+    return;
+  }
+  if (trackingMode === "manual") {
+    if (hint) hint.textContent = "剩餘本金與累計實付由你手動維護，系統不回推利率。";
+    return;
+  }
+
   const principalCents = parseMoneyToCents(principalInput.value);
   const paymentCents = parseMoneyToCents(paymentInput.value);
   const termMonths = Number(termInput.value);
-  paymentInput.setCustomValidity("");
 
   if (!paymentInput.value.trim()) {
     if (hint) hint.textContent = "留空時會依本金、年利率與期數計算每期金額。";
@@ -5463,6 +5477,76 @@ function updateLoanRateEstimate(form: HTMLFormElement | null) {
   const ratePercent = inferredRate * 100;
   annualRateInput.value = ratePercent.toFixed(ratePercent < 0.1 ? 4 : 3).replace(/\.?0+$/, "");
   if (hint) hint.textContent = `估算年利率 ${annualRateInput.value}%（本息平均攤還，不含手續費、寬限期與尾款）`;
+}
+
+function updateLoanProgressEstimate(form: HTMLFormElement | null) {
+  if (!form) return;
+  const principalInput = form.elements.namedItem("principal");
+  const remainingInput = form.elements.namedItem("remaining");
+  const annualRateInput = form.elements.namedItem("annualRate");
+  const termInput = form.elements.namedItem("termMonths");
+  const paidPeriodsInput = form.elements.namedItem("paidPeriods");
+  const paymentInput = form.elements.namedItem("payment");
+  const paidAmountInput = form.elements.namedItem("paidAmount");
+  const trackingModeInput = form.elements.namedItem("trackingMode");
+  const prepaidInterestInput = form.elements.namedItem("prepaidInterest");
+  const autoCalculateInput = form.elements.namedItem("autoCalculateProgress");
+  const hint = form.querySelector<HTMLElement>("[data-loan-progress-hint]");
+  if (
+    !(principalInput instanceof HTMLInputElement)
+    || !(annualRateInput instanceof HTMLInputElement)
+    || !(termInput instanceof HTMLInputElement)
+    || !(paidPeriodsInput instanceof HTMLInputElement)
+    || !(paymentInput instanceof HTMLInputElement)
+    || !(paidAmountInput instanceof HTMLInputElement)
+    || !(trackingModeInput instanceof HTMLSelectElement)
+    || !(prepaidInterestInput instanceof HTMLInputElement)
+    || !(autoCalculateInput instanceof HTMLInputElement)
+  ) return;
+
+  const trackingMode = trackingModeInput.value as LoanTrackingMode;
+  const autoCalculate = autoCalculateInput.checked && trackingMode !== "manual";
+  if (!autoCalculate) {
+    if (hint) hint.textContent = "手動模式會保留你輸入的剩餘本金與累計實付。";
+    return;
+  }
+
+  const principalCents = parseMoneyToCents(principalInput.value);
+  const termMonths = Number(termInput.value);
+  const annualRate = Math.max(0, Number(annualRateInput.value) / 100);
+  const paymentInputCents = parseMoneyToCents(paymentInput.value);
+  const paymentPerPeriodCents = paymentInputCents > 0
+    ? paymentInputCents
+    : calculateLoan({ principalCents, annualRate, termMonths, method: "equal_payment" }).monthlyPaymentCents;
+  if (principalCents <= 0 || termMonths <= 0 || paymentPerPeriodCents <= 0) {
+    if (hint) hint.textContent = "輸入本金、期數與每期金額後會自動更新清償進度。";
+    return;
+  }
+
+  const progress = calculateLoanProgress({
+    originalPrincipalCents: principalCents,
+    remainingPrincipalCents: remainingInput instanceof HTMLInputElement ? parseMoneyToCents(remainingInput.value) : principalCents,
+    annualRate,
+    termMonths,
+    paidPeriods: Number(paidPeriodsInput.value),
+    paymentPerPeriodCents,
+    paidAmountCents: parseMoneyToCents(paidAmountInput.value),
+    trackingMode,
+    prepaidInterestCents: parseMoneyToCents(prepaidInterestInput.value),
+    autoCalculate
+  });
+
+  if (remainingInput instanceof HTMLInputElement) remainingInput.value = String(progress.remainingPrincipalCents / 100);
+  paidAmountInput.value = String(progress.totalCashPaidCents / 100);
+  if (hint) {
+    const prepaidText = progress.prepaidInterestCents > 0 ? `，含預付利息 ${formatMoney(progress.prepaidInterestCents)}` : "";
+    hint.textContent = `已清償本金 ${formatMoney(progress.principalPaidCents)}，剩餘 ${formatMoney(progress.remainingPrincipalCents)}，累計實付 ${formatMoney(progress.totalCashPaidCents)}${prepaidText}。`;
+  }
+}
+
+function updateLoanFormEstimate(form: HTMLFormElement | null) {
+  updateLoanRateEstimate(form);
+  updateLoanProgressEstimate(form);
 }
 
 function LoansPage({
@@ -5488,17 +5572,33 @@ function LoansPage({
     oneTimePrepaymentMonth: 1
   });
   const result = calculateLoan(calcInput);
-  const activeLoans = loans.filter((loan) => loan.status === "active");
-  const loanPrincipalCents = activeLoans.reduce((sum, loan) => sum + loan.remainingPrincipalCents, 0);
-  const loanOriginalPrincipalCents = activeLoans.reduce((sum, loan) => sum + loan.originalPrincipalCents, 0);
-  const loanMonthlyDueCents = activeLoans.reduce((sum, loan) => sum + loan.paymentPerPeriodCents, 0);
-  const loanPaidAmountCents = loans.reduce((sum, loan) => sum + loan.paidAmountCents, 0);
+  const loansWithProgress = loans.map((loan) => ({
+    loan,
+    trackingMode: inferLoanTrackingMode(loan),
+    progress: calculateLoanProgress({
+      originalPrincipalCents: loan.originalPrincipalCents,
+      remainingPrincipalCents: loan.remainingPrincipalCents,
+      annualRate: loan.annualRate,
+      termMonths: loan.termMonths,
+      paidPeriods: loan.paidPeriods,
+      paymentPerPeriodCents: loan.paymentPerPeriodCents,
+      paidAmountCents: loan.paidAmountCents,
+      trackingMode: inferLoanTrackingMode(loan),
+      prepaidInterestCents: typeof loan.metadata?.prepaid_interest_cents === "number" ? loan.metadata.prepaid_interest_cents : 0,
+      autoCalculate: typeof loan.metadata?.auto_calculate_progress === "boolean" ? loan.metadata.auto_calculate_progress : true
+    })
+  }));
+  const activeLoans = loansWithProgress.filter(({ loan }) => loan.status === "active");
+  const loanPrincipalCents = activeLoans.reduce((sum, item) => sum + item.progress.remainingPrincipalCents, 0);
+  const loanOriginalPrincipalCents = activeLoans.reduce((sum, item) => sum + item.loan.originalPrincipalCents, 0);
+  const loanMonthlyDueCents = activeLoans.reduce((sum, item) => sum + item.loan.paymentPerPeriodCents, 0);
+  const loanPaidAmountCents = loansWithProgress.reduce((sum, item) => sum + item.progress.totalCashPaidCents, 0);
   const weightedLoanRate = loanPrincipalCents > 0
-    ? activeLoans.reduce((sum, loan) => sum + loan.remainingPrincipalCents * loan.annualRate, 0) / loanPrincipalCents
+    ? activeLoans.reduce((sum, item) => sum + item.progress.remainingPrincipalCents * item.loan.annualRate, 0) / loanPrincipalCents
     : 0;
   const paidDownRatio = loanOriginalPrincipalCents > 0 ? 1 - loanPrincipalCents / loanOriginalPrincipalCents : 0;
   const loanBreakdown = activeLoans
-    .map((loan) => ({ category: loan.name, amountCents: loan.remainingPrincipalCents }))
+    .map((item) => ({ category: item.loan.name, amountCents: item.progress.remainingPrincipalCents }))
     .sort((a, b) => b.amountCents - a.amountCents)
     .slice(0, 6);
 
@@ -5506,15 +5606,21 @@ function LoansPage({
     const principal = parseMoneyToCents(String(formData.get("principal") ?? ""));
     const termMonths = Number(formData.get("termMonths"));
     const paidPeriods = Number(formData.get("paidPeriods") ?? 0);
-    const paidAmountCents = parseMoneyToCents(String(formData.get("paidAmount") ?? "0"));
+    const enteredPaidAmountCents = parseMoneyToCents(String(formData.get("paidAmount") ?? "0"));
     const paymentInputCents = parseMoneyToCents(String(formData.get("payment") ?? "0"));
-    const inferredAnnualRate = paymentInputCents > 0 ? inferAnnualRateFromPayment(principal, paymentInputCents, termMonths) : null;
+    const trackingMode = String(formData.get("trackingMode") ?? "amortized") as LoanTrackingMode;
+    const autoCalculate = formData.get("autoCalculateProgress") === "on" && trackingMode !== "manual";
+    const prepaidInterestCents = parseMoneyToCents(String(formData.get("prepaidInterest") ?? "0"));
+    const inferredAnnualRate = trackingMode === "amortized" && paymentInputCents > 0
+      ? inferAnnualRateFromPayment(principal, paymentInputCents, termMonths)
+      : null;
     const annualRate = inferredAnnualRate ?? Number(formData.get("annualRate")) / 100;
     const paymentDay = Number(formData.get("paymentDay"));
     const startDate = String(formData.get("startDate"));
     const validation = combineValidations(
       validatePositiveAmount(principal, "貸款本金"),
-      validateNonNegativeAmount(paidAmountCents, "已繳款金額"),
+      validateNonNegativeAmount(enteredPaidAmountCents, "已繳款金額"),
+      validateNonNegativeAmount(prepaidInterestCents, "預付利息"),
       validateNonNegativeAmount(paymentInputCents, "每期還款金額"),
       validateAnnualRate(annualRate),
       validateIntegerRange(termMonths, 1, 600, "貸款期數"),
@@ -5523,10 +5629,22 @@ function LoansPage({
       validateDateRange(startDate)
     );
     if (!validation.valid) return notify("error", validation.errors[0]);
-    if (paymentInputCents > 0 && inferredAnnualRate === null) return notify("error", "每期還款金額無法在設定期數內攤還本金，請調整金額或期數");
+    if (trackingMode === "amortized" && paymentInputCents > 0 && inferredAnnualRate === null) return notify("error", "每期還款金額無法在設定期數內攤還本金，請調整金額、期數或改用利息預付模式");
     const payment = paymentInputCents > 0
       ? paymentInputCents
       : calculateLoan({ principalCents: principal, annualRate, termMonths, method: "equal_payment" }).monthlyPaymentCents;
+    const progress = calculateLoanProgress({
+      originalPrincipalCents: principal,
+      remainingPrincipalCents: principal,
+      annualRate,
+      termMonths,
+      paidPeriods,
+      paymentPerPeriodCents: payment,
+      paidAmountCents: enteredPaidAmountCents,
+      trackingMode,
+      prepaidInterestCents,
+      autoCalculate
+    });
     const now = new Date().toISOString();
     void onAdd({
         id: crypto.randomUUID(),
@@ -5535,15 +5653,20 @@ function LoansPage({
         type: "personal",
         institution: String(formData.get("institution") ?? ""),
         originalPrincipalCents: principal,
-        remainingPrincipalCents: principal,
+        remainingPrincipalCents: progress.remainingPrincipalCents,
         annualRate,
         termMonths,
         paidPeriods,
-        paidAmountCents,
+        paidAmountCents: progress.totalCashPaidCents,
         monthlyPaymentDay: paymentDay,
         startDate,
-        repaymentMethod: "equal_payment",
+        repaymentMethod: trackingMode === "prepaid_interest" ? "fixed_payment" : trackingMode === "manual" ? "manual" : "equal_payment",
         paymentPerPeriodCents: payment,
+        metadata: {
+          loan_tracking_mode: trackingMode,
+          prepaid_interest_cents: prepaidInterestCents,
+          auto_calculate_progress: autoCalculate
+        },
         status: "active",
         createdAt: now,
         updatedAt: now
@@ -5586,69 +5709,142 @@ function LoansPage({
           <form className="space-y-3" onSubmit={handleFormSubmit(addLoan)}>
             <Field label="貸款名稱"><input className="input" name="name" required /></Field>
             <Field label="金融機構"><input className="input" name="institution" /></Field>
-            <Field label="原始本金"><input className="input" name="principal" inputMode="decimal" onChange={(event) => updateLoanRateEstimate(event.currentTarget.form)} required /></Field>
+            <Field label="還款追蹤方式">
+              <select className="input" name="trackingMode" defaultValue="amortized" onChange={(event) => updateLoanFormEstimate(event.currentTarget.form)}>
+                <option value="amortized">本息按月攤還</option>
+                <option value="prepaid_interest">利息預付，本金按期攤還</option>
+                <option value="manual">手動管理餘額</option>
+              </select>
+            </Field>
+            <Field label="原始本金"><input className="input" name="principal" inputMode="decimal" onChange={(event) => updateLoanFormEstimate(event.currentTarget.form)} required /></Field>
             <Field label="年利率 %"><input className="input" name="annualRate" inputMode="decimal" defaultValue="2.75" required /></Field>
-            <Field label="貸款期數（月）"><input className="input" name="termMonths" type="number" min={1} defaultValue={60} onChange={(event) => updateLoanRateEstimate(event.currentTarget.form)} /></Field>
-            <Field label="每期還款金額"><input className="input" name="payment" inputMode="decimal" placeholder="輸入後自動估算利率" onChange={(event) => updateLoanRateEstimate(event.currentTarget.form)} /></Field>
+            <Field label="貸款期數（月）"><input className="input" name="termMonths" type="number" min={1} defaultValue={60} onChange={(event) => updateLoanFormEstimate(event.currentTarget.form)} /></Field>
+            <Field label="每期還款金額"><input className="input" name="payment" inputMode="decimal" placeholder="輸入後自動估算利率" onChange={(event) => updateLoanFormEstimate(event.currentTarget.form)} /></Field>
             <p data-loan-rate-hint className="helper-text">留空時會依本金、年利率與期數計算每期金額。</p>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="已繳期數"><input className="input" name="paidPeriods" type="number" min={0} defaultValue={0} /></Field>
+              <Field label="已繳期數"><input className="input" name="paidPeriods" type="number" min={0} defaultValue={0} onChange={(event) => updateLoanProgressEstimate(event.currentTarget.form)} /></Field>
               <Field label="目前已繳款金額"><input className="input" name="paidAmount" inputMode="decimal" defaultValue="0" /></Field>
             </div>
+            <Field label="預付利息（如有）"><input className="input" name="prepaidInterest" inputMode="decimal" defaultValue="0" onChange={(event) => updateLoanProgressEstimate(event.currentTarget.form)} /></Field>
+            <label className="flex items-start gap-3 rounded-md border border-slate-200 p-3 text-sm dark:border-slate-700">
+              <input className="mt-0.5 h-4 w-4 accent-emerald-600" name="autoCalculateProgress" type="checkbox" defaultChecked onChange={(event) => updateLoanProgressEstimate(event.currentTarget.form)} />
+              <span>
+                <span className="block font-medium">依已繳期數自動更新</span>
+                <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">同步計算已清償本金、剩餘本金與累計實付。</span>
+              </span>
+            </label>
+            <p data-loan-progress-hint className="helper-text">輸入已繳期數後，系統會立即更新清償進度。</p>
             <Field label="每月還款日"><input className="input" name="paymentDay" type="number" min={1} max={31} defaultValue={12} /></Field>
             <Field label="起始日期"><input className="input" name="startDate" type="date" defaultValue={today} /></Field>
             <button className="btn-primary w-full" type="submit"><Plus size={16} />新增貸款</button>
           </form>
         </FormDisclosure>
         <section className="grid gap-3 md:grid-cols-2">
-          {loans.length === 0 ? <div className="md:col-span-2"><EmptyState label="尚未建立貸款，新增後可直接試算每月還款與總利息。" /></div> : loans.map((loan) => (
+          {loans.length === 0 ? <div className="md:col-span-2"><EmptyState label="尚未建立貸款，新增後可直接試算每月還款與總利息。" /></div> : loansWithProgress.map(({ loan, progress, trackingMode }) => (
             <div key={loan.id} className="panel">
               <div className="flex items-start justify-between gap-3"><p className="font-semibold">{loan.name}</p><div className="flex items-center gap-2"><Badge>{loan.status === "paid_off" ? "已結清" : loan.status === "active" ? "進行中" : "已暫停"}</Badge><button className="btn-danger h-8 w-8 px-0" onClick={() => void onDelete(loan)} title="刪除貸款" aria-label={`刪除 ${loan.name}`}><Trash2 size={15} /></button></div></div>
-              <p className="text-sm text-slate-500 dark:text-slate-400">{loan.institution} · 年利率 {formatPercent(loan.annualRate)}</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">{loan.institution} · 年利率 {formatPercent(loan.annualRate)} · {trackingMode === "prepaid_interest" ? "利息預付" : trackingMode === "manual" ? "手動追蹤" : "按月攤還"}</p>
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                <Info label="剩餘本金" value={formatMoney(loan.remainingPrincipalCents)} />
+                <Info label="剩餘本金" value={formatMoney(progress.remainingPrincipalCents)} />
                 <Info label="每期應繳" value={formatMoney(loan.paymentPerPeriodCents)} />
-                <Info label="目前已繳款" value={formatMoney(loan.paidAmountCents)} />
+                <Info label="已清償本金" value={formatMoney(progress.principalPaidCents)} />
+                <Info label="累計實付" value={formatMoney(progress.totalCashPaidCents)} />
                 <Info label="已繳期數" value={`${loan.paidPeriods}/${loan.termMonths}`} />
                 <Info label="還款日" value={`每月 ${loan.monthlyPaymentDay} 日`} />
+                {progress.prepaidInterestCents > 0 && <Info label="預付利息" value={formatMoney(progress.prepaidInterestCents)} />}
               </div>
-              {loan.status === "active" && <button className="btn-primary mt-4 w-full" onClick={() => { if (window.confirm(`確認 ${loan.name} 已結清？結清後不再顯示繳款提醒。`)) void onUpdate({ ...loan, remainingPrincipalCents: 0, paidPeriods: loan.termMonths, status: "paid_off" }); }}>標示已結清</button>}
+              {loan.status === "active" && <button className="btn-primary mt-4 w-full" onClick={() => {
+                if (!window.confirm(`確認 ${loan.name} 已結清？結清後不再顯示繳款提醒。`)) return;
+                const finalProgress = calculateLoanProgress({
+                  originalPrincipalCents: loan.originalPrincipalCents,
+                  remainingPrincipalCents: 0,
+                  annualRate: loan.annualRate,
+                  termMonths: loan.termMonths,
+                  paidPeriods: loan.termMonths,
+                  paymentPerPeriodCents: loan.paymentPerPeriodCents,
+                  paidAmountCents: loan.paidAmountCents,
+                  trackingMode,
+                  prepaidInterestCents: progress.prepaidInterestCents,
+                  autoCalculate: true
+                });
+                void onUpdate({ ...loan, remainingPrincipalCents: 0, paidAmountCents: finalProgress.totalCashPaidCents, paidPeriods: loan.termMonths, status: "paid_off" });
+              }}>標示已結清</button>}
               <details className="group mt-4 border-t border-slate-200 pt-3 dark:border-slate-800">
                 <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-brand-700 dark:text-brand-100"><Pencil size={15} />編輯貸款</summary>
                 <form className="mt-3 space-y-3" onSubmit={handleFormSubmit((formData) => {
-                  const remainingPrincipalCents = Math.max(0, parseMoneyToCents(String(formData.get("remaining") ?? "0")));
+                  const enteredRemainingPrincipalCents = Math.max(0, parseMoneyToCents(String(formData.get("remaining") ?? "0")));
                   const annualRate = Math.max(0, Number(formData.get("annualRate") ?? 0) / 100);
-                  const paidAmountCents = Math.max(0, parseMoneyToCents(String(formData.get("paidAmount") ?? "0")));
+                  const enteredPaidAmountCents = Math.max(0, parseMoneyToCents(String(formData.get("paidAmount") ?? "0")));
                   const paymentPerPeriodCents = Math.max(0, parseMoneyToCents(String(formData.get("payment") ?? "0")));
                   const paidPeriods = Math.min(loan.termMonths, Math.max(0, Number(formData.get("paidPeriods") ?? loan.paidPeriods)));
+                  const nextTrackingMode = String(formData.get("trackingMode") ?? trackingMode) as LoanTrackingMode;
+                  const autoCalculate = formData.get("autoCalculateProgress") === "on" && nextTrackingMode !== "manual";
+                  const prepaidInterestCents = Math.max(0, parseMoneyToCents(String(formData.get("prepaidInterest") ?? "0")));
                   const validation = combineValidations(
-                    validateNonNegativeAmount(remainingPrincipalCents, "剩餘本金"),
-                    validateNonNegativeAmount(paidAmountCents, "目前已繳款金額"),
+                    validateNonNegativeAmount(enteredRemainingPrincipalCents, "剩餘本金"),
+                    validateNonNegativeAmount(enteredPaidAmountCents, "目前已繳款金額"),
+                    validateNonNegativeAmount(prepaidInterestCents, "預付利息"),
                     validatePositiveAmount(paymentPerPeriodCents, "每期應繳"),
                     validateAnnualRate(annualRate),
                     validateIntegerRange(paidPeriods, 0, loan.termMonths, "已繳期數")
                   );
                   if (!validation.valid) return notify("error", validation.errors[0]);
+                  const nextProgress = calculateLoanProgress({
+                    originalPrincipalCents: loan.originalPrincipalCents,
+                    remainingPrincipalCents: enteredRemainingPrincipalCents,
+                    annualRate,
+                    termMonths: loan.termMonths,
+                    paidPeriods,
+                    paymentPerPeriodCents,
+                    paidAmountCents: enteredPaidAmountCents,
+                    trackingMode: nextTrackingMode,
+                    prepaidInterestCents,
+                    autoCalculate
+                  });
+                  const nextStatus = String(formData.get("status") ?? loan.status) as Loan["status"];
                   void onUpdate({
                     ...loan,
                     name: String(formData.get("name") ?? "").trim() || loan.name,
                     institution: String(formData.get("institution") ?? "").trim() || undefined,
-                    remainingPrincipalCents,
+                    remainingPrincipalCents: nextStatus === "paid_off" ? 0 : nextProgress.remainingPrincipalCents,
                     annualRate,
                     paidPeriods,
-                    paidAmountCents,
+                    paidAmountCents: nextProgress.totalCashPaidCents,
                     monthlyPaymentDay: Math.min(31, Math.max(1, Number(formData.get("paymentDay") ?? loan.monthlyPaymentDay))),
                     paymentPerPeriodCents,
-                    status: String(formData.get("status") ?? loan.status) as Loan["status"]
+                    repaymentMethod: nextTrackingMode === "prepaid_interest" ? "fixed_payment" : nextTrackingMode === "manual" ? "manual" : "equal_payment",
+                    metadata: {
+                      ...(loan.metadata ?? {}),
+                      loan_tracking_mode: nextTrackingMode,
+                      prepaid_interest_cents: prepaidInterestCents,
+                      auto_calculate_progress: autoCalculate
+                    },
+                    status: nextStatus
                   });
                 })}>
                   <input name="principal" type="hidden" value={loan.originalPrincipalCents / 100} />
                   <input name="termMonths" type="hidden" value={loan.termMonths} />
                   <div className="grid grid-cols-2 gap-3"><Field label="貸款名稱"><input className="input" name="name" defaultValue={loan.name} required /></Field><Field label="金融機構"><input className="input" name="institution" defaultValue={loan.institution ?? ""} /></Field></div>
-                  <div className="grid grid-cols-2 gap-3"><Field label="剩餘本金"><input className="input" name="remaining" defaultValue={loan.remainingPrincipalCents / 100} inputMode="decimal" required /></Field><Field label="年利率 %"><input className="input" name="annualRate" defaultValue={loan.annualRate * 100} inputMode="decimal" required /></Field></div>
-                  <div className="grid grid-cols-2 gap-3"><Field label="已繳期數"><input className="input" name="paidPeriods" type="number" min={0} max={loan.termMonths} defaultValue={loan.paidPeriods} /></Field><Field label="目前已繳款金額"><input className="input" name="paidAmount" defaultValue={loan.paidAmountCents / 100} inputMode="decimal" /></Field></div>
-                  <div className="grid grid-cols-2 gap-3"><Field label="每月還款日"><input className="input" name="paymentDay" type="number" min={1} max={31} defaultValue={loan.monthlyPaymentDay} /></Field><Field label="每期應繳"><input className="input" name="payment" defaultValue={loan.paymentPerPeriodCents / 100} inputMode="decimal" onChange={(event) => updateLoanRateEstimate(event.currentTarget.form)} required /></Field></div>
-                  <p data-loan-rate-hint className="helper-text">調整每期金額後，系統會依原始本金與總期數估算年利率。</p>
+                  <Field label="還款追蹤方式">
+                    <select className="input" name="trackingMode" defaultValue={trackingMode} onChange={(event) => updateLoanFormEstimate(event.currentTarget.form)}>
+                      <option value="amortized">本息按月攤還</option>
+                      <option value="prepaid_interest">利息預付，本金按期攤還</option>
+                      <option value="manual">手動管理餘額</option>
+                    </select>
+                  </Field>
+                  <div className="grid grid-cols-2 gap-3"><Field label="剩餘本金"><input className="input" name="remaining" defaultValue={progress.remainingPrincipalCents / 100} inputMode="decimal" required /></Field><Field label="年利率 %"><input className="input" name="annualRate" defaultValue={loan.annualRate * 100} inputMode="decimal" required /></Field></div>
+                  <div className="grid grid-cols-2 gap-3"><Field label="已繳期數"><input className="input" name="paidPeriods" type="number" min={0} max={loan.termMonths} defaultValue={loan.paidPeriods} onChange={(event) => updateLoanProgressEstimate(event.currentTarget.form)} /></Field><Field label="累計實付"><input className="input" name="paidAmount" defaultValue={progress.totalCashPaidCents / 100} inputMode="decimal" /></Field></div>
+                  <Field label="預付利息（如有）"><input className="input" name="prepaidInterest" defaultValue={progress.prepaidInterestCents / 100} inputMode="decimal" onChange={(event) => updateLoanProgressEstimate(event.currentTarget.form)} /></Field>
+                  <div className="grid grid-cols-2 gap-3"><Field label="每月還款日"><input className="input" name="paymentDay" type="number" min={1} max={31} defaultValue={loan.monthlyPaymentDay} /></Field><Field label="每期應繳"><input className="input" name="payment" defaultValue={loan.paymentPerPeriodCents / 100} inputMode="decimal" onChange={(event) => updateLoanFormEstimate(event.currentTarget.form)} required /></Field></div>
+                  <p data-loan-rate-hint className="helper-text">{trackingMode === "prepaid_interest" ? "合約利率會保留；每期款主要沖減本金，不用月付金反推利率。" : "調整每期金額後，系統會依原始本金與總期數估算年利率。"}</p>
+                  <label className="flex items-start gap-3 rounded-md border border-slate-200 p-3 text-sm dark:border-slate-700">
+                    <input className="mt-0.5 h-4 w-4 accent-emerald-600" name="autoCalculateProgress" type="checkbox" defaultChecked={loan.metadata?.auto_calculate_progress !== false && trackingMode !== "manual"} onChange={(event) => updateLoanProgressEstimate(event.currentTarget.form)} />
+                    <span>
+                      <span className="block font-medium">依已繳期數自動更新</span>
+                      <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">關閉後可自行輸入剩餘本金與累計實付。</span>
+                    </span>
+                  </label>
+                  <p data-loan-progress-hint className="helper-text">已清償本金 {formatMoney(progress.principalPaidCents)}，剩餘 {formatMoney(progress.remainingPrincipalCents)}，累計實付 {formatMoney(progress.totalCashPaidCents)}。</p>
                   <Field label="狀態"><select className="input" name="status" defaultValue={loan.status}><option value="active">進行中</option><option value="paid_off">已結清</option><option value="paused">已暫停</option></select></Field>
                   <button className="btn-primary w-full" type="submit">儲存變更</button>
                 </form>

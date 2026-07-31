@@ -40,6 +40,31 @@ export interface LoanCalculationResult {
   schedule: AmortizationRow[];
 }
 
+export type LoanTrackingMode = "amortized" | "prepaid_interest" | "manual";
+
+export interface LoanProgressInput {
+  originalPrincipalCents: number;
+  remainingPrincipalCents: number;
+  annualRate: number;
+  termMonths: number;
+  paidPeriods: number;
+  paymentPerPeriodCents: number;
+  paidAmountCents: number;
+  trackingMode: LoanTrackingMode;
+  prepaidInterestCents?: number;
+  autoCalculate?: boolean;
+}
+
+export interface LoanProgressSummary {
+  trackingMode: LoanTrackingMode;
+  principalPaidCents: number;
+  remainingPrincipalCents: number;
+  installmentPaidCents: number;
+  prepaidInterestCents: number;
+  totalCashPaidCents: number;
+  progress: number;
+}
+
 export interface CreditCardLimitSummary {
   creditLimitCents: number;
   currentStatementCents: number;
@@ -424,6 +449,105 @@ export function inferAnnualRateFromPayment(principalCents: number, paymentCents:
     }
   }
   return (low + high) / 2;
+}
+
+export function inferLoanTrackingMode(loan: Pick<Loan, "originalPrincipalCents" | "annualRate" | "termMonths" | "paymentPerPeriodCents" | "metadata">): LoanTrackingMode {
+  const storedMode = loan.metadata?.loan_tracking_mode;
+  if (storedMode === "amortized" || storedMode === "prepaid_interest" || storedMode === "manual") return storedMode;
+
+  const scheduledPrincipalCents = Math.max(0, cents(loan.paymentPerPeriodCents)) * Math.max(0, Math.round(loan.termMonths));
+  const toleranceCents = Math.max(100, cents(loan.originalPrincipalCents * 0.005));
+  if (
+    loan.annualRate > 0
+    && loan.originalPrincipalCents > 0
+    && scheduledPrincipalCents > 0
+    && Math.abs(scheduledPrincipalCents - loan.originalPrincipalCents) <= toleranceCents
+  ) {
+    return "prepaid_interest";
+  }
+  return "amortized";
+}
+
+export function calculateLoanProgress(input: LoanProgressInput): LoanProgressSummary {
+  const originalPrincipalCents = Math.max(0, cents(input.originalPrincipalCents));
+  const storedRemainingPrincipalCents = Math.min(originalPrincipalCents, Math.max(0, cents(input.remainingPrincipalCents)));
+  const termMonths = Math.max(0, Math.round(input.termMonths));
+  const paidPeriods = Math.min(termMonths, Math.max(0, Math.round(input.paidPeriods)));
+  const paymentPerPeriodCents = Math.max(0, cents(input.paymentPerPeriodCents));
+  const prepaidInterestCents = input.trackingMode === "prepaid_interest"
+    ? Math.max(0, cents(input.prepaidInterestCents ?? 0))
+    : 0;
+  const autoCalculate = input.autoCalculate !== false && input.trackingMode !== "manual";
+
+  if (!autoCalculate) {
+    const principalPaidCents = Math.max(0, originalPrincipalCents - storedRemainingPrincipalCents);
+    const totalCashPaidCents = Math.max(0, cents(input.paidAmountCents));
+    return {
+      trackingMode: input.trackingMode,
+      principalPaidCents,
+      remainingPrincipalCents: storedRemainingPrincipalCents,
+      installmentPaidCents: Math.max(0, totalCashPaidCents - prepaidInterestCents),
+      prepaidInterestCents,
+      totalCashPaidCents,
+      progress: safeDivide(principalPaidCents, originalPrincipalCents)
+    };
+  }
+
+  if (input.trackingMode === "prepaid_interest") {
+    const installmentPaidCents = paymentPerPeriodCents * paidPeriods;
+    const principalPaidCents = Math.min(originalPrincipalCents, installmentPaidCents);
+    return {
+      trackingMode: input.trackingMode,
+      principalPaidCents,
+      remainingPrincipalCents: Math.max(0, originalPrincipalCents - principalPaidCents),
+      installmentPaidCents,
+      prepaidInterestCents,
+      totalCashPaidCents: installmentPaidCents + prepaidInterestCents,
+      progress: safeDivide(principalPaidCents, originalPrincipalCents)
+    };
+  }
+
+  const monthlyRate = Math.max(0, input.annualRate) / 12;
+  const effectivePaymentCents = paymentPerPeriodCents > 0
+    ? paymentPerPeriodCents
+    : calculateEqualPayment(originalPrincipalCents, Math.max(0, input.annualRate), termMonths);
+  let remainingPrincipalCents = originalPrincipalCents;
+  let installmentPaidCents = 0;
+  for (let period = 0; period < paidPeriods && remainingPrincipalCents > 0; period += 1) {
+    const interestCents = cents(remainingPrincipalCents * monthlyRate);
+    const principalCents = Math.min(remainingPrincipalCents, Math.max(0, effectivePaymentCents - interestCents));
+    if (principalCents <= 0) break;
+    installmentPaidCents += principalCents + interestCents;
+    remainingPrincipalCents -= principalCents;
+  }
+  const principalPaidCents = Math.max(0, originalPrincipalCents - remainingPrincipalCents);
+  return {
+    trackingMode: input.trackingMode,
+    principalPaidCents,
+    remainingPrincipalCents,
+    installmentPaidCents,
+    prepaidInterestCents: 0,
+    totalCashPaidCents: installmentPaidCents,
+    progress: safeDivide(principalPaidCents, originalPrincipalCents)
+  };
+}
+
+export function summarizeLoanProgress(loan: Loan): LoanProgressSummary {
+  const trackingMode = inferLoanTrackingMode(loan);
+  const prepaidInterest = loan.metadata?.prepaid_interest_cents;
+  const autoCalculate = loan.metadata?.auto_calculate_progress;
+  return calculateLoanProgress({
+    originalPrincipalCents: loan.originalPrincipalCents,
+    remainingPrincipalCents: loan.remainingPrincipalCents,
+    annualRate: loan.annualRate,
+    termMonths: loan.termMonths,
+    paidPeriods: loan.paidPeriods,
+    paymentPerPeriodCents: loan.paymentPerPeriodCents,
+    paidAmountCents: loan.paidAmountCents,
+    trackingMode,
+    prepaidInterestCents: typeof prepaidInterest === "number" ? prepaidInterest : 0,
+    autoCalculate: typeof autoCalculate === "boolean" ? autoCalculate : true
+  });
 }
 
 export function calculateLoan(input: LoanCalculationInput): LoanCalculationResult {

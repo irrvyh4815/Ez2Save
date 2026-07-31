@@ -9,7 +9,9 @@ import {
   calculateFinancialPlan,
   calculateInvestmentAssetValuation,
   calculateLoan,
+  calculateLoanProgress,
   inferAnnualRateFromPayment,
+  inferLoanTrackingMode,
   calculateMonthlyBalance,
   calculateNetWorth,
   calculateSavingsRate,
@@ -42,6 +44,74 @@ describe("loan calculations", () => {
   it("returns zero for an interest-free payment and rejects insufficient payments", () => {
     expect(inferAnnualRateFromPayment(120_000_00, 10_000_00, 12)).toBe(0);
     expect(inferAnnualRateFromPayment(120_000_00, 9_999_00, 12)).toBeNull();
+  });
+
+  it("tracks prepaid-interest loans by reducing principal with every paid period", () => {
+    const progress = calculateLoanProgress({
+      originalPrincipalCents: 1_090_000_00,
+      remainingPrincipalCents: 1_090_000_00,
+      annualRate: 0.0215,
+      termMonths: 72,
+      paidPeriods: 4,
+      paymentPerPeriodCents: 15_139_00,
+      paidAmountCents: 0,
+      trackingMode: "prepaid_interest",
+      prepaidInterestCents: 80_000_00
+    });
+
+    expect(progress.principalPaidCents).toBe(60_556_00);
+    expect(progress.remainingPrincipalCents).toBe(1_029_444_00);
+    expect(progress.installmentPaidCents).toBe(60_556_00);
+    expect(progress.totalCashPaidCents).toBe(140_556_00);
+    expect(progress.progress).toBeCloseTo(60_556 / 1_090_000, 6);
+  });
+
+  it("tracks normal amortized payments as principal plus interest", () => {
+    const paymentCents = calculateEqualPayment(600_000_00, 0.0275, 60);
+    const progress = calculateLoanProgress({
+      originalPrincipalCents: 600_000_00,
+      remainingPrincipalCents: 600_000_00,
+      annualRate: 0.0275,
+      termMonths: 60,
+      paidPeriods: 4,
+      paymentPerPeriodCents: paymentCents,
+      paidAmountCents: 0,
+      trackingMode: "amortized"
+    });
+
+    expect(progress.principalPaidCents).toBeGreaterThan(37_000_00);
+    expect(progress.principalPaidCents).toBeLessThan(paymentCents * 4);
+    expect(progress.remainingPrincipalCents).toBe(600_000_00 - progress.principalPaidCents);
+    expect(progress.totalCashPaidCents).toBe(paymentCents * 4);
+  });
+
+  it("keeps manually managed balances unchanged", () => {
+    const progress = calculateLoanProgress({
+      originalPrincipalCents: 500_000_00,
+      remainingPrincipalCents: 420_000_00,
+      annualRate: 0.03,
+      termMonths: 48,
+      paidPeriods: 8,
+      paymentPerPeriodCents: 12_000_00,
+      paidAmountCents: 96_000_00,
+      trackingMode: "manual"
+    });
+
+    expect(progress.principalPaidCents).toBe(80_000_00);
+    expect(progress.remainingPrincipalCents).toBe(420_000_00);
+    expect(progress.totalCashPaidCents).toBe(96_000_00);
+  });
+
+  it("recognizes a principal-only payment schedule with a stated rate", () => {
+    const loan = {
+      originalPrincipalCents: 1_090_000_00,
+      annualRate: 0.0215,
+      termMonths: 72,
+      paymentPerPeriodCents: 15_139_00,
+      metadata: {}
+    };
+
+    expect(inferLoanTrackingMode(loan)).toBe("prepaid_interest");
   });
 
   it("calculates equal payment amortization", () => {
