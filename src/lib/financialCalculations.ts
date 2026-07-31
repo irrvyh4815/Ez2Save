@@ -111,6 +111,47 @@ export interface FinancialPlanAllocation {
   label: string;
 }
 
+export interface CashFlowForecastStream {
+  amountCents: number;
+  frequency: "one_time" | "weekly" | "monthly" | "quarterly" | "yearly";
+  startDate: string;
+  endDate?: string;
+  annualGrowthRate?: number;
+}
+
+export interface FutureCashFlowInput {
+  startMonth: string;
+  months: number;
+  openingBalanceCents: number;
+  incomes: CashFlowForecastStream[];
+  fixedExpenses: CashFlowForecastStream[];
+  debtPayments: CashFlowForecastStream[];
+  goalContributions: CashFlowForecastStream[];
+}
+
+export interface FutureCashFlowRow {
+  month: string;
+  incomeCents: number;
+  fixedExpenseCents: number;
+  debtPaymentCents: number;
+  goalContributionCents: number;
+  totalOutflowCents: number;
+  availableForGoalsCents: number;
+  netCashFlowCents: number;
+  projectedBalanceCents: number;
+}
+
+export interface FutureCashFlowResult {
+  rows: FutureCashFlowRow[];
+  totalIncomeCents: number;
+  totalOutflowCents: number;
+  totalGoalContributionCents: number;
+  endingBalanceCents: number;
+  lowestBalanceCents: number;
+  fundingGapCents: number;
+  sustainableGoalContributionCents: number;
+}
+
 export interface InvestmentAssetValuation {
   costCents: number;
   currentValueCents: number;
@@ -210,6 +251,85 @@ export function summarizeCreditCardLimits(cards: CreditCard[], installments: Cre
     ...summary,
     utilizationRate: safeDivide(summary.usedCreditCents, summary.creditLimitCents)
   };
+}
+
+export function calculateFutureCashFlow(input: FutureCashFlowInput): FutureCashFlowResult {
+  const months = Math.max(1, Math.min(120, Math.round(input.months)));
+  let projectedBalanceCents = cents(input.openingBalanceCents);
+  let lowestBalanceCents = projectedBalanceCents;
+  let fundingGapCents = 0;
+  const rows = Array.from({ length: months }, (_, index) => {
+    const month = addMonthsToMonthKey(input.startMonth, index);
+    const incomeCents = sumForecastStreams(input.incomes, month);
+    const fixedExpenseCents = sumForecastStreams(input.fixedExpenses, month);
+    const debtPaymentCents = sumForecastStreams(input.debtPayments, month);
+    const goalContributionCents = sumForecastStreams(input.goalContributions, month);
+    const totalOutflowCents = fixedExpenseCents + debtPaymentCents + goalContributionCents;
+    const availableForGoalsCents = Math.max(0, incomeCents - fixedExpenseCents - debtPaymentCents);
+    const netCashFlowCents = incomeCents - totalOutflowCents;
+    projectedBalanceCents += netCashFlowCents;
+    lowestBalanceCents = Math.min(lowestBalanceCents, projectedBalanceCents);
+    fundingGapCents += Math.max(0, goalContributionCents - availableForGoalsCents);
+    return {
+      month,
+      incomeCents,
+      fixedExpenseCents,
+      debtPaymentCents,
+      goalContributionCents,
+      totalOutflowCents,
+      availableForGoalsCents,
+      netCashFlowCents,
+      projectedBalanceCents
+    };
+  });
+  const totalIncomeCents = rows.reduce((sum, row) => sum + row.incomeCents, 0);
+  const totalOutflowCents = rows.reduce((sum, row) => sum + row.totalOutflowCents, 0);
+  const totalGoalContributionCents = rows.reduce((sum, row) => sum + row.goalContributionCents, 0);
+  const sustainableGoalContributionCents = rows.length === 0
+    ? 0
+    : Math.max(0, Math.min(...rows.map((row) => row.availableForGoalsCents)));
+  return {
+    rows,
+    totalIncomeCents,
+    totalOutflowCents,
+    totalGoalContributionCents,
+    endingBalanceCents: projectedBalanceCents,
+    lowestBalanceCents,
+    fundingGapCents,
+    sustainableGoalContributionCents
+  };
+}
+
+function sumForecastStreams(streams: CashFlowForecastStream[], month: string): number {
+  return streams.reduce((sum, stream) => {
+    const startMonth = stream.startDate.slice(0, 7);
+    const endMonth = stream.endDate?.slice(0, 7);
+    if (month < startMonth || (endMonth && month > endMonth)) return sum;
+    if (stream.frequency === "one_time" && month !== startMonth) return sum;
+    const elapsedYears = Math.max(0, Math.floor(monthDistance(startMonth, month) / 12));
+    const growthFactor = (1 + Math.max(-0.99, stream.annualGrowthRate ?? 0)) ** elapsedYears;
+    return sum + cents(monthlyEquivalent(stream.amountCents, stream.frequency) * growthFactor);
+  }, 0);
+}
+
+function monthlyEquivalent(amountCents: number, frequency: CashFlowForecastStream["frequency"]): number {
+  const amount = Math.max(0, cents(amountCents));
+  if (frequency === "weekly") return amount * 52 / 12;
+  if (frequency === "quarterly") return amount / 3;
+  if (frequency === "yearly") return amount / 12;
+  return amount;
+}
+
+function addMonthsToMonthKey(month: string, offset: number): string {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const date = new Date(Date.UTC(year, monthNumber - 1 + offset, 1));
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthDistance(startMonth: string, endMonth: string): number {
+  const [startYear, startMonthNumber] = startMonth.split("-").map(Number);
+  const [endYear, endMonthNumber] = endMonth.split("-").map(Number);
+  return (endYear - startYear) * 12 + endMonthNumber - startMonthNumber;
 }
 
 export function calculateFinancialPlan(input: FinancialPlanCalculationInput): FinancialPlanCalculationResult {

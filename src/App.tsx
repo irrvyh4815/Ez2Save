@@ -45,6 +45,7 @@ import {
   calculateDeposit,
   calculateDebtServiceRatio,
   calculateFinancialPlan,
+  calculateFutureCashFlow,
   calculateInvestmentAssetValuation,
   getFinancialPlanAllocation,
   inferAnnualRateFromPayment,
@@ -79,6 +80,7 @@ import {
   createInvestmentAsset,
   createInvestmentCategory,
   createFinancialPlan,
+  createRecurringIncome,
   createLoan,
   createTransactionWithCategory,
   deleteBudget,
@@ -90,6 +92,7 @@ import {
   deleteInvestmentAsset,
   deleteInvestmentCategory,
   deleteFinancialPlan,
+  deleteRecurringIncome,
   deleteLoan,
   deleteTransaction,
   emptyFinanceData,
@@ -109,6 +112,7 @@ import {
   updateCreditCard,
   updateFinancialAccount,
   updateFinancialPlan,
+  updateRecurringIncome,
   updateInvestmentAsset,
   updateLoan,
   updateOwnPassword,
@@ -133,6 +137,7 @@ import type {
   LedgerBook as PersistedLedgerBook,
   LedgerInvitation as PersistedLedgerInvitation,
   Loan,
+  RecurringIncome,
   Transaction,
   UserProfile
 } from "./types/finance";
@@ -226,6 +231,7 @@ type FinanceSnapshot = {
   investmentCategories: InvestmentCategory[];
   investmentAssets: InvestmentAsset[];
   financialPlans: FinancialPlan[];
+  recurringIncomes: RecurringIncome[];
   notificationPreferences: NotificationPreference[];
 };
 
@@ -506,6 +512,22 @@ const financialPlanStatusLabels: Record<FinancialPlan["status"], string> = {
   completed: "已完成"
 };
 
+const recurringIncomeTypeLabels: Record<RecurringIncome["incomeType"], string> = {
+  salary: "薪資",
+  bonus: "獎金",
+  rental: "租金收入",
+  pension: "退休金",
+  side_business: "副業收入",
+  other: "其他收入"
+};
+
+const recurringFrequencyLabels: Record<RecurringIncome["frequency"], string> = {
+  weekly: "每週",
+  monthly: "每月",
+  quarterly: "每季",
+  yearly: "每年"
+};
+
 const insuranceTypeLabels: Record<InsurancePolicy["type"], string> = {
   life: "壽險",
   medical: "醫療險",
@@ -640,6 +662,7 @@ export default function App() {
   const [investmentCategories, setInvestmentCategories] = useState<InvestmentCategory[]>([]);
   const [investmentAssets, setInvestmentAssets] = useState<InvestmentAsset[]>([]);
   const [financialPlans, setFinancialPlans] = useState<FinancialPlan[]>([]);
+  const [recurringIncomes, setRecurringIncomes] = useState<RecurringIncome[]>([]);
   const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreference[]>([]);
   const [rememberedCategories, setRememberedCategories] = useState<string[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
@@ -696,6 +719,7 @@ export default function App() {
       investmentCategories,
       investmentAssets,
       financialPlans,
+      recurringIncomes,
       notificationPreferences
     };
   }
@@ -714,6 +738,7 @@ export default function App() {
     setInvestmentCategories(snapshot.investmentCategories);
     setInvestmentAssets(snapshot.investmentAssets);
     setFinancialPlans(snapshot.financialPlans);
+    setRecurringIncomes(snapshot.recurringIncomes);
     setNotificationPreferences(snapshot.notificationPreferences);
     setAiReport(null);
     setCsvPreview([]);
@@ -774,6 +799,7 @@ export default function App() {
         investmentCategories: result.data.investmentCategories,
         investmentAssets: result.data.investmentAssets,
         financialPlans: result.data.financialPlans,
+        recurringIncomes: result.data.recurringIncomes,
         notificationPreferences: result.data.notificationPreferences
       };
       setLedgerBooks(nextLedgerBooks);
@@ -1052,6 +1078,7 @@ export default function App() {
         investmentCategories: result.data.investmentCategories,
         investmentAssets: result.data.investmentAssets,
         financialPlans: result.data.financialPlans,
+        recurringIncomes: result.data.recurringIncomes,
         notificationPreferences: result.data.notificationPreferences
       };
       applySnapshot(nextSnapshot);
@@ -1648,6 +1675,37 @@ export default function App() {
     }
   }
 
+  async function addRecurringIncome(income: RecurringIncome) {
+    try {
+      const saved = await createRecurringIncome(income, activePersistedLedgerId);
+      setRecurringIncomes((current) => [...current, saved]);
+      notify("success", "固定收入已儲存");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "固定收入儲存失敗");
+    }
+  }
+
+  async function saveRecurringIncome(income: RecurringIncome) {
+    try {
+      const saved = await updateRecurringIncome(income);
+      setRecurringIncomes((current) => current.map((item) => item.id === saved.id ? saved : item));
+      notify("success", "固定收入已更新");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "固定收入更新失敗");
+    }
+  }
+
+  async function removeRecurringIncome(income: RecurringIncome) {
+    if (!window.confirm(`確定刪除「${income.name}」固定收入？`)) return;
+    try {
+      await deleteRecurringIncome(income.id);
+      setRecurringIncomes((current) => current.filter((item) => item.id !== income.id));
+      notify("success", "固定收入已刪除");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "固定收入刪除失敗");
+    }
+  }
+
   async function softDeleteTransaction(id: string) {
     if (!window.confirm("確定要刪除此交易？此操作需要二次確認。")) return;
     const transaction = transactions.find((item) => item.id === id);
@@ -1917,10 +1975,20 @@ export default function App() {
             {page === "financial_plan" && (
               <FinancialPlansPage
                 plans={financialPlans}
+                recurringIncomes={recurringIncomes}
+                accounts={accounts}
+                transactions={transactions}
+                reminders={reminders}
+                loans={loans}
+                installments={creditCardInstallments}
+                creditCards={creditCards}
                 dashboard={dashboard}
                 onAdd={addFinancialPlan}
                 onUpdate={saveFinancialPlan}
                 onDelete={removeFinancialPlan}
+                onAddIncome={addRecurringIncome}
+                onUpdateIncome={saveRecurringIncome}
+                onDeleteIncome={removeRecurringIncome}
                 notify={notify}
               />
             )}
@@ -2131,6 +2199,7 @@ function LedgerHomePage({
       investmentCategories: [],
       investmentAssets: [],
       financialPlans: [],
+      recurringIncomes: [],
       notificationPreferences: []
     };
     const dashboard = summarizeDashboard({
@@ -5975,19 +6044,40 @@ function InsurancePage({ policies, onAdd, onDelete }: { policies: InsurancePolic
 
 function FinancialPlansPage({
   plans,
+  recurringIncomes,
+  accounts,
+  transactions,
+  reminders,
+  loans,
+  installments,
+  creditCards,
   dashboard,
   onAdd,
   onUpdate,
   onDelete,
+  onAddIncome,
+  onUpdateIncome,
+  onDeleteIncome,
   notify
 }: {
   plans: FinancialPlan[];
+  recurringIncomes: RecurringIncome[];
+  accounts: FinancialAccount[];
+  transactions: Transaction[];
+  reminders: FinancialReminder[];
+  loans: Loan[];
+  installments: CreditCardInstallment[];
+  creditCards: CreditCard[];
   dashboard: ReturnType<typeof summarizeDashboard>;
   onAdd: (plan: FinancialPlan) => Promise<void>;
   onUpdate: (plan: FinancialPlan) => Promise<void>;
   onDelete: (plan: FinancialPlan) => Promise<void>;
+  onAddIncome: (income: RecurringIncome) => Promise<void>;
+  onUpdateIncome: (income: RecurringIncome) => Promise<void>;
+  onDeleteIncome: (income: RecurringIncome) => Promise<void>;
   notify: (type: ToastType, message: string) => void;
 }) {
+  const [forecastMonths, setForecastMonths] = useState(12);
   const activePlans = plans.filter((plan) => plan.status === "active");
   const projections = activePlans.map((plan) => ({ plan, result: getPlanProjection(plan) }));
   const totalTargetCents = projections.reduce((sum, item) => sum + item.result.targetAmountCents, 0);
@@ -5996,6 +6086,82 @@ function FinancialPlansPage({
   const totalMonthlyContributionCents = projections.reduce((sum, item) => sum + item.plan.monthlyContributionCents, 0);
   const allocationPlan = activePlans.find((plan) => plan.goalType === "investment" || plan.horizon === "long") ?? activePlans[0];
   const allocation = getFinancialPlanAllocation(allocationPlan?.riskProfile ?? "balanced");
+  const recentLivingExpenseCents = (() => {
+    const recentMonths = getRecentMonthKeys(currentTaipeiMonth(), 3);
+    const total = transactions
+      .filter((transaction) => recentMonths.some((month) => transaction.date.startsWith(month)))
+      .filter((transaction) => transaction.type === "expense" || transaction.type === "credit_card_purchase")
+      .reduce((sum, transaction) => sum + transaction.amountCents, 0);
+    return Math.round(total / recentMonths.length);
+  })();
+  const activeReminderMonthlyCents = reminders
+    .filter((reminder) => reminder.status !== "done")
+    .reduce((sum, reminder) => sum + getMonthlyRecurringEquivalent(reminder.amountCents, reminder.frequency), 0);
+  const flexibleLivingExpenseCents = Math.max(0, recentLivingExpenseCents - activeReminderMonthlyCents);
+  const forecast = calculateFutureCashFlow({
+    startMonth: currentTaipeiMonth(),
+    months: forecastMonths,
+    openingBalanceCents: dashboard.availableCashCents,
+    incomes: recurringIncomes
+      .filter((income) => income.isActive)
+      .map((income) => ({
+        amountCents: income.amountCents,
+        frequency: income.frequency,
+        startDate: income.startDate,
+        endDate: income.endDate,
+        annualGrowthRate: income.annualGrowthRate
+      })),
+    fixedExpenses: reminders
+      .filter((reminder) => reminder.status !== "done")
+      .map((reminder) => ({
+        amountCents: reminder.amountCents,
+        frequency: reminder.frequency,
+        startDate: reminder.startDate,
+        endDate: reminder.endDate
+      }))
+      .concat(flexibleLivingExpenseCents > 0 ? [{
+        amountCents: flexibleLivingExpenseCents,
+        frequency: "monthly" as const,
+        startDate: today,
+        endDate: undefined
+      }] : []),
+    debtPayments: [
+      ...loans
+        .filter((loan) => loan.status === "active" && loan.paymentPerPeriodCents > 0)
+        .map((loan) => ({
+          amountCents: loan.paymentPerPeriodCents,
+          frequency: "monthly" as const,
+          startDate: today,
+          endDate: addMonthsToIsoDate(today, Math.max(0, loan.termMonths - loan.paidPeriods - 1))
+        })),
+      ...installments
+        .filter((installment) => installment.status === "active" && !installment.includedInCardBalance && installment.monthlyPaymentCents > 0)
+        .map((installment) => ({
+          amountCents: installment.monthlyPaymentCents,
+          frequency: "monthly" as const,
+          startDate: today,
+          endDate: addMonthsToIsoDate(today, Math.max(0, installment.periods - installment.paidPeriods - 1))
+        })),
+      ...creditCards
+        .filter((card) => card.isActive && card.currentStatementAmountCents > 0)
+        .map((card) => ({
+          amountCents: card.currentStatementAmountCents,
+          frequency: "one_time" as const,
+          startDate: today
+        }))
+    ],
+    goalContributions: projections
+      .filter(({ result }) => result.requiredMonthlyContributionCents > 0)
+      .map(({ plan, result }) => ({
+        amountCents: Math.max(plan.monthlyContributionCents, result.requiredMonthlyContributionCents),
+        frequency: "monthly" as const,
+        startDate: today,
+        endDate: plan.targetDate
+      }))
+  });
+  const averageMonthlyIncomeCents = Math.round(forecast.totalIncomeCents / forecast.rows.length);
+  const averageMonthlyOutflowCents = Math.round(forecast.totalOutflowCents / forecast.rows.length);
+  const activeIncomeCount = recurringIncomes.filter((income) => income.isActive).length;
 
   function readPlan(formData: FormData, existing?: FinancialPlan): FinancialPlan | null {
     const name = String(formData.get("name") ?? "").trim();
@@ -6046,6 +6212,52 @@ function FinancialPlansPage({
     };
   }
 
+  function readRecurringIncome(formData: FormData, existing?: RecurringIncome): RecurringIncome | null {
+    const name = String(formData.get("name") ?? "").trim();
+    const amountCents = parseMoneyToCents(String(formData.get("amount") ?? ""));
+    const startDate = String(formData.get("startDate") ?? "");
+    const endDate = String(formData.get("endDate") ?? "");
+    const dayOfMonth = Number(formData.get("dayOfMonth") ?? 1);
+    const annualGrowthRate = Number(formData.get("annualGrowthRate") ?? 0) / 100;
+    if (!name) {
+      notify("error", "請輸入固定收入名稱");
+      return null;
+    }
+    const validation = combineValidations(
+      validatePositiveAmount(amountCents, "固定收入金額"),
+      validateDateRange(startDate, endDate || undefined),
+      validateIntegerRange(dayOfMonth, 1, 31, "入帳日")
+    );
+    if (!validation.valid) {
+      notify("error", validation.errors[0]);
+      return null;
+    }
+    if (!Number.isFinite(annualGrowthRate) || annualGrowthRate < -0.5 || annualGrowthRate > 1) {
+      notify("error", "年度調整率請輸入 -50% 至 100%");
+      return null;
+    }
+    const now = new Date().toISOString();
+    return {
+      id: existing?.id ?? crypto.randomUUID(),
+      userId: existing?.userId ?? localUserId,
+      name,
+      incomeType: String(formData.get("incomeType") ?? "salary") as RecurringIncome["incomeType"],
+      payer: String(formData.get("payer") ?? "").trim() || undefined,
+      amountCents,
+      frequency: String(formData.get("frequency") ?? "monthly") as RecurringIncome["frequency"],
+      dayOfMonth,
+      accountId: String(formData.get("accountId") ?? "") || undefined,
+      startDate,
+      endDate: endDate || undefined,
+      annualGrowthRate,
+      note: String(formData.get("note") ?? "").trim() || undefined,
+      isActive: formData.get("isActive") === "on",
+      metadata: existing?.metadata,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now
+    };
+  }
+
   const actions = getFinancialPlanActions(dashboard, totalRequiredMonthlyCents, totalMonthlyContributionCents, activePlans.length);
 
   return (
@@ -6084,6 +6296,91 @@ function FinancialPlansPage({
         <StatCard label="尚待準備" value={formatMoney(Math.max(0, totalTargetCents - totalCurrentCents))} />
         <StatCard label="本月可投入結餘" value={formatMoney(Math.max(0, dashboard.monthlyBalanceCents))} />
         <StatCard label="每月投入差額" value={formatMoney(Math.max(0, totalRequiredMonthlyCents - totalMonthlyContributionCents))} />
+      </div>
+
+      <section className="panel">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="flex items-center gap-2"><TrendingUp size={18} className="text-emerald-600 dark:text-emerald-300" /><h2 className="text-lg font-semibold">未來收支預估</h2></div>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">依固定收入、帳單、債務及目標投入逐月估算。</p>
+          </div>
+          <div className="inline-flex w-fit rounded-md border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-900">
+            {[12, 24, 36].map((months) => (
+              <button
+                key={months}
+                className={`rounded px-3 py-2 text-sm font-medium ${forecastMonths === months ? "bg-slate-950 text-white dark:bg-white dark:text-slate-950" : "text-slate-600 dark:text-slate-300"}`}
+                onClick={() => setForecastMonths(months)}
+                type="button"
+              >
+                {months} 個月
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Info label="平均每月收入" value={formatMoney(averageMonthlyIncomeCents)} />
+          <Info label="平均每月總支出" value={formatMoney(averageMonthlyOutflowCents)} />
+          <Info label="期末可動用資金" value={formatMoney(forecast.endingBalanceCents)} />
+          <Info label="目標資金缺口" value={formatMoney(forecast.fundingGapCents)} />
+        </div>
+        <FutureCashFlowChart rows={forecast.rows} />
+        <div className={`mt-4 rounded-md border p-3 text-sm ${forecast.fundingGapCents === 0 && forecast.lowestBalanceCents >= 0 ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-100" : "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"}`}>
+          {activeIncomeCount === 0
+            ? "先建立薪資或其他固定收入，才能判斷目前目標是否符合未來現金流。"
+            : forecast.fundingGapCents > 0
+              ? `目前收入與既定支出下，${forecastMonths} 個月內的目標投入缺口約 ${formatMoney(forecast.fundingGapCents)}。`
+              : `目前收入可支應既定支出與目標投入，每月保守可投入約 ${formatMoney(forecast.sustainableGoalContributionCents)}。`}
+        </div>
+      </section>
+
+      <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
+        <FormDisclosure title="新增固定收入" description="建立薪資、獎金、租金或其他可預期收入。">
+          <form className="space-y-3" onSubmit={handleFormSubmit((formData) => {
+            const income = readRecurringIncome(formData);
+            if (income) void onAddIncome(income);
+          })}>
+            <RecurringIncomeFields accounts={accounts} />
+            <button className="btn-primary w-full" type="submit"><Plus size={16} />新增固定收入</button>
+          </form>
+        </FormDisclosure>
+        <section className="panel">
+          <div className="flex items-center justify-between gap-3">
+            <div><h2 className="text-lg font-semibold">固定收入來源</h2><p className="text-sm text-slate-500 dark:text-slate-400">調薪或收入終止後，未來預估會立即更新。</p></div>
+            <Badge>{activeIncomeCount} 項啟用</Badge>
+          </div>
+          {recurringIncomes.length === 0 ? <EmptyState label="尚未建立固定收入，先加入薪資或其他收入來源。" /> : (
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {recurringIncomes.map((income) => (
+                <article key={income.id} className="rounded-lg border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-950/60">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">{income.name}</h3><Badge>{recurringIncomeTypeLabels[income.incomeType]}</Badge></div>
+                      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{income.payer || "未填付款來源"} · {recurringFrequencyLabels[income.frequency]}</p>
+                    </div>
+                    <button className="rounded-md p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950" onClick={() => void onDeleteIncome(income)} title="刪除固定收入" aria-label={`刪除 ${income.name}`}><Trash2 size={16} /></button>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    <Info label="單次金額" value={formatMoney(income.amountCents)} />
+                    <Info label="月均收入" value={formatMoney(getMonthlyIncomeEquivalent(income))} />
+                    <Info label="年度調整" value={formatPercent(income.annualGrowthRate)} />
+                    <Info label="狀態" value={income.isActive ? "計入預估" : "已停用"} />
+                  </div>
+                  <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">{formatDate(income.startDate)} 起{income.endDate ? `至 ${formatDate(income.endDate)}` : "，無結束日期"}</p>
+                  <details className="mt-4 border-t border-slate-200 pt-3 dark:border-slate-800">
+                    <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-brand-700 dark:text-brand-100"><Pencil size={15} />編輯固定收入</summary>
+                    <form className="mt-3 space-y-3" onSubmit={handleFormSubmit((formData) => {
+                      const next = readRecurringIncome(formData, income);
+                      if (next) void onUpdateIncome(next);
+                    })}>
+                      <RecurringIncomeFields income={income} accounts={accounts} />
+                      <button className="btn-primary w-full" type="submit">儲存變更</button>
+                    </form>
+                  </details>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
@@ -6182,6 +6479,104 @@ function FinancialPlanFields({ plan }: { plan?: FinancialPlan }) {
       <Field label="備註"><input className="input" name="note" defaultValue={plan?.note} placeholder="計劃用途或限制" /></Field>
     </>
   );
+}
+
+function RecurringIncomeFields({ income, accounts }: { income?: RecurringIncome; accounts: FinancialAccount[] }) {
+  return (
+    <>
+      <Field label="收入名稱"><input className="input" name="name" defaultValue={income?.name} placeholder="例如：每月薪資" required /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="收入類型"><select className="input" name="incomeType" defaultValue={income?.incomeType ?? "salary"}>{Object.entries(recurringIncomeTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
+        <Field label="週期"><select className="input" name="frequency" defaultValue={income?.frequency ?? "monthly"}>{Object.entries(recurringFrequencyLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
+      </div>
+      <Field label="公司或付款來源"><input className="input" name="payer" defaultValue={income?.payer} placeholder="例如：任職公司" /></Field>
+      <Field label="每次入帳金額"><input className="input" name="amount" defaultValue={income ? income.amountCents / 100 : ""} inputMode="decimal" required /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="入帳日"><input className="input" name="dayOfMonth" type="number" min={1} max={31} defaultValue={income?.dayOfMonth ?? 5} /></Field>
+        <Field label="年度調整率 %"><input className="input" name="annualGrowthRate" type="number" min={-50} max={100} step={0.1} defaultValue={income ? income.annualGrowthRate * 100 : 0} /></Field>
+      </div>
+      <Field label="入帳帳戶">
+        <select className="input" name="accountId" defaultValue={income?.accountId ?? ""}>
+          <option value="">不指定</option>
+          {accounts.filter((account) => account.isActive).map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+        </select>
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="開始日期"><input className="input" name="startDate" type="date" defaultValue={income?.startDate ?? today} required /></Field>
+        <Field label="結束日期"><input className="input" name="endDate" type="date" defaultValue={income?.endDate ?? ""} /></Field>
+      </div>
+      <Field label="備註"><textarea className="input" name="note" rows={2} defaultValue={income?.note} /></Field>
+      <label className="flex items-center gap-2 text-sm"><input name="isActive" type="checkbox" defaultChecked={income?.isActive ?? true} /> 計入未來收支預估</label>
+    </>
+  );
+}
+
+function FutureCashFlowChart({ rows }: { rows: ReturnType<typeof calculateFutureCashFlow>["rows"] }) {
+  if (rows.length === 0) return <EmptyState label="尚無未來收支預估資料" />;
+  const width = Math.max(720, rows.length * 44);
+  const height = 260;
+  const padding = { top: 20, right: 28, bottom: 38, left: 42 };
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const maxFlow = Math.max(...rows.flatMap((row) => [row.incomeCents, row.totalOutflowCents]), 1);
+  const balances = rows.map((row) => row.projectedBalanceCents);
+  const minBalance = Math.min(0, ...balances);
+  const maxBalance = Math.max(0, ...balances);
+  const balanceRange = Math.max(1, maxBalance - minBalance);
+  const slot = plotWidth / rows.length;
+  const barWidth = Math.min(14, slot * 0.32);
+  const flowY = (value: number) => padding.top + (1 - value / maxFlow) * plotHeight;
+  const balanceY = (value: number) => padding.top + ((maxBalance - value) / balanceRange) * plotHeight;
+  const balancePoints = rows.map((row, index) => `${padding.left + slot * index + slot / 2},${balanceY(row.projectedBalanceCents)}`).join(" ");
+  const labelStep = Math.max(1, Math.ceil(rows.length / 12));
+  return (
+    <div className="mt-4">
+      <ChartLegend items={[
+        { color: "#10b981", label: "固定收入" },
+        { color: "#0ea5e9", label: "支出與目標投入" },
+        { color: "#f59e0b", label: "預估可動用資金" }
+      ]} />
+      <div className="mt-3 overflow-x-auto">
+        <svg className="min-w-[720px]" style={{ width }} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="未來固定收入、支出與可動用資金預估">
+          {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+            const y = padding.top + ratio * plotHeight;
+            return <line key={ratio} x1={padding.left} x2={width - padding.right} y1={y} y2={y} stroke="currentColor" className="text-slate-200 dark:text-slate-800" />;
+          })}
+          {rows.map((row, index) => {
+            const center = padding.left + slot * index + slot / 2;
+            return (
+              <g key={row.month}>
+                <rect x={center - barWidth - 2} y={flowY(row.incomeCents)} width={barWidth} height={Math.max(2, padding.top + plotHeight - flowY(row.incomeCents))} rx="3" fill="#10b981">
+                  <title>{`${row.month} 收入 ${formatMoney(row.incomeCents)}`}</title>
+                </rect>
+                <rect x={center + 2} y={flowY(row.totalOutflowCents)} width={barWidth} height={Math.max(2, padding.top + plotHeight - flowY(row.totalOutflowCents))} rx="3" fill="#0ea5e9">
+                  <title>{`${row.month} 總支出 ${formatMoney(row.totalOutflowCents)}`}</title>
+                </rect>
+                {index % labelStep === 0 && <text x={center} y={height - 12} textAnchor="middle" className="fill-slate-500 text-xs dark:fill-slate-400">{row.month.slice(2).replace("-", "/")}</text>}
+              </g>
+            );
+          })}
+          <polyline points={balancePoints} fill="none" stroke="#f59e0b" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+          {rows.map((row, index) => (
+            <circle key={`${row.month}-balance`} cx={padding.left + slot * index + slot / 2} cy={balanceY(row.projectedBalanceCents)} r="3.5" fill="#f59e0b" stroke="white" strokeWidth="1.5">
+              <title>{`${row.month} 可動用資金 ${formatMoney(row.projectedBalanceCents)}`}</title>
+            </circle>
+          ))}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function getMonthlyIncomeEquivalent(income: RecurringIncome): number {
+  return getMonthlyRecurringEquivalent(income.amountCents, income.frequency);
+}
+
+function getMonthlyRecurringEquivalent(amountCents: number, frequency: "weekly" | "monthly" | "quarterly" | "yearly"): number {
+  if (frequency === "weekly") return Math.round(amountCents * 52 / 12);
+  if (frequency === "quarterly") return Math.round(amountCents / 3);
+  if (frequency === "yearly") return Math.round(amountCents / 12);
+  return amountCents;
 }
 
 function AllocationCell({ label, value, colorClass }: { label: string; value: number; colorClass: string }) {

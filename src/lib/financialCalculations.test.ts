@@ -3,6 +3,7 @@ import {
   calculateDebtRatio,
   calculateDebtServiceRatio,
   calculateDeposit,
+  calculateFutureCashFlow,
   calculateEmergencyFundMonths,
   calculateEqualPayment,
   calculateFinancialPlan,
@@ -173,6 +174,53 @@ describe("credit card limit summaries", () => {
     expect(summary.usedCreditCents).toBe(85_000_00);
     expect(summary.creditLimitCents).toBe(200_000_00);
     expect(summary.utilizationRate).toBe(0.425);
+  });
+});
+
+describe("future cash flow forecasting", () => {
+  it("normalizes recurring income and combines goal funding with obligations", () => {
+    const result = calculateFutureCashFlow({
+      startMonth: "2026-08",
+      months: 3,
+      openingBalanceCents: 50_000_00,
+      incomes: [
+        { amountCents: 60_000_00, frequency: "monthly", startDate: "2026-08-05" },
+        { amountCents: 12_000_00, frequency: "quarterly", startDate: "2026-08-01" }
+      ],
+      fixedExpenses: [{ amountCents: 20_000_00, frequency: "monthly", startDate: "2026-08-01" }],
+      debtPayments: [{ amountCents: 10_000_00, frequency: "monthly", startDate: "2026-08-01" }],
+      goalContributions: [{ amountCents: 15_000_00, frequency: "monthly", startDate: "2026-08-01" }]
+    });
+
+    expect(result.rows[0].incomeCents).toBe(64_000_00);
+    expect(result.rows[0].netCashFlowCents).toBe(19_000_00);
+    expect(result.endingBalanceCents).toBe(107_000_00);
+    expect(result.fundingGapCents).toBe(0);
+    expect(result.sustainableGoalContributionCents).toBe(34_000_00);
+  });
+
+  it("respects start, end, one-time payments and annual income growth", () => {
+    const result = calculateFutureCashFlow({
+      startMonth: "2026-08",
+      months: 14,
+      openingBalanceCents: 0,
+      incomes: [{
+        amountCents: 50_000_00,
+        frequency: "monthly",
+        startDate: "2026-09-01",
+        endDate: "2027-09-30",
+        annualGrowthRate: 0.1
+      }],
+      fixedExpenses: [{ amountCents: 30_000_00, frequency: "one_time", startDate: "2026-08-01" }],
+      debtPayments: [],
+      goalContributions: []
+    });
+
+    expect(result.rows[0].incomeCents).toBe(0);
+    expect(result.rows[0].fixedExpenseCents).toBe(30_000_00);
+    expect(result.rows[1].incomeCents).toBe(50_000_00);
+    expect(result.rows[13].incomeCents).toBe(55_000_00);
+    expect(result.lowestBalanceCents).toBe(-30_000_00);
   });
 });
 

@@ -85,6 +85,25 @@ export interface Transaction extends BaseEntity {
   source: "manual" | "csv" | "recurring" | "system";
 }
 
+export type RecurringIncomeType = "salary" | "bonus" | "rental" | "pension" | "side_business" | "other";
+export type RecurringFrequency = "weekly" | "monthly" | "quarterly" | "yearly";
+
+export interface RecurringIncome extends BaseEntity {
+  name: string;
+  incomeType: RecurringIncomeType;
+  payer?: string;
+  amountCents: number;
+  frequency: RecurringFrequency;
+  dayOfMonth?: number;
+  accountId?: string;
+  startDate: string;
+  endDate?: string;
+  annualGrowthRate: number;
+  note?: string;
+  isActive: boolean;
+  metadata?: Record<string, unknown>;
+}
+
 export interface CreditCard extends BaseEntity {
   name: string;
   issuer: string;

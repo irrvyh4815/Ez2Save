@@ -16,6 +16,7 @@ import type {
   LedgerBook,
   LedgerInvitation,
   Loan,
+  RecurringIncome,
   Transaction,
   UserProfile
 } from "../types/finance";
@@ -33,6 +34,7 @@ export interface FinanceData {
   investmentCategories: InvestmentCategory[];
   investmentAssets: InvestmentAsset[];
   financialPlans: FinancialPlan[];
+  recurringIncomes: RecurringIncome[];
   notificationPreferences: NotificationPreference[];
   categories: string[];
 }
@@ -74,6 +76,7 @@ export const emptyFinanceData: FinanceData = {
   investmentCategories: [],
   investmentAssets: [],
   financialPlans: [],
+  recurringIncomes: [],
   notificationPreferences: [],
   categories: []
 };
@@ -270,6 +273,7 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
     investmentCategories,
     investmentAssets,
     financialPlans,
+    recurringIncomes,
     notificationPreferences
   ] = await Promise.all([
     scoped(supabase
@@ -343,6 +347,12 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
       .order("priority", { ascending: true })
       .order("target_date", { ascending: true }),
     scoped(supabase
+      .from("recurring_transactions")
+      .select("id,user_id,name,amount_cents,account_id,frequency,day_of_month,next_run_date,end_date,is_active,metadata,created_at,updated_at"))
+      .eq("transaction_type", "income")
+      .is("deleted_at", null)
+      .order("next_run_date", { ascending: true }),
+    scoped(supabase
       .from("ledger_notification_preferences")
       .select("id,user_id,notification_type,is_enabled,remind_days_before,delivery_mode,repeat_hours,created_at,updated_at"))
       .order("notification_type", { ascending: true })
@@ -359,6 +369,7 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
   if (investmentAssets.error && !investmentAssetsUnavailable) throw new Error("投資持倉讀取失敗");
   const plansTableUnavailable = financialPlans.error?.code === "42P01" || financialPlans.error?.code === "PGRST205";
   if (financialPlans.error && !plansTableUnavailable) throw new Error("財務計劃讀取失敗");
+  if (recurringIncomes.error) throw new Error("固定收入讀取失敗");
   const preferencesTableUnavailable = notificationPreferences.error?.code === "42P01" || notificationPreferences.error?.code === "PGRST205";
   if (notificationPreferences.error && !preferencesTableUnavailable) throw new Error("通知設定讀取失敗");
 
@@ -378,6 +389,7 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
       investmentCategories: (investmentCategories.data ?? []).map(mapInvestmentCategory),
       investmentAssets: (investmentAssets.data ?? []).map(mapInvestmentAsset),
       financialPlans: (financialPlans.data ?? []).map(mapFinancialPlan),
+      recurringIncomes: (recurringIncomes.data ?? []).map(mapRecurringIncome),
       notificationPreferences: (notificationPreferences.data ?? []).map(mapNotificationPreference),
       categories: [...new Set((categories.data ?? []).map((row) => String(row.name)).filter(Boolean))]
     }
@@ -1053,6 +1065,66 @@ export async function deleteFinancialPlan(id: string): Promise<void> {
   if (error) throw new Error("財務計劃刪除失敗");
 }
 
+export async function createRecurringIncome(income: RecurringIncome, ledgerId?: string): Promise<RecurringIncome> {
+  if (!supabase) return income;
+  const session = await getCurrentSession();
+  if (!session) throw new Error("請先登入再新增固定收入");
+  const { data, error } = await supabase
+    .from("recurring_transactions")
+    .insert({
+      user_id: session.user.id,
+      ...(ledgerId ? { ledger_id: ledgerId } : {}),
+      name: income.name,
+      transaction_type: "income",
+      amount_cents: income.amountCents,
+      account_id: income.accountId || null,
+      frequency: income.frequency,
+      day_of_month: income.dayOfMonth || null,
+      next_run_date: income.startDate,
+      end_date: income.endDate || null,
+      is_necessary: false,
+      is_active: income.isActive,
+      metadata: recurringIncomeMetadata(income)
+    })
+    .select("id,user_id,name,amount_cents,account_id,frequency,day_of_month,next_run_date,end_date,is_active,metadata,created_at,updated_at")
+    .single();
+  if (error) throw new Error("固定收入儲存失敗");
+  return mapRecurringIncome(data);
+}
+
+export async function updateRecurringIncome(income: RecurringIncome): Promise<RecurringIncome> {
+  if (!supabase) return income;
+  const { data, error } = await supabase
+    .from("recurring_transactions")
+    .update({
+      name: income.name,
+      amount_cents: income.amountCents,
+      account_id: income.accountId || null,
+      frequency: income.frequency,
+      day_of_month: income.dayOfMonth || null,
+      next_run_date: income.startDate,
+      end_date: income.endDate || null,
+      is_active: income.isActive,
+      metadata: recurringIncomeMetadata(income)
+    })
+    .eq("id", income.id)
+    .eq("transaction_type", "income")
+    .select("id,user_id,name,amount_cents,account_id,frequency,day_of_month,next_run_date,end_date,is_active,metadata,created_at,updated_at")
+    .single();
+  if (error) throw new Error("固定收入更新失敗");
+  return mapRecurringIncome(data);
+}
+
+export async function deleteRecurringIncome(id: string): Promise<void> {
+  if (!supabase) return;
+  const { error } = await supabase
+    .from("recurring_transactions")
+    .update({ deleted_at: new Date().toISOString(), is_active: false })
+    .eq("id", id)
+    .eq("transaction_type", "income");
+  if (error) throw new Error("固定收入刪除失敗");
+}
+
 export async function saveNotificationPreferences(preferences: NotificationPreference[], ledgerId?: string): Promise<NotificationPreference[]> {
   if (!supabase) return preferences;
   const session = await getCurrentSession();
@@ -1442,6 +1514,43 @@ function mapFinancialPlan(row: Record<string, unknown>): FinancialPlan {
     status: String(row.status) as FinancialPlan["status"],
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)
+  };
+}
+
+function mapRecurringIncome(row: Record<string, unknown>): RecurringIncome {
+  const metadata = isRecord(row.metadata) ? row.metadata : {};
+  const incomeType = String(metadata.income_type ?? "salary");
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    name: String(row.name),
+    incomeType: ["salary", "bonus", "rental", "pension", "side_business", "other"].includes(incomeType)
+      ? incomeType as RecurringIncome["incomeType"]
+      : "other",
+    payer: nullableString(metadata.payer),
+    amountCents: toNumber(row.amount_cents),
+    frequency: String(row.frequency ?? "monthly") as RecurringIncome["frequency"],
+    dayOfMonth: row.day_of_month == null ? undefined : toNumber(row.day_of_month),
+    accountId: nullableString(row.account_id),
+    startDate: String(metadata.start_date ?? row.next_run_date),
+    endDate: nullableString(row.end_date),
+    annualGrowthRate: Number(metadata.annual_growth_rate ?? 0),
+    note: nullableString(metadata.note),
+    isActive: Boolean(row.is_active),
+    metadata,
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
+  };
+}
+
+function recurringIncomeMetadata(income: RecurringIncome): Record<string, unknown> {
+  return {
+    ...(income.metadata ?? {}),
+    income_type: income.incomeType,
+    payer: income.payer || null,
+    start_date: income.startDate,
+    annual_growth_rate: income.annualGrowthRate,
+    note: income.note || null
   };
 }
 
