@@ -3581,7 +3581,7 @@ function DashboardPage({
         </div>
       </details>
       <div className="grid gap-4 lg:grid-cols-3">
-        <section className="panel lg:col-span-2">
+        <section className="panel min-w-0 lg:col-span-2">
           <h2 className="text-lg font-semibold">全部帳戶餘額分布</h2>
           <AccountBalanceChart accounts={accounts} />
         </section>
@@ -3614,7 +3614,7 @@ function DashboardPage({
         </div>
       </details>
       <div className="grid gap-4 lg:grid-cols-3">
-        <section className="panel lg:col-span-2">
+        <section className="panel min-w-0 lg:col-span-2">
           <h2 className="text-lg font-semibold">{periodCopy.trendTitle}</h2>
           <TrendChart data={monthlyTrend} />
         </section>
@@ -3797,7 +3797,7 @@ function FinancialDecisionCenter({
         <p className="max-w-xl text-sm text-slate-500 dark:text-slate-400">依目前帳本資料即時計算，不使用 AI，也不會增加 API 呼叫。</p>
       </div>
       <div className="grid gap-4 lg:grid-cols-12">
-        <section className="panel lg:col-span-7">
+        <section className="panel min-w-0 lg:col-span-7">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="font-semibold">儲蓄率趨勢</h3>
@@ -7014,9 +7014,9 @@ function ReportsPage({
         </div>
       </div>
       <div className="grid gap-4 lg:grid-cols-12">
-        <section className="panel lg:col-span-8"><h3 className="font-semibold">月收支與現金流趨勢</h3><TrendChart data={monthlyTrend} /></section>
+        <section className="panel min-w-0 lg:col-span-8"><h3 className="font-semibold">月收支與現金流趨勢</h3><TrendChart data={monthlyTrend} /></section>
         <section className="panel lg:col-span-4"><h3 className="font-semibold">總資產與總負債比例</h3><LedgerDonut dashboard={dashboard} /></section>
-        <section className="panel lg:col-span-7">
+        <section className="panel min-w-0 lg:col-span-7">
           <h3 className="font-semibold">儲蓄率趨勢</h3>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">比較各月收入扣除支出後的保留比例</p>
           <SavingsRateTrendChart data={monthlyTrend} />
