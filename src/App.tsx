@@ -43,10 +43,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import {
   calculateDeposit,
+  calculateDebtServiceRatio,
   calculateFinancialPlan,
   calculateInvestmentAssetValuation,
   getFinancialPlanAllocation,
   calculateLoan,
+  calculateSavingsRate,
+  summarizeExpenseNature,
   summarizeDashboard,
   type DepositCalculationInput,
   type FinancialPlanCalculationResult,
@@ -1863,6 +1866,7 @@ export default function App() {
                 creditCards={creditCards}
                 creditCardInstallments={creditCardInstallments}
                 loans={loans}
+                transactions={periodTransactions}
                 dataLoading={dataLoading}
                 dataNotice={dataNotice}
                 onNavigate={navigateToPage}
@@ -3436,6 +3440,7 @@ function DashboardPage({
   creditCards,
   creditCardInstallments,
   loans,
+  transactions,
   dataLoading,
   dataNotice,
   onNavigate
@@ -3448,6 +3453,7 @@ function DashboardPage({
   creditCards: CreditCard[];
   creditCardInstallments: CreditCardInstallment[];
   loans: Loan[];
+  transactions: Transaction[];
   dataLoading: boolean;
   dataNotice: string;
   onNavigate: (page: Page) => void;
@@ -3471,6 +3477,13 @@ function DashboardPage({
       {!dataLoading && dataNotice && <InlineNotice tone="warning" message={dataNotice} />}
       <DashboardPulse dashboard={dashboard} monthlyTrend={monthlyTrend} onNavigate={onNavigate} />
       <DashboardFinanceCenter dashboard={dashboard} onNavigate={onNavigate} />
+      <FinancialDecisionCenter
+        dashboard={dashboard}
+        monthlyTrend={monthlyTrend}
+        transactions={transactions}
+        creditCards={creditCards}
+        creditCardInstallments={creditCardInstallments}
+      />
       <details className="panel group">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
           <div>
@@ -3495,20 +3508,29 @@ function DashboardPage({
           <LedgerDonut dashboard={dashboard} />
         </section>
       </div>
-      <div className="grid gap-4 lg:grid-cols-3">
-        <section className="panel">
-          <h2 className="text-lg font-semibold">資產帳戶類型</h2>
-          <AccountTypeChart accounts={accounts} />
-        </section>
-        <section className="panel">
-          <h2 className="text-lg font-semibold">可動用現金比例</h2>
-          <CashAvailabilityChart accounts={accounts} />
-        </section>
-        <section className="panel">
-          <h2 className="text-lg font-semibold">負債來源</h2>
-          <LiabilityChart creditCards={creditCards} installments={creditCardInstallments} loans={loans} />
-        </section>
-      </div>
+      <details className="panel group">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+          <div>
+            <h2 className="section-heading">資產與負債結構</h2>
+            <p className="helper-text">帳戶類型、資金流動性與負債來源</p>
+          </div>
+          <span className="icon-button" aria-hidden="true"><ChevronDown size={17} className="transition group-open:rotate-180" /></span>
+        </summary>
+        <div className="mt-4 grid gap-6 border-t border-slate-200 pt-4 lg:grid-cols-3 lg:divide-x lg:divide-slate-200 dark:border-slate-800 dark:lg:divide-slate-800">
+          <section>
+            <h3 className="font-semibold">資產帳戶類型</h3>
+            <AccountTypeChart accounts={accounts} />
+          </section>
+          <section className="lg:pl-6">
+            <h3 className="font-semibold">可動用現金比例</h3>
+            <CashAvailabilityChart accounts={accounts} />
+          </section>
+          <section className="lg:pl-6">
+            <h3 className="font-semibold">負債來源</h3>
+            <LiabilityChart creditCards={creditCards} installments={creditCardInstallments} loans={loans} />
+          </section>
+        </div>
+      </details>
       <div className="grid gap-4 lg:grid-cols-3">
         <section className="panel lg:col-span-2">
           <h2 className="text-lg font-semibold">最近六個月收支趨勢</h2>
@@ -3635,6 +3657,303 @@ function DashboardFinanceCenter({ dashboard, onNavigate }: { dashboard: ReturnTy
       </div>
     </section>
   );
+}
+
+function FinancialDecisionCenter({
+  dashboard,
+  monthlyTrend,
+  transactions,
+  creditCards,
+  creditCardInstallments
+}: {
+  dashboard: ReturnType<typeof summarizeDashboard>;
+  monthlyTrend: { month: string; incomeCents: number; expenseCents: number }[];
+  transactions: Transaction[];
+  creditCards: CreditCard[];
+  creditCardInstallments: CreditCardInstallment[];
+}) {
+  const expenseNature = summarizeExpenseNature(transactions);
+  const latestFlow = monthlyTrend.at(-1);
+  const latestIncomeCents = latestFlow?.incomeCents ?? dashboard.monthlyIncomeCents;
+  const latestExpenseCents = latestFlow?.expenseCents ?? dashboard.monthlyExpenseCents;
+  const installmentDueCents = getInstallmentMonthlyDueCents(creditCardInstallments);
+  const statementDueCents = creditCards.reduce((sum, card) => sum + card.currentStatementAmountCents, 0);
+  const monthlyDebtPaymentCents = dashboard.monthlyLoanDueCents + Math.max(statementDueCents, installmentDueCents);
+  const debtServiceRatio = calculateDebtServiceRatio(monthlyDebtPaymentCents, latestIncomeCents);
+  const currentSavingsRate = calculateSavingsRate(latestIncomeCents, latestExpenseCents);
+  const hasFinancialData = dashboard.totalAssetsCents > 0
+    || dashboard.totalLiabilitiesCents > 0
+    || monthlyTrend.some((item) => item.incomeCents > 0 || item.expenseCents > 0);
+  const monthsWithIncome = monthlyTrend.filter((item) => item.incomeCents > 0);
+  const averageSavingsRate = monthsWithIncome.length > 0
+    ? monthsWithIncome.reduce((sum, item) => sum + calculateSavingsRate(item.incomeCents, item.expenseCents), 0) / monthsWithIncome.length
+    : 0;
+  const signals = hasFinancialData
+    ? buildFinancialSignals({
+        currentSavingsRate,
+        debtServiceRatio,
+        emergencyFundMonths: dashboard.emergencyFundMonths,
+        necessaryExpenseRatio: expenseNature.necessaryCents / Math.max(expenseNature.totalCents, 1)
+      })
+    : [
+        { title: "先建立收入基準", detail: "記錄每月收入，才能判讀儲蓄率與還款負擔。", tone: "watch" as const },
+        { title: "標記必要支出", detail: "新增支出時標記必要性，系統會整理可調整空間。", tone: "watch" as const },
+        { title: "補上帳戶餘額", detail: "帳戶餘額會用於淨資產與緊急預備金計算。", tone: "watch" as const }
+      ];
+
+  return (
+    <section aria-labelledby="financial-decision-title">
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold text-brand-700 dark:text-brand-200">財務判讀</p>
+          <h2 id="financial-decision-title" className="mt-1 text-xl font-bold text-slate-950 dark:text-slate-50">先看趨勢，再決定下一步</h2>
+        </div>
+        <p className="max-w-xl text-sm text-slate-500 dark:text-slate-400">依目前帳本資料即時計算，不使用 AI，也不會增加 API 呼叫。</p>
+      </div>
+      <div className="grid gap-4 lg:grid-cols-12">
+        <section className="panel lg:col-span-7">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="font-semibold">儲蓄率趨勢</h3>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">每月收入扣除支出後的保留比例</p>
+            </div>
+            <span className={`rounded-md px-2.5 py-1 text-sm font-semibold ${currentSavingsRate >= 0.2 ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-200" : currentSavingsRate >= 0 ? "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-200" : "bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-200"}`}>
+              {hasFinancialData ? `本期 ${formatPercent(currentSavingsRate)}` : "等待資料"}
+            </span>
+          </div>
+          <SavingsRateTrendChart data={monthlyTrend} />
+        </section>
+        <section className="panel lg:col-span-5">
+          <h3 className="font-semibold">必要與彈性支出</h3>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">找出短期可調整的支出空間</p>
+          <ExpenseNatureChart transactions={transactions} />
+        </section>
+        <section className="panel lg:col-span-5">
+          <h3 className="font-semibold">本月還款負擔</h3>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">貸款與已記錄卡費占收入比例</p>
+          <DebtBurdenChart
+            monthlyIncomeCents={latestIncomeCents}
+            monthlyDebtPaymentCents={monthlyDebtPaymentCents}
+            ratio={debtServiceRatio}
+          />
+        </section>
+        <section className="panel lg:col-span-3">
+          <h3 className="font-semibold">緊急預備金</h3>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">以六個月必要支出為目標</p>
+          <EmergencyFundScale months={dashboard.emergencyFundMonths} />
+        </section>
+        <section className="panel lg:col-span-4">
+          <h3 className="font-semibold">本期重點</h3>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">依數據排序的三項財務訊號</p>
+          <div className="mt-4 space-y-3">
+            {signals.map((signal) => (
+              <div key={signal.title} className="flex gap-3">
+                <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${signal.tone === "good" ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-200" : signal.tone === "watch" ? "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-200" : "bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-200"}`}>
+                  {signal.tone === "good" ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}
+                </span>
+                <div>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{signal.title}</p>
+                  <p className="mt-0.5 text-xs leading-5 text-slate-500 dark:text-slate-400">{signal.detail}</p>
+                </div>
+              </div>
+            ))}
+            <div className="border-t border-slate-200 pt-3 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
+              {monthsWithIncome.length > 0 ? `近月平均儲蓄率 ${formatPercent(averageSavingsRate)}` : "完成收入與支出紀錄後，這裡會自動顯示判讀結果。"}
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+  );
+}
+
+function SavingsRateTrendChart({ data }: { data: { month: string; incomeCents: number; expenseCents: number }[] }) {
+  const validData = data.filter((item) => item.incomeCents > 0);
+  if (validData.length === 0) return <EmptyState label="記錄收入後會顯示每月儲蓄率趨勢" />;
+  const values = validData.map((item) => calculateSavingsRate(item.incomeCents, item.expenseCents));
+  const plotValues = values.map((value) => Math.max(-1, Math.min(1, value)));
+  const width = 680;
+  const height = 230;
+  const padding = { top: 24, right: 24, bottom: 38, left: 42 };
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const maxValue = Math.max(0.4, ...plotValues);
+  const minValue = Math.min(-0.4, ...plotValues);
+  const range = Math.max(maxValue - minValue, 0.01);
+  const xFor = (index: number) => validData.length === 1 ? padding.left + plotWidth / 2 : padding.left + (index / (validData.length - 1)) * plotWidth;
+  const yFor = (value: number) => padding.top + ((maxValue - value) / range) * plotHeight;
+  const zeroY = yFor(0);
+  const targetY = yFor(0.2);
+  const linePoints = plotValues.map((value, index) => `${xFor(index)},${yFor(value)}`).join(" ");
+  const areaPoints = `${xFor(0)},${zeroY} ${linePoints} ${xFor(plotValues.length - 1)},${zeroY}`;
+  const average = values.reduce((sum, value) => sum + value, 0) / values.length;
+
+  return (
+    <div className="mt-4">
+      <div className="overflow-x-auto">
+        <svg className="min-w-[620px]" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="每月儲蓄率趨勢">
+          <defs>
+            <linearGradient id="savings-rate-fill" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor="#10b981" stopOpacity="0.28" />
+              <stop offset="100%" stopColor="#10b981" stopOpacity="0.02" />
+            </linearGradient>
+          </defs>
+          {[0, 0.5, 1].map((ratio) => {
+            const y = padding.top + ratio * plotHeight;
+            return <line key={ratio} x1={padding.left} x2={width - padding.right} y1={y} y2={y} stroke="currentColor" className="text-slate-200 dark:text-slate-800" />;
+          })}
+          {targetY >= padding.top && targetY <= height - padding.bottom && (
+            <>
+              <line x1={padding.left} x2={width - padding.right} y1={targetY} y2={targetY} stroke="#0284c7" strokeDasharray="5 5" />
+              <text x={width - padding.right} y={targetY - 6} textAnchor="end" className="fill-sky-600 text-[11px] dark:fill-sky-300">參考 20%</text>
+            </>
+          )}
+          <line x1={padding.left} x2={width - padding.right} y1={zeroY} y2={zeroY} stroke="currentColor" className="text-slate-400 dark:text-slate-600" />
+          <polygon points={areaPoints} fill="url(#savings-rate-fill)" />
+          <polyline points={linePoints} fill="none" stroke="#059669" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+          {plotValues.map((value, index) => (
+            <g key={validData[index].month}>
+              <circle cx={xFor(index)} cy={yFor(value)} r="5" fill={values[index] >= 0 ? "#059669" : "#dc2626"} stroke="white" strokeWidth="2">
+                <title>{`${validData[index].month} 儲蓄率 ${formatPercent(values[index])}`}</title>
+              </circle>
+              <text x={xFor(index)} y={height - 12} textAnchor="middle" className="fill-slate-500 text-xs dark:fill-slate-400">{validData[index].month.slice(5)}</text>
+            </g>
+          ))}
+        </svg>
+      </div>
+      <div className="mt-2 grid grid-cols-3 divide-x divide-slate-200 text-center dark:divide-slate-800">
+        <ChartSummary label="目前" value={formatPercent(values.at(-1) ?? 0)} />
+        <ChartSummary label="期間平均" value={formatPercent(average)} />
+        <ChartSummary label="參考目標" value="20%" />
+      </div>
+    </div>
+  );
+}
+
+function ExpenseNatureChart({ transactions }: { transactions: Transaction[] }) {
+  const summary = summarizeExpenseNature(transactions);
+  if (summary.totalCents <= 0) return <EmptyState label="記錄支出後會顯示必要與彈性支出比例" />;
+  const necessaryRatio = summary.necessaryCents / summary.totalCents;
+  const recurringRatio = summary.recurringCents / summary.totalCents;
+  return (
+    <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center">
+      <DonutChart
+        segments={[
+          { label: "必要支出", value: summary.necessaryCents, color: "#0284c7" },
+          { label: "彈性支出", value: summary.flexibleCents, color: "#f59e0b" }
+        ]}
+        centerLabel="必要占比"
+        centerValue={formatPercent(necessaryRatio)}
+      />
+      <div className="min-w-0 flex-1 space-y-3">
+        <Legend color="#0284c7" label="必要" value={formatMoney(summary.necessaryCents)} />
+        <Legend color="#f59e0b" label="彈性" value={formatMoney(summary.flexibleCents)} />
+        <Progress label="固定支出占比" value={recurringRatio} helper={formatPercent(recurringRatio)} colorClass="bg-violet-500" />
+      </div>
+    </div>
+  );
+}
+
+function DebtBurdenChart({
+  monthlyIncomeCents,
+  monthlyDebtPaymentCents,
+  ratio
+}: {
+  monthlyIncomeCents: number;
+  monthlyDebtPaymentCents: number;
+  ratio: number;
+}) {
+  if (monthlyIncomeCents <= 0 && monthlyDebtPaymentCents <= 0) return <EmptyState label="記錄收入、卡費或貸款後會顯示還款負擔" />;
+  const disposableCents = Math.max(0, monthlyIncomeCents - monthlyDebtPaymentCents);
+  const tone = ratio > 0.5 ? "偏高" : ratio > 0.35 ? "需留意" : "穩定";
+  return (
+    <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center">
+      <DonutChart
+        segments={[
+          { label: "本月還款", value: monthlyDebtPaymentCents, color: ratio > 0.5 ? "#dc2626" : ratio > 0.35 ? "#f59e0b" : "#059669" },
+          { label: "還款後收入", value: disposableCents, color: "#cbd5e1" }
+        ]}
+        centerLabel="收入占比"
+        centerValue={monthlyIncomeCents > 0 ? formatPercent(ratio) : "待補收入"}
+      />
+      <div className="min-w-0 flex-1 space-y-3">
+        <div className="flex items-center justify-between gap-3 text-sm">
+          <span className="text-slate-500 dark:text-slate-400">判讀</span>
+          <span className={`font-semibold ${ratio > 0.5 ? "text-rose-600 dark:text-rose-300" : ratio > 0.35 ? "text-amber-600 dark:text-amber-300" : "text-emerald-700 dark:text-emerald-300"}`}>{tone}</span>
+        </div>
+        <Legend color="#dc2626" label="應繳" value={formatMoney(monthlyDebtPaymentCents)} />
+        <Legend color="#94a3b8" label="收入" value={formatMoney(monthlyIncomeCents)} />
+        <Progress label="還款負擔率" value={ratio} helper={monthlyIncomeCents > 0 ? formatPercent(ratio) : "-"} colorClass={ratio > 0.5 ? "bg-rose-500" : ratio > 0.35 ? "bg-amber-500" : "bg-emerald-500"} />
+      </div>
+    </div>
+  );
+}
+
+function EmergencyFundScale({ months }: { months: number }) {
+  const bounded = Math.max(0, Math.min(months, 6));
+  return (
+    <div className="mt-6">
+      <p className="text-4xl font-bold text-slate-950 dark:text-slate-50">{months.toFixed(1)}<span className="ml-1 text-base font-semibold text-slate-500 dark:text-slate-400">個月</span></p>
+      <div className="relative mt-7">
+        <div className="h-3 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
+          <div className={`h-3 rounded-full transition-all ${months >= 6 ? "bg-emerald-500" : months >= 3 ? "bg-sky-500" : "bg-amber-500"}`} style={{ width: `${(bounded / 6) * 100}%` }} />
+        </div>
+        {[1, 3, 6].map((target) => (
+          <span key={target} className="absolute top-[-5px] h-5 w-px bg-slate-500/60" style={{ left: `${(target / 6) * 100}%` }} />
+        ))}
+      </div>
+      <div className="mt-3 flex justify-between text-[11px] text-slate-500 dark:text-slate-400">
+        <span>0</span>
+        <span>3 個月</span>
+        <span>6 個月</span>
+      </div>
+      <p className="mt-5 text-sm leading-6 text-slate-600 dark:text-slate-300">
+        {months >= 6 ? "已達六個月參考目標，可持續維持流動性。" : months >= 3 ? "已有基本緩衝，下一步可朝六個月累積。" : "建議先累積至少三個月的必要支出。"}
+      </p>
+    </div>
+  );
+}
+
+function ChartSummary({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="px-2">
+      <p className="text-[11px] text-slate-500 dark:text-slate-400">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">{value}</p>
+    </div>
+  );
+}
+
+function buildFinancialSignals({
+  currentSavingsRate,
+  debtServiceRatio,
+  emergencyFundMonths,
+  necessaryExpenseRatio
+}: {
+  currentSavingsRate: number;
+  debtServiceRatio: number;
+  emergencyFundMonths: number;
+  necessaryExpenseRatio: number;
+}) {
+  const savingsSignal = currentSavingsRate >= 0.2
+    ? { title: "儲蓄率達到參考值", detail: `目前保留 ${formatPercent(currentSavingsRate)} 的收入。`, tone: "good" as const }
+    : currentSavingsRate >= 0
+      ? { title: "儲蓄空間仍可增加", detail: `目前儲蓄率 ${formatPercent(currentSavingsRate)}，可先從彈性支出調整。`, tone: "watch" as const }
+      : { title: "本期現金流為負", detail: `支出超過收入 ${formatPercent(Math.abs(currentSavingsRate))}。`, tone: "risk" as const };
+  const debtSignal = debtServiceRatio > 0.5
+    ? { title: "還款負擔偏高", detail: `估計占本期收入 ${formatPercent(debtServiceRatio)}，優先檢查高利率負債。`, tone: "risk" as const }
+    : debtServiceRatio > 0.35
+      ? { title: "還款負擔需留意", detail: `估計占本期收入 ${formatPercent(debtServiceRatio)}。`, tone: "watch" as const }
+      : { title: "還款負擔在穩定區間", detail: `估計占本期收入 ${formatPercent(debtServiceRatio)}。`, tone: "good" as const };
+  const reserveSignal = emergencyFundMonths >= 6
+    ? { title: "預備金已達六個月", detail: "短期風險緩衝較完整。", tone: "good" as const }
+    : emergencyFundMonths >= 3
+      ? { title: "預備金已有基本緩衝", detail: `目前約 ${emergencyFundMonths.toFixed(1)} 個月，可逐步補到六個月。`, tone: "watch" as const }
+      : { title: "優先補足預備金", detail: `目前約 ${emergencyFundMonths.toFixed(1)} 個月，先以三個月必要支出為目標。`, tone: "risk" as const };
+  const spendingSignal = necessaryExpenseRatio > 0.8
+    ? { title: "必要支出占比較高", detail: `目前約 ${formatPercent(necessaryExpenseRatio)}，可調整空間較有限。`, tone: "watch" as const }
+    : null;
+
+  return spendingSignal ? [savingsSignal, debtSignal, spendingSignal] : [savingsSignal, debtSignal, reserveSignal];
 }
 
 function PulseMetric({ label, value, accent }: { label: string; value: string; accent: string }) {
@@ -6607,6 +6926,16 @@ function ReportsPage({
       <div className="grid gap-4 lg:grid-cols-12">
         <section className="panel lg:col-span-8"><h3 className="font-semibold">月收支與現金流趨勢</h3><TrendChart data={monthlyTrend} /></section>
         <section className="panel lg:col-span-4"><h3 className="font-semibold">總資產與總負債比例</h3><LedgerDonut dashboard={dashboard} /></section>
+        <section className="panel lg:col-span-7">
+          <h3 className="font-semibold">儲蓄率趨勢</h3>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">比較各月收入扣除支出後的保留比例</p>
+          <SavingsRateTrendChart data={monthlyTrend} />
+        </section>
+        <section className="panel lg:col-span-5">
+          <h3 className="font-semibold">必要與彈性支出</h3>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">判讀支出結構與短期調整空間</p>
+          <ExpenseNatureChart transactions={transactions} />
+        </section>
         <section className="panel lg:col-span-7"><h3 className="font-semibold">全部帳戶總帳分布</h3><AccountBalanceChart accounts={accounts} /></section>
         <section className="panel lg:col-span-5"><h3 className="font-semibold">支出分類報表</h3><CategoryBars data={categoryBreakdown} /></section>
         <section className="panel lg:col-span-4"><h3 className="font-semibold">帳戶類型資產</h3><AccountTypeChart accounts={accounts} /></section>

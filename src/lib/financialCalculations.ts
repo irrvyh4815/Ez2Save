@@ -300,6 +300,39 @@ export function calculateEmergencyFundMonths(availableCashCents: number, average
   return safeDivide(availableCashCents, averageNecessaryExpenseCents);
 }
 
+export function calculateSavingsRate(incomeCents: number, expenseCents: number): number {
+  return incomeCents > 0 ? safeDivide(incomeCents - expenseCents, incomeCents) : 0;
+}
+
+export function calculateDebtServiceRatio(monthlyDebtPaymentCents: number, monthlyIncomeCents: number): number {
+  return monthlyIncomeCents > 0 ? safeDivide(Math.max(0, monthlyDebtPaymentCents), monthlyIncomeCents) : 0;
+}
+
+export function summarizeExpenseNature(transactions: Transaction[]): {
+  necessaryCents: number;
+  flexibleCents: number;
+  recurringCents: number;
+  totalCents: number;
+} {
+  const expenses = transactions.filter(
+    (transaction) => transaction.type === "expense" || transaction.type === "credit_card_purchase"
+  );
+  const totalCents = expenses.reduce((sum, transaction) => sum + transaction.amountCents, 0);
+  const necessaryCents = expenses
+    .filter((transaction) => transaction.isNecessary)
+    .reduce((sum, transaction) => sum + transaction.amountCents, 0);
+  const recurringCents = expenses
+    .filter((transaction) => transaction.isRecurring)
+    .reduce((sum, transaction) => sum + transaction.amountCents, 0);
+
+  return {
+    necessaryCents,
+    flexibleCents: Math.max(0, totalCents - necessaryCents),
+    recurringCents,
+    totalCents
+  };
+}
+
 export function getCreditCardBillingBucket(transactionDate: string, statementDay: number): "current" | "next" {
   const day = Number(transactionDate.slice(8, 10));
   return day <= statementDay ? "current" : "next";

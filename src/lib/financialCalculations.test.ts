@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   calculateDebtRatio,
+  calculateDebtServiceRatio,
   calculateDeposit,
   calculateEmergencyFundMonths,
   calculateEqualPayment,
@@ -9,8 +10,10 @@ import {
   calculateLoan,
   calculateMonthlyBalance,
   calculateNetWorth,
+  calculateSavingsRate,
   getCreditCardBillingBucket,
   isIncomeExpenseTransaction,
+  summarizeExpenseNature,
   summarizeDashboard
 } from "./financialCalculations";
 import type { CreditCard, FinancialAccount, Loan, Transaction } from "../types/finance";
@@ -276,6 +279,31 @@ describe("credit card billing", () => {
   it("splits current and next statement by statement day", () => {
     expect(getCreditCardBillingBucket("2026-07-20", 20)).toBe("current");
     expect(getCreditCardBillingBucket("2026-07-21", 20)).toBe("next");
+  });
+});
+
+describe("financial insight calculations", () => {
+  it("calculates savings and debt service ratios safely", () => {
+    expect(calculateSavingsRate(100_000_00, 65_000_00)).toBeCloseTo(0.35);
+    expect(calculateSavingsRate(0, 20_000_00)).toBe(0);
+    expect(calculateDebtServiceRatio(24_000_00, 80_000_00)).toBeCloseTo(0.3);
+    expect(calculateDebtServiceRatio(24_000_00, 0)).toBe(0);
+  });
+
+  it("separates necessary, flexible, and recurring expenses without counting transfers", () => {
+    const necessary = transaction("necessary", "expense", 20_000_00);
+    necessary.isNecessary = true;
+    necessary.isRecurring = true;
+    const flexible = transaction("flexible", "credit_card_purchase", 8_000_00);
+    flexible.isNecessary = false;
+    const transfer = transaction("transfer", "transfer", 50_000_00);
+
+    expect(summarizeExpenseNature([necessary, flexible, transfer])).toEqual({
+      necessaryCents: 20_000_00,
+      flexibleCents: 8_000_00,
+      recurringCents: 20_000_00,
+      totalCents: 28_000_00
+    });
   });
 });
 
