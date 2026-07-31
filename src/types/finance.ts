@@ -108,6 +108,8 @@ export interface CreditCardInstallment extends BaseEntity {
   creditCardId: string;
   transactionId?: string;
   merchant?: string;
+  installmentType: "statement" | "single_purchase";
+  includedInCardBalance: boolean;
   totalAmountCents: number;
   annualRate: number;
   periods: number;
@@ -119,6 +121,7 @@ export interface CreditCardInstallment extends BaseEntity {
   nextDueDate?: string;
   status: "active" | "paid_off" | "paused";
   note?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface Loan extends BaseEntity {

@@ -14,10 +14,12 @@ import {
   calculateSavingsRate,
   getCreditCardBillingBucket,
   isIncomeExpenseTransaction,
+  summarizeCreditCardLimit,
+  summarizeCreditCardLimits,
   summarizeExpenseNature,
   summarizeDashboard
 } from "./financialCalculations";
-import type { CreditCard, FinancialAccount, Loan, Transaction } from "../types/finance";
+import type { CreditCard, CreditCardInstallment, FinancialAccount, Loan, Transaction } from "../types/finance";
 
 const base = {
   userId: "user-1",
@@ -103,6 +105,74 @@ describe("loan calculations", () => {
 
     expect(result.interestSavedCents).toBeGreaterThan(0);
     expect(result.payoffMonths).toBeLessThan(48);
+  });
+});
+
+describe("credit card limit summaries", () => {
+  const card = (id: string, installmentBalanceCents = 0): CreditCard => ({
+    ...base,
+    id,
+    name: id,
+    issuer: "銀行",
+    last4: "1234",
+    creditLimitCents: 100_000_00,
+    statementDay: 20,
+    paymentDueDay: 5,
+    unbilledAmountCents: 5_000_00,
+    currentStatementAmountCents: 10_000_00,
+    minimumPaymentCents: 1_000_00,
+    installmentBalanceCents,
+    annualFeeCents: 0,
+    isActive: true,
+    recommendedUtilizationRate: 0.3
+  });
+  const installment = (
+    id: string,
+    creditCardId: string,
+    remainingAmountCents: number,
+    installmentType: CreditCardInstallment["installmentType"],
+    includedInCardBalance: boolean
+  ): CreditCardInstallment => ({
+    ...base,
+    id,
+    creditCardId,
+    merchant: id,
+    installmentType,
+    includedInCardBalance,
+    totalAmountCents: remainingAmountCents,
+    annualRate: 0,
+    periods: 12,
+    paidPeriods: 0,
+    monthlyPaymentCents: Math.round(remainingAmountCents / 12),
+    paidAmountCents: 0,
+    remainingAmountCents,
+    startedOn: "2026-07-01",
+    status: "active"
+  });
+
+  it("separates billed installment debt from additional limit occupancy", () => {
+    const summary = summarizeCreditCardLimit(card("card-1"), [
+      installment("statement-plan", "card-1", 20_000_00, "statement", true),
+      installment("purchase-plan", "card-1", 30_000_00, "single_purchase", false)
+    ]);
+
+    expect(summary.installmentDebtCents).toBe(50_000_00);
+    expect(summary.installmentOccupancyCents).toBe(30_000_00);
+    expect(summary.usedCreditCents).toBe(45_000_00);
+    expect(summary.availableCreditCents).toBe(55_000_00);
+    expect(summary.utilizationRate).toBe(0.45);
+  });
+
+  it("keeps fallback installment balances for cards without itemized plans", () => {
+    const cards = [card("card-1", 20_000_00), card("card-2", 30_000_00)];
+    const summary = summarizeCreditCardLimits(cards, [
+      installment("purchase-plan", "card-1", 25_000_00, "single_purchase", false)
+    ]);
+
+    expect(summary.installmentDebtCents).toBe(55_000_00);
+    expect(summary.usedCreditCents).toBe(85_000_00);
+    expect(summary.creditLimitCents).toBe(200_000_00);
+    expect(summary.utilizationRate).toBe(0.425);
   });
 });
 

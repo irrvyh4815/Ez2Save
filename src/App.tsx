@@ -50,6 +50,8 @@ import {
   inferAnnualRateFromPayment,
   calculateLoan,
   calculateSavingsRate,
+  summarizeCreditCardLimit,
+  summarizeCreditCardLimits,
   summarizeExpenseNature,
   summarizeDashboard,
   type DepositCalculationInput,
@@ -919,7 +921,7 @@ export default function App() {
     () =>
       creditCards.map((card) => ({
         ...card,
-        installmentBalanceCents: getCardInstallmentDebt(card.id, creditCardInstallments, card.installmentBalanceCents)
+        installmentBalanceCents: summarizeCreditCardLimit(card, creditCardInstallments).installmentOccupancyCents
       })),
     [creditCardInstallments, creditCards]
   );
@@ -4322,8 +4324,9 @@ function CashAvailabilityChart({ accounts }: { accounts: FinancialAccount[] }) {
 }
 
 function LiabilityChart({ creditCards, installments, loans }: { creditCards: CreditCard[]; installments: CreditCardInstallment[]; loans: Loan[] }) {
-  const cardDebt = creditCards.reduce((sum, card) => sum + card.currentStatementAmountCents + card.unbilledAmountCents, 0);
-  const installmentDebt = getInstallmentDebtCents(creditCards, installments);
+  const creditSummary = summarizeCreditCardLimits(creditCards, installments);
+  const cardDebt = creditSummary.currentStatementCents + creditSummary.unbilledCents;
+  const installmentDebt = creditSummary.installmentOccupancyCents;
   const loanDebt = loans.reduce((sum, loan) => sum + loan.remainingPrincipalCents, 0);
   const monthlyPressure = creditCards.reduce((sum, card) => sum + card.minimumPaymentCents, 0) + getInstallmentMonthlyDueCents(installments) + loans.reduce((sum, loan) => sum + loan.paymentPerPeriodCents, 0);
   return (
@@ -4345,26 +4348,10 @@ function LiabilityChart({ creditCards, installments, loans }: { creditCards: Cre
   );
 }
 
-function getInstallmentDebtCents(cards: CreditCard[], installments: CreditCardInstallment[]): number {
-  const activeInstallments = installments.filter((installment) => installment.status === "active");
-  if (activeInstallments.length > 0) {
-    return activeInstallments.reduce((sum, installment) => sum + installment.remainingAmountCents, 0);
-  }
-  return cards.reduce((sum, card) => sum + card.installmentBalanceCents, 0);
-}
-
 function getInstallmentMonthlyDueCents(installments: CreditCardInstallment[]): number {
   return installments
     .filter((installment) => installment.status === "active")
     .reduce((sum, installment) => sum + installment.monthlyPaymentCents, 0);
-}
-
-function getCardInstallmentDebt(cardId: string, installments: CreditCardInstallment[], fallbackCents: number): number {
-  const cardInstallments = installments.filter((installment) => installment.creditCardId === cardId && installment.status === "active");
-  if (cardInstallments.length > 0) {
-    return cardInstallments.reduce((sum, installment) => sum + installment.remainingAmountCents, 0);
-  }
-  return fallbackCents;
 }
 
 function summarizeInstallmentDebt(installments: CreditCardInstallment[]) {
@@ -4384,38 +4371,56 @@ function InstallmentDebtTable({ cards, installments }: { cards: CreditCard[]; in
   const active = installments.filter((installment) => installment.status === "active");
   if (active.length === 0) return <EmptyState label="尚無信用卡分期負債資料" />;
   const cardName = (cardId: string) => cards.find((card) => card.id === cardId)?.name ?? "信用卡";
+  const totalAmountCents = active.reduce((sum, installment) => sum + installment.totalAmountCents, 0);
+  const paidAmountCents = active.reduce((sum, installment) => sum + installment.paidAmountCents, 0);
+  const remainingAmountCents = active.reduce((sum, installment) => sum + installment.remainingAmountCents, 0);
+  const additionalOccupancyCents = active
+    .filter((installment) => !installment.includedInCardBalance)
+    .reduce((sum, installment) => sum + installment.remainingAmountCents, 0);
   return (
-    <div className="mt-4 overflow-x-auto">
-      <table className="w-full min-w-[860px] text-sm">
-        <thead>
-          <tr className="text-left text-slate-500 dark:text-slate-400">
-            <th>卡片</th>
-            <th>項目</th>
-            <th>總額</th>
-            <th>年利率</th>
-            <th>已還</th>
-            <th>剩餘</th>
-            <th>期數</th>
-            <th>每月應繳</th>
-            <th>下次應繳</th>
-          </tr>
-        </thead>
-        <tbody>
-          {active.map((installment) => (
-            <tr key={installment.id} className="border-t border-slate-200 dark:border-slate-800">
-              <td className="py-3">{cardName(installment.creditCardId)}</td>
-              <td>{installment.merchant || "-"}</td>
-              <td>{formatMoney(installment.totalAmountCents)}</td>
-              <td>{formatPercent(installment.annualRate)}</td>
-              <td>{formatMoney(installment.paidAmountCents)}</td>
-              <td className="font-semibold">{formatMoney(installment.remainingAmountCents)}</td>
-              <td>{installment.paidPeriods}/{installment.periods}</td>
-              <td>{formatMoney(installment.monthlyPaymentCents)}</td>
-              <td>{installment.nextDueDate ? formatDate(installment.nextDueDate) : "-"}</td>
+    <div className="mt-4">
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <Info label="分期原始總額" value={formatMoney(totalAmountCents)} />
+        <Info label="累計已還款" value={formatMoney(paidAmountCents)} />
+        <Info label="分期剩餘本金" value={formatMoney(remainingAmountCents)} />
+        <Info label="額外占用額度" value={formatMoney(additionalOccupancyCents)} />
+      </div>
+      <div className="mt-4 overflow-x-auto">
+        <table className="w-full min-w-[1100px] text-sm">
+          <thead>
+            <tr className="text-left text-slate-500 dark:text-slate-400">
+              <th>卡片</th>
+              <th>項目</th>
+              <th>分期類型</th>
+              <th>額度計入</th>
+              <th>總額</th>
+              <th>年利率</th>
+              <th>已還</th>
+              <th>剩餘</th>
+              <th>期數</th>
+              <th>每月應繳</th>
+              <th>下次應繳</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {active.map((installment) => (
+              <tr key={installment.id} className="border-t border-slate-200 dark:border-slate-800">
+                <td className="py-3">{cardName(installment.creditCardId)}</td>
+                <td>{installment.merchant || "-"}</td>
+                <td>{installment.installmentType === "statement" ? "帳單分期" : "單筆分期"}</td>
+                <td>{installment.includedInCardBalance ? "已含帳單" : "額外占用"}</td>
+                <td>{formatMoney(installment.totalAmountCents)}</td>
+                <td>{formatPercent(installment.annualRate)}</td>
+                <td>{formatMoney(installment.paidAmountCents)}</td>
+                <td className="font-semibold">{formatMoney(installment.remainingAmountCents)}</td>
+                <td>{installment.paidPeriods}/{installment.periods}</td>
+                <td>{formatMoney(installment.monthlyPaymentCents)}</td>
+                <td>{installment.nextDueDate ? formatDate(installment.nextDueDate) : "-"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -5055,12 +5060,20 @@ function CardsPage({
 }) {
   function addCard(formData: FormData) {
     const limit = parseMoneyToCents(String(formData.get("limit") ?? ""));
+    const statementAmountCents = parseMoneyToCents(String(formData.get("statementAmount") ?? "0"));
+    const unbilledAmountCents = parseMoneyToCents(String(formData.get("unbilledAmount") ?? "0"));
+    const installmentBalanceCents = parseMoneyToCents(String(formData.get("installmentBalance") ?? "0"));
+    const minimumPaymentCents = parseMoneyToCents(String(formData.get("minimumPayment") ?? "0"));
     const annualFeeCents = parseMoneyToCents(String(formData.get("annualFee") ?? "0"));
     const statementDay = Number(formData.get("statementDay"));
     const paymentDueDay = Number(formData.get("paymentDueDay"));
     const last4 = String(formData.get("last4")).trim();
     const validation = combineValidations(
       validatePositiveAmount(limit, "信用額度"),
+      validateNonNegativeAmount(statementAmountCents, "本期帳單"),
+      validateNonNegativeAmount(unbilledAmountCents, "未出帳金額"),
+      validateNonNegativeAmount(installmentBalanceCents, "分期餘額"),
+      validateNonNegativeAmount(minimumPaymentCents, "最低應繳"),
       validateNonNegativeAmount(annualFeeCents, "年費"),
       validateIntegerRange(statementDay, 1, 31, "結帳日"),
       validateIntegerRange(paymentDueDay, 1, 31, "繳款截止日")
@@ -5077,10 +5090,10 @@ function CardsPage({
         creditLimitCents: limit,
         statementDay,
         paymentDueDay,
-        unbilledAmountCents: 0,
-        currentStatementAmountCents: 0,
-        minimumPaymentCents: 0,
-        installmentBalanceCents: 0,
+        unbilledAmountCents,
+        currentStatementAmountCents: statementAmountCents,
+        minimumPaymentCents,
+        installmentBalanceCents,
         autoPayAccountId: String(formData.get("autoPayAccountId") ?? ""),
         annualFeeCents,
         annualFeeWaiver: String(formData.get("waiver") ?? ""),
@@ -5119,6 +5132,8 @@ function CardsPage({
       userId: localUserId,
       creditCardId: String(formData.get("creditCardId")),
       merchant: String(formData.get("merchant") ?? ""),
+      installmentType: String(formData.get("installmentType") ?? "single_purchase") as CreditCardInstallment["installmentType"],
+      includedInCardBalance: formData.get("includedInCardBalance") === "on",
       totalAmountCents,
       annualRate,
       periods,
@@ -5142,13 +5157,14 @@ function CardsPage({
     }
   }
 
-  const installmentDebt = getInstallmentDebtCents(cards, installments);
+  const creditSummary = summarizeCreditCardLimits(cards, installments);
+  const installmentDebt = creditSummary.installmentDebtCents;
   const installmentMonthlyDue = getInstallmentMonthlyDueCents(installments);
-  const totalCardStatementDebt = cards.reduce((sum, card) => sum + card.currentStatementAmountCents + card.unbilledAmountCents, 0);
-  const totalCreditLimitCents = cards.reduce((sum, card) => sum + card.creditLimitCents, 0);
-  const currentStatementCents = cards.reduce((sum, card) => sum + card.currentStatementAmountCents, 0);
-  const unbilledCents = cards.reduce((sum, card) => sum + card.unbilledAmountCents, 0);
-  const cardUtilization = (totalCardStatementDebt + installmentDebt) / Math.max(totalCreditLimitCents, 1);
+  const totalCardStatementDebt = creditSummary.currentStatementCents + creditSummary.unbilledCents;
+  const totalCreditLimitCents = creditSummary.creditLimitCents;
+  const currentStatementCents = creditSummary.currentStatementCents;
+  const unbilledCents = creditSummary.unbilledCents;
+  const cardUtilization = creditSummary.utilizationRate;
 
   return (
     <div className="space-y-4">
@@ -5156,11 +5172,12 @@ function CardsPage({
         icon={<CreditCardIcon size={18} />}
         label="信用卡總覽"
         title="卡費、未出帳與分期負債"
-        value={formatMoney(totalCardStatementDebt + installmentDebt)}
+        value={formatMoney(creditSummary.usedCreditCents)}
         tone="violet"
         metrics={[
           { label: "本期帳單", value: formatMoney(currentStatementCents), accent: "border-rose-300" },
           { label: "下期未出帳", value: formatMoney(unbilledCents), accent: "border-amber-300" },
+          { label: "已用額度", value: formatMoney(creditSummary.usedCreditCents), accent: "border-sky-300" },
           { label: "額度使用率", value: formatPercent(cardUtilization), accent: "border-violet-300" }
         ]}
       >
@@ -5169,30 +5186,41 @@ function CardsPage({
             segments={[
               { label: "本期帳單", value: currentStatementCents, color: "#7c3aed" },
               { label: "未出帳", value: unbilledCents, color: "#f59e0b" },
-              { label: "分期負債", value: installmentDebt, color: "#dc2626" }
+              { label: "分期額外占用", value: creditSummary.installmentOccupancyCents, color: "#dc2626" }
             ]}
             centerLabel="待整理"
-            centerValue={formatCompactMoney(totalCardStatementDebt + installmentDebt)}
+            centerValue={formatCompactMoney(creditSummary.usedCreditCents)}
           />
           <div className="flex-1 space-y-3 text-sm">
             <div className="flex items-center justify-between gap-3">
               <span className="text-slate-300">信用額度</span>
               <span className="font-semibold text-white">{formatMoney(totalCreditLimitCents)}</span>
             </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-slate-300">剩餘可用額度</span>
+              <span className="font-semibold text-white">{formatMoney(creditSummary.availableCreditCents)}</span>
+            </div>
             <Progress label="總額度使用率" value={cardUtilization} colorClass={cardUtilization >= 0.3 ? "bg-amber-500" : "bg-emerald-500"} />
             <CompactDistributionList data={[
               { category: "本期帳單", amountCents: currentStatementCents },
               { category: "下期未出帳", amountCents: unbilledCents },
-              { category: "分期負債", amountCents: installmentDebt }
-            ]} total={Math.max(totalCardStatementDebt + installmentDebt, 1)} inverse />
+              { category: "分期額外占用", amountCents: creditSummary.installmentOccupancyCents }
+            ]} total={Math.max(creditSummary.usedCreditCents, 1)} inverse />
           </div>
         </div>
       </FeatureHero>
-      <section className="grid gap-3 md:grid-cols-3">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <StatCard label="已用額度" value={formatMoney(creditSummary.usedCreditCents)} />
+        <StatCard label="剩餘額度" value={formatMoney(creditSummary.availableCreditCents)} />
         <StatCard label="信用卡帳款" value={formatMoney(totalCardStatementDebt)} />
         <StatCard label="分期剩餘負債" value={formatMoney(installmentDebt)} />
         <StatCard label="分期每月應繳" value={formatMoney(installmentMonthlyDue)} />
       </section>
+      {creditSummary.overLimitCents > 0 && (
+        <p className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm font-medium text-rose-800 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-100">
+          目前信用卡額度合計已超出 {formatMoney(creditSummary.overLimitCents)}，請核對匯入金額或優先安排還款。
+        </p>
+      )}
       <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
       <FormDisclosure title="新增信用卡" description="只需卡片辨識末四碼與帳務日期，不會儲存完整卡號。">
         <form className="space-y-3" onSubmit={handleFormSubmit(addCard)}>
@@ -5200,6 +5228,15 @@ function CardsPage({
           <Field label="發卡銀行"><input className="input" name="issuer" required /></Field>
           <Field label="末四碼"><input className="input" name="last4" inputMode="numeric" maxLength={4} required /></Field>
           <Field label="信用額度"><input className="input" name="limit" inputMode="decimal" required /></Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="本期已出帳"><input className="input" name="statementAmount" inputMode="decimal" defaultValue="0" /></Field>
+            <Field label="下期未出帳"><input className="input" name="unbilledAmount" inputMode="decimal" defaultValue="0" /></Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="其他分期餘額"><input className="input" name="installmentBalance" inputMode="decimal" defaultValue="0" /></Field>
+            <Field label="最低應繳"><input className="input" name="minimumPayment" inputMode="decimal" defaultValue="0" /></Field>
+          </div>
+          <p className="helper-text">已有單筆分期明細時，系統會優先採用明細，避免和「其他分期餘額」重複計算。</p>
           <div className="grid grid-cols-2 gap-3">
             <Field label="結帳日"><input className="input" name="statementDay" type="number" min={1} max={31} defaultValue={20} /></Field>
             <Field label="繳款截止日"><input className="input" name="paymentDueDay" type="number" min={1} max={31} defaultValue={5} /></Field>
@@ -5212,9 +5249,10 @@ function CardsPage({
       </FormDisclosure>
       <section className="grid gap-3 md:grid-cols-2">
         {cards.length === 0 ? <div className="md:col-span-2"><EmptyState label="尚未建立信用卡，可從新增信用卡開始管理帳單與分期。" /></div> : cards.map((card) => {
-          const cardInstallmentDebt = getCardInstallmentDebt(card.id, installments, card.installmentBalanceCents);
-          const used = card.unbilledAmountCents + card.currentStatementAmountCents + cardInstallmentDebt;
-          const utilization = used / Math.max(card.creditLimitCents, 1);
+          const cardSummary = summarizeCreditCardLimit(card, installments);
+          const cardInstallmentDebt = cardSummary.installmentDebtCents;
+          const used = cardSummary.usedCreditCents;
+          const utilization = cardSummary.utilizationRate;
           return (
             <div key={card.id} className="panel">
               <div className="flex items-start justify-between gap-3">
@@ -5225,10 +5263,14 @@ function CardsPage({
                 <Info label="本期帳單" value={formatMoney(card.currentStatementAmountCents)} />
                 <Info label="下期未出帳" value={formatMoney(card.unbilledAmountCents)} />
                 <Info label="分期剩餘" value={formatMoney(cardInstallmentDebt)} />
-                <Info label="剩餘額度" value={formatMoney(Math.max(0, card.creditLimitCents - used))} />
+                <Info label="已用額度" value={formatMoney(used)} />
+                <Info label="剩餘額度" value={formatMoney(cardSummary.availableCreditCents)} />
                 <Info label="最低應繳" value={formatMoney(card.minimumPaymentCents)} />
               </div>
               <div className="mt-4"><Progress label="額度使用率" value={utilization} /></div>
+              {cardSummary.overLimitCents > 0 && (
+                <p className="mt-3 rounded-md bg-rose-50 p-3 text-sm font-medium text-rose-800 dark:bg-rose-950 dark:text-rose-100">已超出信用額度 {formatMoney(cardSummary.overLimitCents)}，請核對帳款或安排還款。</p>
+              )}
               {utilization > card.recommendedUtilizationRate && (
                 <p className="mt-3 rounded-md bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-100">已超過建議額度使用率 {formatPercent(card.recommendedUtilizationRate)}。</p>
               )}
@@ -5247,6 +5289,8 @@ function CardsPage({
                     statementDay: Number(formData.get("statementDay") ?? card.statementDay),
                     paymentDueDay: Number(formData.get("paymentDueDay") ?? card.paymentDueDay),
                     currentStatementAmountCents: Math.max(0, parseMoneyToCents(String(formData.get("statementAmount") ?? "0"))),
+                    unbilledAmountCents: Math.max(0, parseMoneyToCents(String(formData.get("unbilledAmount") ?? "0"))),
+                    installmentBalanceCents: Math.max(0, parseMoneyToCents(String(formData.get("installmentBalance") ?? "0"))),
                     minimumPaymentCents: Math.max(0, parseMoneyToCents(String(formData.get("minimumPayment") ?? "0"))),
                     recommendedUtilizationRate: Math.min(1, Math.max(0.01, Number(formData.get("utilizationRate") ?? 30) / 100)),
                     isActive: formData.get("active") === "on"
@@ -5255,7 +5299,8 @@ function CardsPage({
                   <div className="grid grid-cols-2 gap-3"><Field label="信用卡名稱"><input className="input" name="name" defaultValue={card.name} required /></Field><Field label="發卡銀行"><input className="input" name="issuer" defaultValue={card.issuer} required /></Field></div>
                   <div className="grid grid-cols-2 gap-3"><Field label="末四碼"><input className="input" name="last4" defaultValue={card.last4} maxLength={4} inputMode="numeric" required /></Field><Field label="信用額度"><input className="input" name="limit" defaultValue={card.creditLimitCents / 100} inputMode="decimal" required /></Field></div>
                   <div className="grid grid-cols-2 gap-3"><Field label="結帳日"><input className="input" name="statementDay" type="number" min={1} max={31} defaultValue={card.statementDay} /></Field><Field label="繳款截止日"><input className="input" name="paymentDueDay" type="number" min={1} max={31} defaultValue={card.paymentDueDay} /></Field></div>
-                  <div className="grid grid-cols-2 gap-3"><Field label="本期帳單"><input className="input" name="statementAmount" defaultValue={card.currentStatementAmountCents / 100} inputMode="decimal" /></Field><Field label="最低應繳"><input className="input" name="minimumPayment" defaultValue={card.minimumPaymentCents / 100} inputMode="decimal" /></Field></div>
+                  <div className="grid grid-cols-2 gap-3"><Field label="本期帳單"><input className="input" name="statementAmount" defaultValue={card.currentStatementAmountCents / 100} inputMode="decimal" /></Field><Field label="下期未出帳"><input className="input" name="unbilledAmount" defaultValue={card.unbilledAmountCents / 100} inputMode="decimal" /></Field></div>
+                  <div className="grid grid-cols-2 gap-3"><Field label="其他分期餘額"><input className="input" name="installmentBalance" defaultValue={card.installmentBalanceCents / 100} inputMode="decimal" /></Field><Field label="最低應繳"><input className="input" name="minimumPayment" defaultValue={card.minimumPaymentCents / 100} inputMode="decimal" /></Field></div>
                   <Field label="建議額度使用率 %"><input className="input" name="utilizationRate" type="number" min={1} max={100} defaultValue={Math.round(card.recommendedUtilizationRate * 100)} /></Field>
                   <label className="flex items-center gap-2 text-sm"><input name="active" type="checkbox" defaultChecked={card.isActive} /> 啟用信用卡</label>
                   <button className="btn-primary w-full" type="submit">儲存變更</button>
@@ -5275,6 +5320,19 @@ function CardsPage({
               </select>
             </Field>
             <Field label="商家或項目"><input className="input" name="merchant" placeholder="例如 手機、家電、旅遊" /></Field>
+            <Field label="分期類型">
+              <select className="input" name="installmentType" defaultValue="single_purchase">
+                <option value="single_purchase">單筆消費分期</option>
+                <option value="statement">帳單分期</option>
+              </select>
+            </Field>
+            <label className="flex items-start gap-2 rounded-md border border-slate-200 p-3 text-sm dark:border-slate-700">
+              <input className="mt-0.5" name="includedInCardBalance" type="checkbox" />
+              <span>
+                <span className="block font-medium">分期餘額已包含在卡片帳款</span>
+                <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">勾選後仍計入分期負債，但不會再次增加已用額度。</span>
+              </span>
+            </label>
             <Field label="分期總額"><input className="input" name="totalAmount" inputMode="decimal" required /></Field>
             <Field label="年利率 %"><input className="input" name="annualRate" inputMode="decimal" defaultValue="0" /></Field>
             <div className="grid grid-cols-2 gap-3">
@@ -7104,7 +7162,10 @@ function ReportsPage({
         <section className="panel lg:col-span-5"><h3 className="font-semibold">支出分類報表</h3><CategoryBars data={categoryBreakdown} /></section>
         <section className="panel lg:col-span-4"><h3 className="font-semibold">帳戶類型資產</h3><AccountTypeChart accounts={accounts} /></section>
         <section className="panel lg:col-span-4"><h3 className="font-semibold">可動用與暫不可動用資金</h3><CashAvailabilityChart accounts={accounts} /></section>
-        <section className="panel lg:col-span-4"><h3 className="font-semibold">信用卡使用報表</h3>{creditCards.map((card, index) => <Progress key={card.id} label={card.name} value={(card.currentStatementAmountCents + card.unbilledAmountCents + getCardInstallmentDebt(card.id, creditCardInstallments, card.installmentBalanceCents)) / Math.max(card.creditLimitCents, 1)} colorClass={index % 2 === 0 ? "bg-sky-600" : "bg-violet-600"} />)}</section>
+        <section className="panel lg:col-span-4"><h3 className="font-semibold">信用卡使用報表</h3>{creditCards.map((card, index) => {
+          const summary = summarizeCreditCardLimit(card, creditCardInstallments);
+          return <Progress key={card.id} label={card.name} value={summary.utilizationRate} helper={`${formatMoney(summary.usedCreditCents)} / ${formatMoney(summary.creditLimitCents)}`} colorClass={index % 2 === 0 ? "bg-sky-600" : "bg-violet-600"} />;
+        })}</section>
         <section className="panel lg:col-span-5"><h3 className="font-semibold">貸款餘額報表</h3><div className="mt-4 space-y-4">{loans.length === 0 ? <EmptyState label="尚無貸款資料" /> : loans.map((loan, index) => <Progress key={loan.id} label={loan.name} value={loan.remainingPrincipalCents / Math.max(loan.originalPrincipalCents, 1)} helper={formatMoney(loan.remainingPrincipalCents)} colorClass={index % 2 === 0 ? "bg-rose-600" : "bg-amber-500"} />)}</div></section>
         <section className="panel lg:col-span-7"><h3 className="font-semibold">分期負債明細</h3><InstallmentDebtTable cards={creditCards} installments={creditCardInstallments} /></section>
       </div>

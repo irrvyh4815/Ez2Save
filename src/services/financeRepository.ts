@@ -290,7 +290,7 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
       .order("created_at", { ascending: false }),
     scoped(supabase
       .from("credit_card_installments")
-      .select("id,user_id,credit_card_id,transaction_id,merchant,total_amount_cents,annual_rate,periods,paid_periods,monthly_payment_cents,paid_amount_cents,remaining_amount_cents,started_on,next_due_date,status,note,created_at,updated_at"))
+      .select("id,user_id,credit_card_id,transaction_id,merchant,total_amount_cents,annual_rate,periods,paid_periods,monthly_payment_cents,paid_amount_cents,remaining_amount_cents,started_on,next_due_date,status,note,metadata,created_at,updated_at"))
       .is("deleted_at", null)
       .order("next_due_date", { ascending: true }),
     scoped(supabase
@@ -1150,12 +1150,17 @@ export async function createCreditCardInstallment(installment: CreditCardInstall
       monthly_payment_cents: installment.monthlyPaymentCents,
       paid_amount_cents: installment.paidAmountCents,
       remaining_amount_cents: installment.remainingAmountCents,
+      metadata: {
+        ...(installment.metadata ?? {}),
+        installment_type: installment.installmentType,
+        included_in_card_balance: installment.includedInCardBalance
+      },
       started_on: installment.startedOn,
       next_due_date: installment.nextDueDate || null,
       status: installment.status,
       note: installment.note || null
     })
-    .select("id,user_id,credit_card_id,transaction_id,merchant,total_amount_cents,annual_rate,periods,paid_periods,monthly_payment_cents,paid_amount_cents,remaining_amount_cents,started_on,next_due_date,status,note,created_at,updated_at")
+    .select("id,user_id,credit_card_id,transaction_id,merchant,total_amount_cents,annual_rate,periods,paid_periods,monthly_payment_cents,paid_amount_cents,remaining_amount_cents,started_on,next_due_date,status,note,metadata,created_at,updated_at")
     .single();
   if (error) throw new Error("信用卡分期儲存失敗");
   return mapCreditCardInstallment(data);
@@ -1244,12 +1249,15 @@ function mapCreditCardInstallment(row: Record<string, unknown>): CreditCardInsta
   const totalAmountCents = toNumber(row.total_amount_cents);
   const paidAmountCents = toNumber(row.paid_amount_cents);
   const remainingAmountCents = toNumber(row.remaining_amount_cents) || Math.max(0, totalAmountCents - paidAmountCents);
+  const metadata = isRecord(row.metadata) ? row.metadata : {};
   return {
     id: String(row.id),
     userId: String(row.user_id),
     creditCardId: String(row.credit_card_id),
     transactionId: nullableString(row.transaction_id),
     merchant: nullableString(row.merchant),
+    installmentType: metadata.installment_type === "statement" ? "statement" : "single_purchase",
+    includedInCardBalance: metadata.included_in_card_balance === true,
     totalAmountCents,
     annualRate: Number(row.annual_rate ?? 0),
     periods: toNumber(row.periods),
@@ -1261,6 +1269,7 @@ function mapCreditCardInstallment(row: Record<string, unknown>): CreditCardInsta
     nextDueDate: nullableString(row.next_due_date),
     status: String(row.status ?? "active") as CreditCardInstallment["status"],
     note: nullableString(row.note),
+    metadata,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)
   };

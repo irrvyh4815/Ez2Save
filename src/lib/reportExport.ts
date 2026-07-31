@@ -7,6 +7,7 @@ import type {
   DashboardSummary,
   CurrencyCode
 } from "../types/finance";
+import { summarizeCreditCardLimit } from "./financialCalculations";
 import { formatDate, formatMoney, formatPercent } from "./format";
 
 const accountTypeLabels: Record<FinancialAccount["type"], string> = {
@@ -156,10 +157,9 @@ function buildReportSections(input: ReportExportInput) {
     },
     {
       title: "信用卡",
-      headers: ["信用卡", "銀行", "末四碼", "信用額度", "本期帳單", "未出帳", "分期餘額", "最低應繳", "額度使用率"],
+      headers: ["信用卡", "銀行", "末四碼", "信用額度", "本期帳單", "未出帳", "分期餘額", "已用額度", "剩餘額度", "最低應繳", "額度使用率"],
       rows: input.creditCards.map((card) => {
-        const installmentDebt = getCardInstallmentDebt(card.id, input.creditCardInstallments, card.installmentBalanceCents);
-        const used = card.currentStatementAmountCents + card.unbilledAmountCents + installmentDebt;
+        const summary = summarizeCreditCardLimit(card, input.creditCardInstallments);
         return [
           card.name,
           card.issuer,
@@ -167,9 +167,11 @@ function buildReportSections(input: ReportExportInput) {
           formatMoney(card.creditLimitCents, input.currency),
           formatMoney(card.currentStatementAmountCents, input.currency),
           formatMoney(card.unbilledAmountCents, input.currency),
-          formatMoney(installmentDebt, input.currency),
+          formatMoney(summary.installmentDebtCents, input.currency),
+          formatMoney(summary.usedCreditCents, input.currency),
+          formatMoney(summary.availableCreditCents, input.currency),
           formatMoney(card.minimumPaymentCents, input.currency),
-          formatPercent(used / Math.max(card.creditLimitCents, 1))
+          formatPercent(summary.utilizationRate)
         ];
       })
     },
@@ -191,12 +193,14 @@ function buildReportSections(input: ReportExportInput) {
     },
     {
       title: "信用卡分期負債",
-      headers: ["信用卡", "項目", "總額", "已還", "剩餘", "年利率", "期數", "每月應繳", "下次應繳"],
+      headers: ["信用卡", "項目", "分期類型", "額度計入", "總額", "已還", "剩餘", "年利率", "期數", "每月應繳", "下次應繳"],
       rows: input.creditCardInstallments.map((installment) => {
         const card = input.creditCards.find((candidate) => candidate.id === installment.creditCardId);
         return [
           card?.name ?? "信用卡",
           installment.merchant ?? "",
+          installment.installmentType === "statement" ? "帳單分期" : "單筆分期",
+          installment.includedInCardBalance ? "已含帳單" : "額外占用",
           formatMoney(installment.totalAmountCents, input.currency),
           formatMoney(installment.paidAmountCents, input.currency),
           formatMoney(installment.remainingAmountCents, input.currency),
@@ -251,12 +255,6 @@ function renderHtmlTable(section: { title: string; headers: string[]; rows: stri
     }
   </tbody>
 </table>`;
-}
-
-function getCardInstallmentDebt(cardId: string, installments: CreditCardInstallment[], fallbackCents: number) {
-  const active = installments.filter((installment) => installment.creditCardId === cardId && installment.status === "active");
-  if (active.length === 0) return fallbackCents;
-  return active.reduce((sum, installment) => sum + installment.remainingAmountCents, 0);
 }
 
 function downloadBlob(filename: string, content: string, type: string) {

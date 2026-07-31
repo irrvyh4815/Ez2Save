@@ -1,5 +1,6 @@
 import type {
   CreditCard,
+  CreditCardInstallment,
   DashboardSummary,
   DepositInterestType,
   FinancialPlanRiskProfile,
@@ -37,6 +38,22 @@ export interface LoanCalculationResult {
   interestSavedCents: number;
   monthsShortened: number;
   schedule: AmortizationRow[];
+}
+
+export interface CreditCardLimitSummary {
+  creditLimitCents: number;
+  currentStatementCents: number;
+  unbilledCents: number;
+  installmentDebtCents: number;
+  installmentOccupancyCents: number;
+  paidInstallmentCents: number;
+  usedCreditCents: number;
+  availableCreditCents: number;
+  overLimitCents: number;
+  utilizationRate: number;
+  activeInstallmentCount: number;
+  statementInstallmentCents: number;
+  singlePurchaseInstallmentCents: number;
 }
 
 export interface DepositProjectionRow {
@@ -117,6 +134,81 @@ export function calculateInvestmentAssetValuation(asset: Pick<InvestmentAsset, "
     currentValueCents,
     profitLossCents,
     returnRate: safeDivide(profitLossCents, costCents)
+  };
+}
+
+export function summarizeCreditCardLimit(card: CreditCard, installments: CreditCardInstallment[]): CreditCardLimitSummary {
+  const activeInstallments = installments.filter((installment) => installment.creditCardId === card.id && installment.status === "active");
+  const hasItemizedInstallments = activeInstallments.length > 0;
+  const installmentDebtCents = hasItemizedInstallments
+    ? activeInstallments.reduce((sum, installment) => sum + Math.max(0, installment.remainingAmountCents), 0)
+    : Math.max(0, card.installmentBalanceCents);
+  const installmentOccupancyCents = hasItemizedInstallments
+    ? activeInstallments
+        .filter((installment) => !installment.includedInCardBalance)
+        .reduce((sum, installment) => sum + Math.max(0, installment.remainingAmountCents), 0)
+    : Math.max(0, card.installmentBalanceCents);
+  const currentStatementCents = Math.max(0, card.currentStatementAmountCents);
+  const unbilledCents = Math.max(0, card.unbilledAmountCents);
+  const usedCreditCents = currentStatementCents + unbilledCents + installmentOccupancyCents;
+  const creditLimitCents = Math.max(0, card.creditLimitCents);
+  return {
+    creditLimitCents,
+    currentStatementCents,
+    unbilledCents,
+    installmentDebtCents,
+    installmentOccupancyCents,
+    paidInstallmentCents: activeInstallments.reduce((sum, installment) => sum + Math.max(0, installment.paidAmountCents), 0),
+    usedCreditCents,
+    availableCreditCents: Math.max(0, creditLimitCents - usedCreditCents),
+    overLimitCents: Math.max(0, usedCreditCents - creditLimitCents),
+    utilizationRate: safeDivide(usedCreditCents, creditLimitCents),
+    activeInstallmentCount: activeInstallments.length,
+    statementInstallmentCents: activeInstallments
+      .filter((installment) => installment.installmentType === "statement")
+      .reduce((sum, installment) => sum + Math.max(0, installment.remainingAmountCents), 0),
+    singlePurchaseInstallmentCents: activeInstallments
+      .filter((installment) => installment.installmentType === "single_purchase")
+      .reduce((sum, installment) => sum + Math.max(0, installment.remainingAmountCents), 0)
+  };
+}
+
+export function summarizeCreditCardLimits(cards: CreditCard[], installments: CreditCardInstallment[]): CreditCardLimitSummary {
+  const summary = cards
+    .filter((card) => card.isActive)
+    .map((card) => summarizeCreditCardLimit(card, installments))
+    .reduce<CreditCardLimitSummary>((summary, card) => ({
+      creditLimitCents: summary.creditLimitCents + card.creditLimitCents,
+      currentStatementCents: summary.currentStatementCents + card.currentStatementCents,
+      unbilledCents: summary.unbilledCents + card.unbilledCents,
+      installmentDebtCents: summary.installmentDebtCents + card.installmentDebtCents,
+      installmentOccupancyCents: summary.installmentOccupancyCents + card.installmentOccupancyCents,
+      paidInstallmentCents: summary.paidInstallmentCents + card.paidInstallmentCents,
+      usedCreditCents: summary.usedCreditCents + card.usedCreditCents,
+      availableCreditCents: summary.availableCreditCents + card.availableCreditCents,
+      overLimitCents: summary.overLimitCents + card.overLimitCents,
+      utilizationRate: 0,
+      activeInstallmentCount: summary.activeInstallmentCount + card.activeInstallmentCount,
+      statementInstallmentCents: summary.statementInstallmentCents + card.statementInstallmentCents,
+      singlePurchaseInstallmentCents: summary.singlePurchaseInstallmentCents + card.singlePurchaseInstallmentCents
+    }), {
+      creditLimitCents: 0,
+      currentStatementCents: 0,
+      unbilledCents: 0,
+      installmentDebtCents: 0,
+      installmentOccupancyCents: 0,
+      paidInstallmentCents: 0,
+      usedCreditCents: 0,
+      availableCreditCents: 0,
+      overLimitCents: 0,
+      utilizationRate: 0,
+      activeInstallmentCount: 0,
+      statementInstallmentCents: 0,
+      singlePurchaseInstallmentCents: 0
+    });
+  return {
+    ...summary,
+    utilizationRate: safeDivide(summary.usedCreditCents, summary.creditLimitCents)
   };
 }
 
