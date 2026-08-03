@@ -68,6 +68,7 @@ import { currentTaipeiMonth, formatCompactMoney, formatCurrencyAmount, formatDat
 import { parseTransactionsCsv } from "./lib/csv";
 import { combineValidations, validateAnnualRate, validateDateRange, validateIntegerRange, validateNonNegativeAmount, validatePositiveAmount } from "./lib/validation";
 import { exportReportToExcel, exportReportToPdf } from "./lib/reportExport";
+import { getNotificationStatus, isNotificationVisible } from "./lib/notificationRules";
 import { isSupabaseConfigured } from "./services/supabaseClient";
 import { mockAiFinancialHealth, requestAiFinancialHealth } from "./services/aiFinancialHealth";
 import { listAdminUsers, manageAdminUser, type AdminManagedUser, type AdminAuditLog } from "./services/adminUsers";
@@ -2117,6 +2118,9 @@ export default function App() {
                 }}
                 onSaveProfile={savePersonalProfile}
                 onChangePassword={savePassword}
+                notificationPreferences={notificationPreferences}
+                onSaveNotificationPreferences={saveLedgerNotificationPreferences}
+                notify={notify}
               />
             )}
           </div>
@@ -3225,7 +3229,7 @@ const notificationPreferenceLabels: Record<NotificationPreference["type"], { lab
   insurance: { label: "保險", detail: "保費繳款與續保日" }
 };
 
-function NotificationSettingsPage({ preferences, onSave, notify }: { preferences: NotificationPreference[]; onSave: (preferences: NotificationPreference[]) => Promise<void>; notify: (type: ToastType, message: string) => void }) {
+function NotificationSettingsPage({ preferences, onSave, notify, compact = false }: { preferences: NotificationPreference[]; onSave: (preferences: NotificationPreference[]) => Promise<void>; notify: (type: ToastType, message: string) => void; compact?: boolean }) {
   const preferenceFor = (type: NotificationPreference["type"]) => preferences.find((item) => item.type === type);
   const enabledCount = (Object.keys(notificationPreferenceLabels) as NotificationPreference["type"][]).filter((type) => preferenceFor(type)?.isEnabled ?? true).length;
 
@@ -3261,7 +3265,7 @@ function NotificationSettingsPage({ preferences, onSave, notify }: { preferences
 
   return (
     <div className="space-y-4">
-      <FeatureHero
+      {!compact && <FeatureHero
         icon={<Bell size={18} />}
         label="通知設定"
         title="為這本帳本設定提醒節奏"
@@ -3277,11 +3281,11 @@ function NotificationSettingsPage({ preferences, onSave, notify }: { preferences
           <p>關閉某一類後，該類事項不會出現在此帳本的通知中心。</p>
           <p>持續提醒會在應用程式開啟期間，依設定間隔再次顯示；單次提醒只保留一則提示。</p>
         </div>
-      </FeatureHero>
+      </FeatureHero>}
 
-      <form className="panel" onSubmit={handleFormSubmit(save)}>
+      <form className="panel" onSubmit={(event) => { event.preventDefault(); save(new FormData(event.currentTarget)); }}>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div><h2 className="text-lg font-semibold">提醒類別</h2><p className="text-sm text-slate-500 dark:text-slate-400">每個帳本都有獨立設定，不會影響其他帳本。</p></div>
+          <div><h2 className="text-lg font-semibold">繳款與到期提醒</h2><p className="text-sm text-slate-500 dark:text-slate-400">設定目前帳本各類事項要在截止日前幾天出現在通知中心。</p></div>
           <button className="btn-primary" type="submit"><CheckCircle2 size={16} />儲存通知設定</button>
         </div>
         <div className="mt-4 grid gap-3 xl:grid-cols-2">
@@ -3295,7 +3299,7 @@ function NotificationSettingsPage({ preferences, onSave, notify }: { preferences
                   <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200"><span>開啟</span><input name={"enabled-" + type} type="checkbox" defaultChecked={existing?.isEnabled ?? true} /></label>
                 </div>
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                  <Field label="提前天數"><input className="input" name={"days-" + type} type="number" min={0} max={90} defaultValue={existing?.remindDaysBefore ?? (type === "deposit" || type === "insurance" ? 14 : 7)} /></Field>
+                  <Field label="截止日前幾天"><input className="input" name={"days-" + type} type="number" min={0} max={90} defaultValue={existing?.remindDaysBefore ?? (type === "deposit" || type === "insurance" ? 14 : 7)} /></Field>
                   <Field label="提醒方式"><select className="input" name={"mode-" + type} defaultValue={existing?.deliveryMode ?? "repeat"}><option value="single">單次提醒</option><option value="repeat">持續提醒</option></select></Field>
                   <Field label="持續間隔"><select className="input" name={"hours-" + type} defaultValue={existing?.repeatHours ?? 12}><option value={6}>每 6 小時</option><option value={12}>每 12 小時</option><option value={24}>每 24 小時</option><option value={48}>每 48 小時</option></select></Field>
                 </div>
@@ -3343,9 +3347,11 @@ function buildFinanceNotifications({
     const savedSetting = preferences.find((preference) => preference.type === item.source);
     const setting = savedSetting ?? settingFor(item.source);
     if (!setting.isEnabled) return;
+    const status = getNotificationStatus(item.date, todayIso, savedSetting?.remindDaysBefore ?? remindDaysBefore ?? setting.remindDaysBefore);
+    if (!isNotificationVisible(status)) return;
     items.push({
       ...item,
-      status: getNotificationStatus(item.date, todayIso, savedSetting?.remindDaysBefore ?? remindDaysBefore ?? setting.remindDaysBefore),
+      status,
       ledgerId,
       ledgerName,
       deliveryMode: setting.deliveryMode,
@@ -3589,20 +3595,6 @@ function getDashboardPeriodCopy(period: DatePeriod) {
     trendTitle: "指定期間收支趨勢",
     categoryTitle: "指定期間支出分類"
   };
-}
-
-function getNotificationStatus(date: string, todayIso: string, remindDaysBefore: number): FinanceNotification["status"] {
-  const diff = getDaysBetween(todayIso, date);
-  if (diff < 0) return "overdue";
-  if (diff === 0) return "due_today";
-  if (diff <= Math.max(0, remindDaysBefore)) return "upcoming";
-  return "scheduled";
-}
-
-function getDaysBetween(fromIso: string, toIso: string) {
-  const from = new Date(`${fromIso}T00:00:00+08:00`).getTime();
-  const to = new Date(`${toIso}T00:00:00+08:00`).getTime();
-  return Math.round((to - from) / 86_400_000);
 }
 
 function getNotificationStatusLabel(status: FinanceNotification["status"]) {
@@ -8387,7 +8379,10 @@ function SettingsPage({
   onSendSignInLink,
   onSignOut,
   onSaveProfile,
-  onChangePassword
+  onChangePassword,
+  notificationPreferences,
+  onSaveNotificationPreferences,
+  notify
 }: {
   isSupabaseConfigured: boolean;
   sessionEmail: string | null;
@@ -8401,6 +8396,9 @@ function SettingsPage({
   onSignOut: () => Promise<void>;
   onSaveProfile: (displayName: string) => Promise<void>;
   onChangePassword: (password: string, confirmation: string) => Promise<void>;
+  notificationPreferences: NotificationPreference[];
+  onSaveNotificationPreferences: (preferences: NotificationPreference[]) => Promise<void>;
+  notify: (type: ToastType, message: string) => void;
 }) {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -8436,6 +8434,9 @@ function SettingsPage({
       <section className="panel flex flex-col justify-between gap-4">
         <div><h2 className="text-lg font-semibold">登入工作階段</h2><p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">目前裝置上的登入狀態與個人資料會分開管理。</p></div>
         <div className="flex flex-wrap gap-2"><button className="btn-secondary" onClick={onRefresh}>重新讀取資料</button><button className="btn-danger" onClick={() => void onSignOut()} disabled={!sessionEmail}>登出</button></div>
+      </section>
+      <section className="lg:col-span-2">
+        <NotificationSettingsPage preferences={notificationPreferences} onSave={onSaveNotificationPreferences} notify={notify} compact />
       </section>
     </div>
   );
