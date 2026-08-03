@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import handler from "./ai-financial-health";
+import handler from "../api/ai-financial-health";
 
 describe("AI financial health API security", () => {
   it("rejects unsupported methods", async () => {
