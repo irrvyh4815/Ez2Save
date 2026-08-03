@@ -71,7 +71,7 @@ import { parseTransactionsCsv } from "./lib/csv";
 import { combineValidations, validateAnnualRate, validateDateRange, validateIntegerRange, validateNonNegativeAmount, validatePositiveAmount } from "./lib/validation";
 import { exportReportToExcel, exportReportToPdf } from "./lib/reportExport";
 import { getNotificationStatus, isNotificationVisible } from "./lib/notificationRules";
-import { resolveTransactionPayment, type ExpensePaymentMethod } from "./lib/transactionPayments";
+import { calculateLoanPaymentBreakdown, resolveTransactionPayment, type ExpensePaymentMethod } from "./lib/transactionPayments";
 import { isSupabaseConfigured } from "./services/supabaseClient";
 import { mockAiFinancialHealth, requestAiFinancialHealth } from "./services/aiFinancialHealth";
 import { listAdminUsers, manageAdminUser, type AdminManagedUser, type AdminAuditLog } from "./services/adminUsers";
@@ -93,6 +93,8 @@ import {
   createFinancialPlan,
   createRecurringIncome,
   createLoan,
+  createCreditCardPaymentRecord,
+  createLoanPaymentRecord,
   createTransactionWithCategory,
   deleteBudget,
   deleteCreditCard,
@@ -105,6 +107,7 @@ import {
   deleteFinancialPlan,
   deleteRecurringIncome,
   deleteLoan,
+  deleteLinkedPaymentRecords,
   deleteTransaction,
   emptyFinanceData,
   loadLedgerBooks,
@@ -1461,10 +1464,24 @@ export default function App() {
       requestedType,
       String(formData.get("paymentMethod") || "account") as ExpensePaymentMethod,
       String(formData.get("accountId") ?? ""),
-      String(formData.get("creditCardId") ?? "")
+      String(formData.get("creditCardId") ?? ""),
+      String(formData.get("loanId") ?? "")
     );
     if (payment.error) return notify("error", payment.error);
     const type = payment.type;
+    const selectedLoan = payment.loanId ? loans.find((candidate) => candidate.id === payment.loanId) : undefined;
+    const principalInput = String(formData.get("principalAmount") ?? "").trim();
+    const explicitPrincipalCents = principalInput === "" ? undefined : parseMoneyToCents(principalInput);
+    if (type === "loan_payment" && !selectedLoan) return notify("error", "找不到選擇的貸款");
+    if (type === "loan_payment" && explicitPrincipalCents !== undefined && (explicitPrincipalCents < 0 || explicitPrincipalCents > amountCents)) {
+      return notify("error", "本期本金不可小於 0 或大於還款金額");
+    }
+    if (type === "loan_payment" && selectedLoan && explicitPrincipalCents !== undefined && explicitPrincipalCents > selectedLoan.remainingPrincipalCents) {
+      return notify("error", "本期本金不可大於貸款剩餘本金");
+    }
+    const loanBreakdown = type === "loan_payment" && selectedLoan
+      ? calculateLoanPaymentBreakdown(amountCents, selectedLoan.remainingPrincipalCents, selectedLoan.annualRate, explicitPrincipalCents)
+      : undefined;
     const transaction: Transaction = {
       id: crypto.randomUUID(),
       userId: localUserId,
@@ -1475,12 +1492,17 @@ export default function App() {
       subcategory: String(formData.get("subcategory") ?? ""),
       accountId: payment.accountId,
       creditCardId: payment.creditCardId,
+      loanId: payment.loanId,
       merchant: String(formData.get("merchant") ?? ""),
       note: String(formData.get("note") ?? ""),
       isNecessary: formData.get("necessary") === "on",
       isRecurring: formData.get("recurring") === "on",
       tags: String(formData.get("tags") ?? "").split(",").map((tag) => tag.trim()).filter(Boolean),
       source: "manual",
+      metadata: loanBreakdown ? {
+        loan_principal_cents: loanBreakdown.principalCents,
+        loan_interest_cents: loanBreakdown.interestCents
+      } : {},
       createdAt: now,
       updatedAt: now
     };
@@ -1505,6 +1527,14 @@ export default function App() {
       if (type === "credit_card_payment" && saved.creditCardId) {
         const card = creditCards.find((candidate) => candidate.id === saved.creditCardId);
         const account = accounts.find((candidate) => candidate.id === saved.accountId);
+        if (!saved.accountId) throw new Error("找不到信用卡繳款的扣款帳戶");
+        await createCreditCardPaymentRecord({
+          transactionId: saved.id,
+          creditCardId: saved.creditCardId,
+          accountId: saved.accountId,
+          paidDate: saved.date,
+          amountCents: saved.amountCents
+        }, activePersistedLedgerId);
         const updates = await Promise.all([
           card ? updateCreditCard({ ...card, currentStatementAmountCents: Math.max(0, card.currentStatementAmountCents - amountCents) }) : Promise.resolve(null),
           account ? updateFinancialAccount({ ...account, balanceCents: Math.max(0, account.balanceCents - amountCents) }) : Promise.resolve(null)
@@ -1513,8 +1543,34 @@ export default function App() {
         if (updatedCard) setCreditCards((current) => current.map((candidate) => candidate.id === updatedCard.id ? updatedCard : candidate));
         if (updatedAccount) setAccounts((current) => current.map((candidate) => candidate.id === updatedAccount.id ? updatedAccount : candidate));
       }
+      if (type === "loan_payment" && saved.loanId && loanBreakdown) {
+        const loan = loans.find((candidate) => candidate.id === saved.loanId);
+        const account = accounts.find((candidate) => candidate.id === saved.accountId);
+        if (!loan || !saved.accountId) throw new Error("找不到貸款或扣款帳戶");
+        await createLoanPaymentRecord({
+          transactionId: saved.id,
+          loanId: saved.loanId,
+          paidDate: saved.date,
+          paymentCents: saved.amountCents,
+          principalCents: loanBreakdown.principalCents,
+          interestCents: loanBreakdown.interestCents
+        }, activePersistedLedgerId);
+        const remainingPrincipalCents = Math.max(0, loan.remainingPrincipalCents - loanBreakdown.principalCents);
+        const [updatedLoan, updatedAccount] = await Promise.all([
+          updateLoan({
+            ...loan,
+            remainingPrincipalCents,
+            paidPeriods: Math.min(loan.termMonths, loan.paidPeriods + 1),
+            paidAmountCents: loan.paidAmountCents + saved.amountCents,
+            status: remainingPrincipalCents === 0 ? "paid_off" : loan.status
+          }),
+          account ? updateFinancialAccount({ ...account, balanceCents: Math.max(0, account.balanceCents - saved.amountCents) }) : Promise.resolve(null)
+        ]);
+        setLoans((current) => current.map((candidate) => candidate.id === updatedLoan.id ? updatedLoan : candidate));
+        if (updatedAccount) setAccounts((current) => current.map((candidate) => candidate.id === updatedAccount.id ? updatedAccount : candidate));
+      }
     } catch (error) {
-      notify("error", error instanceof Error ? error.message : "信用卡連動資料儲存失敗");
+      notify("error", error instanceof Error ? error.message : "還款連動資料儲存失敗");
     }
   }
 
@@ -1790,6 +1846,27 @@ export default function App() {
         if (updatedCard) setCreditCards((current) => current.map((candidate) => candidate.id === updatedCard.id ? updatedCard : candidate));
         if (updatedAccount) setAccounts((current) => current.map((candidate) => candidate.id === updatedAccount.id ? updatedAccount : candidate));
       }
+      if (transaction?.type === "loan_payment" && transaction.loanId) {
+        const loan = loans.find((candidate) => candidate.id === transaction.loanId);
+        const account = accounts.find((candidate) => candidate.id === transaction.accountId);
+        const storedPrincipal = Number(transaction.metadata?.loan_principal_cents ?? 0);
+        const principalCents = Number.isFinite(storedPrincipal) ? Math.max(0, storedPrincipal) : 0;
+        const [updatedLoan, updatedAccount] = await Promise.all([
+          loan ? updateLoan({
+            ...loan,
+            remainingPrincipalCents: Math.min(loan.originalPrincipalCents, loan.remainingPrincipalCents + principalCents),
+            paidPeriods: Math.max(0, loan.paidPeriods - 1),
+            paidAmountCents: Math.max(0, loan.paidAmountCents - transaction.amountCents),
+            status: "active"
+          }) : Promise.resolve(null),
+          account ? updateFinancialAccount({ ...account, balanceCents: account.balanceCents + transaction.amountCents }) : Promise.resolve(null)
+        ]);
+        if (updatedLoan) setLoans((current) => current.map((candidate) => candidate.id === updatedLoan.id ? updatedLoan : candidate));
+        if (updatedAccount) setAccounts((current) => current.map((candidate) => candidate.id === updatedAccount.id ? updatedAccount : candidate));
+      }
+      if (transaction?.type === "credit_card_payment" || transaction?.type === "loan_payment") {
+        await deleteLinkedPaymentRecords(transaction.id);
+      }
       notify("success", "交易已刪除");
     } catch (error) {
       notify("error", error instanceof Error ? error.message : "交易刪除失敗");
@@ -2019,6 +2096,7 @@ export default function App() {
               <TransactionsPage
                 accounts={accounts}
                 creditCards={creditCards}
+                loans={loans}
                 transactions={periodTransactions}
                 period={period}
                 onAdd={addTransaction}
@@ -5074,6 +5152,7 @@ function DataImportPage({
 function TransactionsPage({
   accounts,
   creditCards,
+  loans,
   transactions,
   period,
   onAdd,
@@ -5085,6 +5164,7 @@ function TransactionsPage({
 }: {
   accounts: FinancialAccount[];
   creditCards: CreditCard[];
+  loans: Loan[];
   transactions: Transaction[];
   period: DatePeriod;
   onAdd: (formData: FormData) => void;
@@ -5096,11 +5176,15 @@ function TransactionsPage({
 }) {
   const [transactionType, setTransactionType] = useState<Transaction["type"]>("expense");
   const [expensePaymentMethod, setExpensePaymentMethod] = useState<ExpensePaymentMethod>("account");
+  const [selectedLoanId, setSelectedLoanId] = useState("");
   const activeAccounts = accounts.filter((account) => account.isActive);
   const activeCreditCards = creditCards.filter((card) => card.isActive);
+  const activeLoans = loans.filter((loan) => loan.status === "active" && loan.remainingPrincipalCents > 0);
+  const selectedLoan = activeLoans.find((loan) => loan.id === selectedLoanId);
   const needsAccount = transactionType !== "expense" || expensePaymentMethod === "account";
   const needsCreditCard = (transactionType === "expense" && expensePaymentMethod === "credit_card") || transactionType === "credit_card_payment";
-  const accountFieldLabel = transactionType === "income" ? "入帳帳戶" : transactionType === "credit_card_payment" ? "扣款帳戶" : "付款帳戶";
+  const needsLoan = transactionType === "loan_payment";
+  const accountFieldLabel = transactionType === "income" ? "入帳帳戶" : ["credit_card_payment", "loan_payment"].includes(transactionType) ? "扣款帳戶" : "付款帳戶";
   const periodCopy = getDashboardPeriodCopy(period);
   const periodIncomeCents = transactions
     .filter((transaction) => transaction.type === "income")
@@ -5125,13 +5209,19 @@ function TransactionsPage({
     .slice(0, 6);
 
   function paymentSourceLabel(transaction: Transaction) {
+    const accountName = transaction.accountId
+      ? accounts.find((candidate) => candidate.id === transaction.accountId)?.name ?? "帳戶"
+      : "";
+    if (transaction.loanId) {
+      const loan = loans.find((candidate) => candidate.id === transaction.loanId);
+      return `${accountName || "帳戶"} → ${loan?.name ?? "貸款"}`;
+    }
     if (transaction.creditCardId) {
       const card = creditCards.find((candidate) => candidate.id === transaction.creditCardId);
-      return card ? `${card.name}（${card.last4}）` : "信用卡";
+      const cardName = card ? `${card.name}（${card.last4}）` : "信用卡";
+      return transaction.type === "credit_card_payment" ? `${accountName || "帳戶"} → ${cardName}` : cardName;
     }
-    if (transaction.accountId) {
-      return accounts.find((candidate) => candidate.id === transaction.accountId)?.name ?? "帳戶";
-    }
+    if (accountName) return accountName;
     return "-";
   }
 
@@ -5226,6 +5316,24 @@ function TransactionsPage({
                 <option value="" disabled>{activeCreditCards.length ? "請選擇信用卡" : "尚無可用信用卡"}</option>
                 {activeCreditCards.map((card) => <option key={card.id} value={card.id}>{card.name}（{card.last4}）</option>)}
               </select>
+            </Field>
+          )}
+          {needsLoan && (
+            <Field label="還款貸款">
+              <select className="input" name="loanId" value={selectedLoanId} onChange={(event) => setSelectedLoanId(event.target.value)} required>
+                <option value="" disabled>{activeLoans.length ? "請選擇貸款" : "尚無進行中貸款"}</option>
+                {activeLoans.map((loan) => <option key={loan.id} value={loan.id}>{loan.name} · 剩餘 {formatMoney(loan.remainingPrincipalCents)}</option>)}
+              </select>
+            </Field>
+          )}
+          {needsLoan && (
+            <Field label="其中本金">
+              <input className="input" name="principalAmount" inputMode="decimal" placeholder="留空自動估算" />
+              <p className="helper-text mt-1">
+                {selectedLoan
+                  ? `剩餘本金 ${formatMoney(selectedLoan.remainingPrincipalCents)}；利息預付或特殊還款可填實際本金，只付利息時填 0。`
+                  : "選擇貸款後可依帳單填寫本期實際本金。"}
+              </p>
             </Field>
           )}
           <details className="group border-t border-slate-200 pt-3 dark:border-slate-800">

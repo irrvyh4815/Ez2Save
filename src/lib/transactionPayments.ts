@@ -6,6 +6,7 @@ export interface TransactionPaymentSelection {
   type: TransactionType;
   accountId?: string;
   creditCardId?: string;
+  loanId?: string;
   error?: string;
 }
 
@@ -13,7 +14,8 @@ export function resolveTransactionPayment(
   requestedType: TransactionType,
   paymentMethod: ExpensePaymentMethod,
   accountId: string,
-  creditCardId: string
+  creditCardId: string,
+  loanId = ""
 ): TransactionPaymentSelection {
   if (requestedType === "expense") {
     if (paymentMethod === "credit_card") {
@@ -32,9 +34,39 @@ export function resolveTransactionPayment(
     return { type: requestedType, accountId, creditCardId };
   }
 
+  if (requestedType === "loan_payment") {
+    if (!accountId) return { type: requestedType, error: "請選擇扣款帳戶" };
+    if (!loanId) return { type: requestedType, accountId, error: "請選擇還款貸款" };
+    return { type: requestedType, accountId, loanId };
+  }
+
   return {
     type: requestedType,
     accountId: accountId || undefined,
     creditCardId: requestedType === "credit_card_purchase" ? creditCardId || undefined : undefined
   };
+}
+
+export interface LoanPaymentBreakdown {
+  principalCents: number;
+  interestCents: number;
+}
+
+export function calculateLoanPaymentBreakdown(
+  paymentCents: number,
+  remainingPrincipalCents: number,
+  annualRate: number,
+  explicitPrincipalCents?: number
+): LoanPaymentBreakdown {
+  if (explicitPrincipalCents !== undefined) {
+    const principalCents = Math.min(paymentCents, remainingPrincipalCents, Math.max(0, explicitPrincipalCents));
+    return { principalCents, interestCents: Math.max(0, paymentCents - principalCents) };
+  }
+
+  const estimatedInterestCents = Math.min(
+    paymentCents,
+    Math.max(0, Math.round(remainingPrincipalCents * Math.max(0, annualRate) / 100 / 12))
+  );
+  const principalCents = Math.min(remainingPrincipalCents, Math.max(0, paymentCents - estimatedInterestCents));
+  return { principalCents, interestCents: Math.max(0, paymentCents - principalCents) };
 }

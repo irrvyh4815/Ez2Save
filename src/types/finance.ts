@@ -83,6 +83,7 @@ export interface Transaction extends BaseEntity {
   isRecurring: boolean;
   tags: string[];
   source: "manual" | "csv" | "recurring" | "system";
+  metadata?: Record<string, unknown>;
 }
 
 export type RecurringIncomeType = "salary" | "bonus" | "rental" | "pension" | "side_business" | "other";

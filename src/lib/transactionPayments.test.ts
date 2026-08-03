@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveTransactionPayment } from "./transactionPayments";
+import { calculateLoanPaymentBreakdown, resolveTransactionPayment } from "./transactionPayments";
 
 describe("transaction payment selection", () => {
   it("keeps an account expense as a regular expense", () => {
@@ -26,6 +26,29 @@ describe("transaction payment selection", () => {
       type: "credit_card_payment",
       accountId: "account-1",
       creditCardId: "card-1"
+    });
+  });
+
+  it("requires an account and a loan for loan payments", () => {
+    expect(resolveTransactionPayment("loan_payment", "account", "account-1", "", "loan-1")).toEqual({
+      type: "loan_payment",
+      accountId: "account-1",
+      loanId: "loan-1"
+    });
+    expect(resolveTransactionPayment("loan_payment", "account", "account-1", "", "").error).toBe("請選擇還款貸款");
+  });
+
+  it("estimates the principal and interest portions", () => {
+    expect(calculateLoanPaymentBreakdown(10_000, 1_000_000, 2.4)).toEqual({
+      principalCents: 8_000,
+      interestCents: 2_000
+    });
+  });
+
+  it("allows interest-only or prepaid-interest loan payments", () => {
+    expect(calculateLoanPaymentBreakdown(10_000, 1_000_000, 2.4, 0)).toEqual({
+      principalCents: 0,
+      interestCents: 10_000
     });
   });
 });

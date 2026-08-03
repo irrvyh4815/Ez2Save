@@ -283,7 +283,7 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
       .order("created_at", { ascending: false }),
     scoped(supabase
       .from("transactions")
-      .select("id,user_id,transaction_date,transaction_type,amount_cents,category_name,subcategory_name,account_id,transfer_account_id,credit_card_id,loan_id,merchant,note,is_necessary,is_recurring,tags,source,created_at,updated_at"))
+      .select("id,user_id,transaction_date,transaction_type,amount_cents,category_name,subcategory_name,account_id,transfer_account_id,credit_card_id,loan_id,merchant,note,is_necessary,is_recurring,tags,source,metadata,created_at,updated_at"))
       .is("deleted_at", null)
       .order("transaction_date", { ascending: false })
       .limit(500),
@@ -1194,12 +1194,70 @@ export async function createTransactionWithCategory(transaction: Transaction, le
       is_necessary: transaction.isNecessary,
       is_recurring: transaction.isRecurring,
       tags: transaction.tags,
-      source: transaction.source
+      source: transaction.source,
+      metadata: transaction.metadata ?? {}
     })
-    .select("id,user_id,transaction_date,transaction_type,amount_cents,category_name,subcategory_name,account_id,transfer_account_id,credit_card_id,loan_id,merchant,note,is_necessary,is_recurring,tags,source,created_at,updated_at")
+    .select("id,user_id,transaction_date,transaction_type,amount_cents,category_name,subcategory_name,account_id,transfer_account_id,credit_card_id,loan_id,merchant,note,is_necessary,is_recurring,tags,source,metadata,created_at,updated_at")
     .single();
   if (error) throw new Error("交易儲存失敗");
   return mapTransaction(data);
+}
+
+export async function createCreditCardPaymentRecord(
+  payment: { transactionId: string; creditCardId: string; accountId: string; paidDate: string; amountCents: number },
+  ledgerId?: string
+): Promise<void> {
+  if (!supabase) return;
+  const session = await getCurrentSession();
+  if (!session) throw new Error("請先登入再記錄信用卡繳款");
+  const { error } = await supabase.from("credit_card_payments").insert({
+    user_id: session.user.id,
+    ...(ledgerId ? { ledger_id: ledgerId } : {}),
+    transaction_id: payment.transactionId,
+    credit_card_id: payment.creditCardId,
+    account_id: payment.accountId,
+    paid_date: payment.paidDate,
+    amount_cents: payment.amountCents
+  });
+  if (error) throw new Error("信用卡繳款明細儲存失敗");
+}
+
+export async function createLoanPaymentRecord(
+  payment: {
+    transactionId: string;
+    loanId: string;
+    paidDate: string;
+    paymentCents: number;
+    principalCents: number;
+    interestCents: number;
+  },
+  ledgerId?: string
+): Promise<void> {
+  if (!supabase) return;
+  const session = await getCurrentSession();
+  if (!session) throw new Error("請先登入再記錄貸款還款");
+  const { error } = await supabase.from("loan_payments").insert({
+    user_id: session.user.id,
+    ...(ledgerId ? { ledger_id: ledgerId } : {}),
+    transaction_id: payment.transactionId,
+    loan_id: payment.loanId,
+    paid_date: payment.paidDate,
+    payment_cents: payment.paymentCents,
+    principal_cents: payment.principalCents,
+    interest_cents: payment.interestCents,
+    extra_principal_cents: 0
+  });
+  if (error) throw new Error("貸款還款明細儲存失敗");
+}
+
+export async function deleteLinkedPaymentRecords(transactionId: string): Promise<void> {
+  if (!supabase) return;
+  const deletedAt = new Date().toISOString();
+  const [creditCardResult, loanResult] = await Promise.all([
+    supabase.from("credit_card_payments").update({ deleted_at: deletedAt }).eq("transaction_id", transactionId).is("deleted_at", null),
+    supabase.from("loan_payments").update({ deleted_at: deletedAt }).eq("transaction_id", transactionId).is("deleted_at", null)
+  ]);
+  if (creditCardResult.error || loanResult.error) throw new Error("還款明細刪除失敗");
 }
 
 export async function createCreditCardInstallment(installment: CreditCardInstallment, ledgerId?: string): Promise<CreditCardInstallment> {
@@ -1287,6 +1345,7 @@ function mapTransaction(row: Record<string, unknown>): Transaction {
     isRecurring: Boolean(row.is_recurring),
     tags: Array.isArray(row.tags) ? row.tags.map(String) : [],
     source: String(row.source) as Transaction["source"],
+    metadata: isRecord(row.metadata) ? row.metadata : {},
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)
   };
