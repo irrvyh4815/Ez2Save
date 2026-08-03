@@ -71,6 +71,7 @@ import { parseTransactionsCsv } from "./lib/csv";
 import { combineValidations, validateAnnualRate, validateDateRange, validateIntegerRange, validateNonNegativeAmount, validatePositiveAmount } from "./lib/validation";
 import { exportReportToExcel, exportReportToPdf } from "./lib/reportExport";
 import { getNotificationStatus, isNotificationVisible } from "./lib/notificationRules";
+import { resolveTransactionPayment, type ExpensePaymentMethod } from "./lib/transactionPayments";
 import { isSupabaseConfigured } from "./services/supabaseClient";
 import { mockAiFinancialHealth, requestAiFinancialHealth } from "./services/aiFinancialHealth";
 import { listAdminUsers, manageAdminUser, type AdminManagedUser, type AdminAuditLog } from "./services/adminUsers";
@@ -1455,7 +1456,15 @@ export default function App() {
     const validation = combineValidations(validatePositiveAmount(amountCents), validateDateRange(date));
     if (!validation.valid) return notify("error", validation.errors[0]);
     const now = new Date().toISOString();
-    const type = String(formData.get("type")) as Transaction["type"];
+    const requestedType = String(formData.get("type")) as Transaction["type"];
+    const payment = resolveTransactionPayment(
+      requestedType,
+      String(formData.get("paymentMethod") || "account") as ExpensePaymentMethod,
+      String(formData.get("accountId") ?? ""),
+      String(formData.get("creditCardId") ?? "")
+    );
+    if (payment.error) return notify("error", payment.error);
+    const type = payment.type;
     const transaction: Transaction = {
       id: crypto.randomUUID(),
       userId: localUserId,
@@ -1464,8 +1473,8 @@ export default function App() {
       amountCents,
       category: normalizeCategoryName(String(formData.get("category") || "未分類")),
       subcategory: String(formData.get("subcategory") ?? ""),
-      accountId: String(formData.get("accountId") ?? ""),
-      creditCardId: String(formData.get("creditCardId") ?? "") || undefined,
+      accountId: payment.accountId,
+      creditCardId: payment.creditCardId,
       merchant: String(formData.get("merchant") ?? ""),
       note: String(formData.get("note") ?? ""),
       isNecessary: formData.get("necessary") === "on",
@@ -5085,6 +5094,13 @@ function TransactionsPage({
   onImportCsv: () => void;
   rememberedCategories: string[];
 }) {
+  const [transactionType, setTransactionType] = useState<Transaction["type"]>("expense");
+  const [expensePaymentMethod, setExpensePaymentMethod] = useState<ExpensePaymentMethod>("account");
+  const activeAccounts = accounts.filter((account) => account.isActive);
+  const activeCreditCards = creditCards.filter((card) => card.isActive);
+  const needsAccount = transactionType !== "expense" || expensePaymentMethod === "account";
+  const needsCreditCard = (transactionType === "expense" && expensePaymentMethod === "credit_card") || transactionType === "credit_card_payment";
+  const accountFieldLabel = transactionType === "income" ? "入帳帳戶" : transactionType === "credit_card_payment" ? "扣款帳戶" : "付款帳戶";
   const periodCopy = getDashboardPeriodCopy(period);
   const periodIncomeCents = transactions
     .filter((transaction) => transaction.type === "income")
@@ -5107,6 +5123,17 @@ function TransactionsPage({
     .map(([category, amountCents]) => ({ category, amountCents }))
     .sort((a, b) => b.amountCents - a.amountCents)
     .slice(0, 6);
+
+  function paymentSourceLabel(transaction: Transaction) {
+    if (transaction.creditCardId) {
+      const card = creditCards.find((candidate) => candidate.id === transaction.creditCardId);
+      return card ? `${card.name}（${card.last4}）` : "信用卡";
+    }
+    if (transaction.accountId) {
+      return accounts.find((candidate) => candidate.id === transaction.accountId)?.name ?? "帳戶";
+    }
+    return "-";
+  }
 
   function downloadTransactionTemplate() {
     const template = "\uFEFF日期,類型,金額,分類,子分類,商家,備註,是否必要,是否固定,標籤\n2026-08-01,支出,120,餐飲,早餐,早餐店,,是,否,日常|外食";
@@ -5155,8 +5182,8 @@ function TransactionsPage({
         <form className="mt-4 space-y-3" onSubmit={handleFormSubmit(onAdd)}>
           <Field label="日期"><input className="input" name="date" type="date" defaultValue={today} required /></Field>
           <Field label="類型">
-            <select className="input" name="type" defaultValue="expense">
-              {Object.entries(transactionTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            <select className="input" name="type" value={transactionType} onChange={(event) => setTransactionType(event.target.value as Transaction["type"])}>
+              {Object.entries(transactionTypeLabels).filter(([value]) => value !== "credit_card_purchase").map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </Field>
           <Field label="金額"><input className="input" name="amount" inputMode="decimal" placeholder="例如 1,200" required /></Field>
@@ -5177,9 +5204,30 @@ function TransactionsPage({
               ))}
             </div>
           )}
-          <Field label="支付帳戶">
-            <select className="input" name="accountId">{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select>
-          </Field>
+          {transactionType === "expense" && (
+            <Field label="付款方式">
+              <select className="input" name="paymentMethod" value={expensePaymentMethod} onChange={(event) => setExpensePaymentMethod(event.target.value as ExpensePaymentMethod)}>
+                <option value="account">帳戶</option>
+                <option value="credit_card">信用卡</option>
+              </select>
+            </Field>
+          )}
+          {needsAccount && (
+            <Field label={accountFieldLabel}>
+              <select className="input" name="accountId" defaultValue="" required>
+                <option value="" disabled>{activeAccounts.length ? "請選擇帳戶" : "尚無可用帳戶"}</option>
+                {activeAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+              </select>
+            </Field>
+          )}
+          {needsCreditCard && (
+            <Field label={transactionType === "credit_card_payment" ? "繳款信用卡" : "付款信用卡"}>
+              <select className="input" name="creditCardId" defaultValue="" required>
+                <option value="" disabled>{activeCreditCards.length ? "請選擇信用卡" : "尚無可用信用卡"}</option>
+                {activeCreditCards.map((card) => <option key={card.id} value={card.id}>{card.name}（{card.last4}）</option>)}
+              </select>
+            </Field>
+          )}
           <details className="group border-t border-slate-200 pt-3 dark:border-slate-800">
             <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-medium text-slate-500 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white">
               更多資訊
@@ -5187,12 +5235,6 @@ function TransactionsPage({
             </summary>
             <div className="mt-3 space-y-3">
               <Field label="子分類"><input className="input" name="subcategory" placeholder="可留空" /></Field>
-              <Field label="信用卡">
-                <select className="input" name="creditCardId">
-                  <option value="">不適用</option>
-                  {creditCards.map((card) => <option key={card.id} value={card.id}>{card.name}（{card.last4}）</option>)}
-                </select>
-              </Field>
               <Field label="商家或對象"><input className="input" name="merchant" /></Field>
               <Field label="標籤"><input className="input" name="tags" placeholder="以逗號分隔" /></Field>
               <div className="grid grid-cols-2 gap-2 text-sm">
@@ -5244,7 +5286,7 @@ function TransactionsPage({
           <h2 className="text-lg font-semibold">最近交易</h2>
           <div className="mt-3 overflow-x-auto">
             <table className="hidden w-full min-w-[780px] text-sm md:table">
-              <thead><tr className="text-left text-slate-500 dark:text-slate-400"><th>日期</th><th>類型</th><th>分類</th><th>商家</th><th>金額</th><th>來源</th><th></th></tr></thead>
+              <thead><tr className="text-left text-slate-500 dark:text-slate-400"><th>日期</th><th>類型</th><th>分類</th><th>商家</th><th>金額</th><th>付款方式</th><th></th></tr></thead>
               <tbody>
                 {transactions.slice(0, 18).map((transaction) => (
                   <tr key={transaction.id} className="border-t border-slate-200 dark:border-slate-800">
@@ -5253,7 +5295,7 @@ function TransactionsPage({
                     <td>{transaction.category}</td>
                     <td>{transaction.merchant ?? "-"}</td>
                     <td className="font-semibold">{formatMoney(transaction.amountCents)}</td>
-                    <td>{transaction.source}</td>
+                    <td>{paymentSourceLabel(transaction)}</td>
                     <td><button className="btn-danger px-2 py-1" onClick={() => onDelete(transaction.id)} title="刪除交易" aria-label="刪除交易"><Trash2 size={14} /></button></td>
                   </tr>
                 ))}
@@ -5265,7 +5307,7 @@ function TransactionsPage({
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="font-semibold">{transaction.category}</p>
-                      <p className="text-sm text-slate-500 dark:text-slate-400">{formatDate(transaction.date)} · {transactionTypeLabels[transaction.type]}</p>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">{formatDate(transaction.date)} · {transactionTypeLabels[transaction.type]} · {paymentSourceLabel(transaction)}</p>
                     </div>
                     <p className="font-bold">{formatMoney(transaction.amountCents)}</p>
                   </div>
