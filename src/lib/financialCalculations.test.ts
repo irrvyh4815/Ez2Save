@@ -8,6 +8,7 @@ import {
   calculateEqualPayment,
   calculateFinancialPlan,
   calculateInvestmentAssetValuation,
+  calculateInstallmentOpeningBalance,
   calculateLoan,
   calculateLoanProgress,
   inferAnnualRateFromPayment,
@@ -176,6 +177,45 @@ describe("loan calculations", () => {
 
     expect(result.interestSavedCents).toBeGreaterThan(0);
     expect(result.payoffMonths).toBeLessThan(48);
+  });
+});
+
+describe("existing installment opening balances", () => {
+  it("derives paid and remaining amounts from paid periods", () => {
+    const summary = calculateInstallmentOpeningBalance({
+      totalAmountCents: 120_000_00,
+      periods: 12,
+      paidPeriods: 4
+    });
+    expect(summary.monthlyPaymentCents).toBe(10_000_00);
+    expect(summary.paidAmountCents).toBe(40_000_00);
+    expect(summary.remainingAmountCents).toBe(80_000_00);
+  });
+
+  it("prioritizes the bank remaining balance over the period estimate", () => {
+    const summary = calculateInstallmentOpeningBalance({
+      totalAmountCents: 120_000_00,
+      periods: 12,
+      paidPeriods: 4,
+      monthlyPaymentCents: 11_000_00,
+      remainingAmountCents: 78_500_00
+    });
+    expect(summary.remainingAmountCents).toBe(78_500_00);
+    expect(summary.paidAmountCents).toBe(41_500_00);
+    expect(summary.monthlyPaymentCents).toBe(11_000_00);
+  });
+
+  it("preserves actual cash paid when interest makes it differ from principal reduction", () => {
+    const summary = calculateInstallmentOpeningBalance({
+      totalAmountCents: 120_000_00,
+      periods: 12,
+      paidPeriods: 4,
+      paidAmountCents: 44_000_00,
+      remainingAmountCents: 80_000_00
+    });
+    expect(summary.paidAmountCents).toBe(44_000_00);
+    expect(summary.remainingAmountCents).toBe(80_000_00);
+    expect(summary.progress).toBeCloseTo(1 / 3, 6);
   });
 });
 

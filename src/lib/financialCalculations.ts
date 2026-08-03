@@ -81,6 +81,22 @@ export interface CreditCardLimitSummary {
   singlePurchaseInstallmentCents: number;
 }
 
+export interface InstallmentOpeningBalanceInput {
+  totalAmountCents: number;
+  periods: number;
+  paidPeriods: number;
+  monthlyPaymentCents?: number;
+  paidAmountCents?: number;
+  remainingAmountCents?: number;
+}
+
+export interface InstallmentOpeningBalanceSummary {
+  monthlyPaymentCents: number;
+  paidAmountCents: number;
+  remainingAmountCents: number;
+  progress: number;
+}
+
 export interface DepositProjectionRow {
   month: number;
   principalCents: number;
@@ -186,6 +202,38 @@ export interface InvestmentAssetValuation {
 
 const cents = (value: number) => Math.round(value);
 const safeDivide = (numerator: number, denominator: number) => (denominator === 0 ? 0 : numerator / denominator);
+
+export function calculateInstallmentOpeningBalance(input: InstallmentOpeningBalanceInput): InstallmentOpeningBalanceSummary {
+  const totalAmountCents = Math.max(0, cents(input.totalAmountCents));
+  const periods = Math.max(1, Math.round(input.periods));
+  const paidPeriods = Math.min(periods, Math.max(0, Math.round(input.paidPeriods)));
+  const monthlyPaymentCents = Math.max(0, cents(input.monthlyPaymentCents ?? 0)) || Math.ceil(totalAmountCents / periods);
+  const hasRemaining = input.remainingAmountCents !== undefined && Number.isFinite(input.remainingAmountCents);
+  const hasPaid = input.paidAmountCents !== undefined && Number.isFinite(input.paidAmountCents);
+
+  let remainingAmountCents: number;
+  let paidAmountCents: number;
+  if (hasRemaining && hasPaid) {
+    remainingAmountCents = Math.min(totalAmountCents, Math.max(0, cents(input.remainingAmountCents ?? 0)));
+    paidAmountCents = Math.max(0, cents(input.paidAmountCents ?? 0));
+  } else if (hasRemaining) {
+    remainingAmountCents = Math.min(totalAmountCents, Math.max(0, cents(input.remainingAmountCents ?? 0)));
+    paidAmountCents = Math.max(0, totalAmountCents - remainingAmountCents);
+  } else if (hasPaid) {
+    paidAmountCents = Math.min(totalAmountCents, Math.max(0, cents(input.paidAmountCents ?? 0)));
+    remainingAmountCents = Math.max(0, totalAmountCents - paidAmountCents);
+  } else {
+    paidAmountCents = Math.min(totalAmountCents, monthlyPaymentCents * paidPeriods);
+    remainingAmountCents = Math.max(0, totalAmountCents - paidAmountCents);
+  }
+
+  return {
+    monthlyPaymentCents,
+    paidAmountCents,
+    remainingAmountCents,
+    progress: safeDivide(totalAmountCents - remainingAmountCents, totalAmountCents)
+  };
+}
 
 export function calculateInvestmentAssetValuation(asset: Pick<InvestmentAsset, "quantity" | "averageUnitCost" | "currentUnitPrice" | "exchangeRateToLedger">): InvestmentAssetValuation {
   const quantity = Math.max(0, Number.isFinite(asset.quantity) ? asset.quantity : 0);

@@ -9,6 +9,7 @@ Ez2SaveMore 是以台灣使用者為預設的個人投資理財助手。第一�
 - 最高管理員用戶管理：可搜尋與篩選帳號、調整一般管理員、停用／恢復帳號、寄送重設密碼信、刪除帳號與查看管理紀錄。
 - 帳戶管理：現金、活存、數位帳戶、儲蓄帳戶、定期存款、電子支付與其他資產帳戶。
 - 收支紀錄：收入、支出、轉帳、信用卡消費、信用卡繳款、貸款還款、CSV 匯入預覽。
+- 資料導入：以目前餘額快速建立帳戶、信用卡、進行中分期與貸款，不必補登全部歷史流水。
 - 信用卡管理：帳單金額、未出帳、最低應繳、額度使用率、繳款提醒資訊。
 - 信用卡分期負債：分期總額、利率、已還期數、已還金額、剩餘金額、每月應繳與下次應繳日。
 - 貸款管理與試算：本息平均、本金平均、固定金額、額外還款與提前清償試算。
@@ -53,6 +54,7 @@ supabase db push
 - `supabase/migrations/202607220010_ledger_notification_preferences.sql`
 - `supabase/migrations/202607230011_security_hardening.sql`
 - `supabase/migrations/202607230012_ledger_currencies_forex_crypto.sql`
+- `supabase/migrations/202608030013_ledger_scoped_opening_imports.sql`
 
 所有個人理財表都啟用 RLS。新版安全模型以 `ledger_id` + `ledger_members` 隔離資料；使用者必須是帳本成員才可讀取，且只有 `owner`、`admin`、`editor` 可寫入。
 
@@ -100,6 +102,8 @@ API route：
 - 未設定 Key 時回傳安全錯誤或 mock response。
 
 ## CSV 匯入格式
+
+系統內的「資料導入」適合先建立目前帳務現況；歷史收支則在「收支紀錄」下載 CSV 範本後匯入。期初帳戶餘額、信用卡帳款及貸款餘額不會被當成本月收入或支出。
 
 必要欄位：
 

@@ -46,6 +46,7 @@ import {
   calculateDebtServiceRatio,
   calculateFinancialPlan,
   calculateFutureCashFlow,
+  calculateInstallmentOpeningBalance,
   calculateInvestmentAssetValuation,
   calculateLoanProgress,
   getFinancialPlanAllocation,
@@ -148,6 +149,7 @@ import type {
 
 type Page =
   | "dashboard"
+  | "data_import"
   | "transactions"
   | "accounts"
   | "cards"
@@ -270,6 +272,7 @@ const navGroups: { title: "理財" | "投資" | "其他" | "設定"; items: { pa
   {
     title: "其他",
     items: [
+      { page: "data_import", label: "資料導入", icon: Upload },
       { page: "calculators", label: "計算機", icon: Calculator },
       { page: "ai", label: "AI 健檢", icon: Bot }
     ]
@@ -291,6 +294,13 @@ const pageIntros: Record<Page, { eyebrow: string; title: string; description: st
     description: "資產、負債、現金流與近期提醒。",
     accent: "#059669",
     tint: "#ecfdf5"
+  },
+  data_import: {
+    eyebrow: "快速開始",
+    title: "匯入既有財務現況",
+    description: "從目前餘額開始建檔，不必重建過去每一筆紀錄。",
+    accent: "#0f766e",
+    tint: "#f0fdfa"
   },
   transactions: {
     eyebrow: "日常收支管理",
@@ -1292,13 +1302,16 @@ export default function App() {
 
   async function addAccount(formData: FormData) {
     const balanceCents = parseMoneyToCents(String(formData.get("balance") ?? ""));
+    const accountName = String(formData.get("name") ?? "").trim();
     const validation = combineValidations(validateNonNegativeAmount(balanceCents, "目前餘額"));
     if (!validation.valid) return notify("error", validation.errors[0]);
+    if (!accountName) return notify("error", "請輸入帳戶名稱");
+    if (accounts.some((item) => item.name.trim().toLowerCase() === accountName.toLowerCase())) return notify("error", "相同名稱的帳戶已存在");
     const now = new Date().toISOString();
     const account: FinancialAccount = {
       id: crypto.randomUUID(),
       userId: localUserId,
-      name: String(formData.get("name")),
+      name: accountName,
       type: String(formData.get("type")) as AccountType,
       institution: String(formData.get("institution") ?? ""),
       balanceCents,
@@ -1350,12 +1363,32 @@ export default function App() {
   }
 
   async function addCard(card: CreditCard) {
+    if (creditCards.some((item) => item.issuer.trim().toLowerCase() === card.issuer.trim().toLowerCase() && item.last4 === card.last4)) {
+      return notify("error", "相同銀行與末四碼的信用卡已存在");
+    }
     try {
       const saved = await createCreditCard(card, activePersistedLedgerId);
       setCreditCards((current) => [saved, ...current]);
       notify("success", "信用卡已新增");
     } catch (error) {
       notify("error", error instanceof Error ? error.message : "信用卡儲存失敗");
+    }
+  }
+
+  async function addCardInstallment(installment: CreditCardInstallment) {
+    const duplicate = creditCardInstallments.some((item) =>
+      item.creditCardId === installment.creditCardId
+      && item.totalAmountCents === installment.totalAmountCents
+      && item.startedOn === installment.startedOn
+      && (item.merchant ?? "").trim().toLowerCase() === (installment.merchant ?? "").trim().toLowerCase()
+    );
+    if (duplicate) return notify("error", "相同信用卡、項目、總額與開始日的分期已存在");
+    try {
+      const saved = await createCreditCardInstallment(installment, activePersistedLedgerId);
+      setCreditCardInstallments((current) => [saved, ...current]);
+      notify("success", "既有分期已匯入");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "信用卡分期儲存失敗");
     }
   }
 
@@ -1381,6 +1414,9 @@ export default function App() {
   }
 
   async function addLoan(loan: Loan) {
+    if (loans.some((item) => item.name.trim().toLowerCase() === loan.name.trim().toLowerCase() && (item.institution ?? "").trim().toLowerCase() === (loan.institution ?? "").trim().toLowerCase())) {
+      return notify("error", "相同名稱與金融機構的貸款已存在");
+    }
     try {
       const saved = await createLoan(loan, activePersistedLedgerId);
       setLoans((current) => [saved, ...current]);
@@ -1944,6 +1980,20 @@ export default function App() {
                 onNavigate={navigateToPage}
               />
             )}
+            {page === "data_import" && (
+              <DataImportPage
+                accounts={accounts}
+                cards={creditCards}
+                installments={creditCardInstallments}
+                loans={loans}
+                onAddAccount={addAccount}
+                onAddCard={addCard}
+                onAddInstallment={addCardInstallment}
+                onAddLoan={addLoan}
+                onNavigate={navigateToPage}
+                notify={notify}
+              />
+            )}
             {page === "transactions" && (
               <TransactionsPage
                 accounts={accounts}
@@ -1964,9 +2014,8 @@ export default function App() {
                 cards={creditCards}
                 accounts={accounts}
                 installments={creditCardInstallments}
-                ledgerId={activePersistedLedgerId}
-                setInstallments={setCreditCardInstallments}
                 onAdd={addCard}
+                onAddInstallment={addCardInstallment}
                 onUpdate={saveCard}
                 onDelete={removeCard}
                 notify={notify}
@@ -2831,6 +2880,7 @@ function PageExperience({
   const title = page === "dashboard" ? dashboardCopy.heroTitle : intro.title;
   const description = page === "dashboard" ? `${period.label}的資產、負債、現金流與近期提醒。` : intro.description;
   const PageIcon = navGroups.flatMap((group) => group.items).find((item) => item.page === page)?.icon ?? Bell;
+  const showPeriodStatus = !["settings", "users", "calculators", "notification_settings", "data_import"].includes(page);
   return (
     <section
       className="page-experience overflow-hidden rounded-lg border border-slate-200/90 p-4 shadow-card dark:border-slate-800 sm:p-5"
@@ -2847,15 +2897,15 @@ function PageExperience({
             <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300">{description}</p>
           </div>
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-2 text-xs font-semibold">
+        {showPeriodStatus && <div className="flex shrink-0 flex-wrap items-center gap-2 text-xs font-semibold">
           <span className="rounded-md border border-slate-200 bg-white/80 px-2.5 py-1.5 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">{period.label}</span>
           <span className={`rounded-md px-2.5 py-1.5 ${dashboard.monthlyBalanceCents >= 0 ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-200" : "bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-200"}`}>
             結餘 {formatCompactMoney(dashboard.monthlyBalanceCents)}
           </span>
           {notifications > 0 && <span className="rounded-md bg-rose-50 px-2.5 py-1.5 text-rose-700 dark:bg-rose-950 dark:text-rose-200">{notifications} 則提醒</span>}
-        </div>
+        </div>}
       </div>
-      {!["settings", "users", "calculators", "stocks", "etfs", "funds", "bonds", "forex", "crypto", "financial_plan", "notification_settings"].includes(page) && (
+      {!["settings", "users", "calculators", "stocks", "etfs", "funds", "bonds", "forex", "crypto", "financial_plan", "notification_settings", "data_import"].includes(page) && (
         <PeriodSelector
           mode={period.mode}
           month={month}
@@ -4750,6 +4800,265 @@ function getChartColor(index: number) {
   return chartPalette[index % chartPalette.length];
 }
 
+type ImportSection = "account" | "card" | "installment" | "loan";
+
+function DataImportPage({
+  accounts,
+  cards,
+  installments,
+  loans,
+  onAddAccount,
+  onAddCard,
+  onAddInstallment,
+  onAddLoan,
+  onNavigate,
+  notify
+}: {
+  accounts: FinancialAccount[];
+  cards: CreditCard[];
+  installments: CreditCardInstallment[];
+  loans: Loan[];
+  onAddAccount: (formData: FormData) => Promise<void>;
+  onAddCard: (card: CreditCard) => Promise<void>;
+  onAddInstallment: (installment: CreditCardInstallment) => Promise<void>;
+  onAddLoan: (loan: Loan) => Promise<void>;
+  onNavigate: (page: Page) => void;
+  notify: (type: ToastType, message: string) => void;
+}) {
+  const [section, setSection] = useState<ImportSection>("account");
+  const sections: { id: ImportSection; label: string; count: number; icon: typeof WalletCards }[] = [
+    { id: "account", label: "帳戶餘額", count: accounts.length, icon: WalletCards },
+    { id: "card", label: "信用卡現況", count: cards.length, icon: CreditCardIcon },
+    { id: "installment", label: "既有分期", count: installments.length, icon: ReceiptText },
+    { id: "loan", label: "貸款進度", count: loans.length, icon: Landmark }
+  ];
+
+  function importAccount(formData: FormData) {
+    const openingDate = String(formData.get("openingDate") ?? today);
+    const note = String(formData.get("note") ?? "").trim();
+    formData.set("note", [note, `餘額截至 ${openingDate.replace(/-/g, "/")}`].filter(Boolean).join(" · "));
+    void onAddAccount(formData);
+  }
+
+  function importCard(formData: FormData) {
+    const limit = parseMoneyToCents(String(formData.get("limit") ?? ""));
+    const statementAmount = parseMoneyToCents(String(formData.get("statementAmount") ?? "0"));
+    const installmentBalance = parseMoneyToCents(String(formData.get("installmentBalance") ?? "0"));
+    const knownUsed = parseMoneyToCents(String(formData.get("knownUsed") ?? "0"));
+    const unbilledRaw = String(formData.get("unbilledAmount") ?? "").trim();
+    let unbilledAmount = parseMoneyToCents(unbilledRaw || "0");
+    if (knownUsed > 0 && !unbilledRaw) {
+      if (knownUsed < statementAmount + installmentBalance) return notify("error", "已用額度不可小於本期帳單與分期餘額合計");
+      unbilledAmount = knownUsed - statementAmount - installmentBalance;
+    }
+    const minimumPayment = parseMoneyToCents(String(formData.get("minimumPayment") ?? "0"));
+    const annualFee = parseMoneyToCents(String(formData.get("annualFee") ?? "0"));
+    const statementDay = Number(formData.get("statementDay"));
+    const paymentDueDay = Number(formData.get("paymentDueDay"));
+    const last4 = String(formData.get("last4") ?? "").trim();
+    const validation = combineValidations(
+      validatePositiveAmount(limit, "信用額度"),
+      validateNonNegativeAmount(statementAmount, "本期帳單"),
+      validateNonNegativeAmount(unbilledAmount, "未出帳金額"),
+      validateNonNegativeAmount(installmentBalance, "分期餘額"),
+      validateNonNegativeAmount(minimumPayment, "最低應繳"),
+      validateIntegerRange(statementDay, 1, 31, "結帳日"),
+      validateIntegerRange(paymentDueDay, 1, 31, "繳款截止日")
+    );
+    if (!validation.valid) return notify("error", validation.errors[0]);
+    if (!/^\d{4}$/.test(last4)) return notify("error", "卡片末四碼需為 4 位數字");
+    if (statementAmount + unbilledAmount + installmentBalance > limit && !window.confirm("輸入的已用額度超過信用額度，仍要依銀行現況匯入嗎？")) return;
+    const now = new Date().toISOString();
+    void onAddCard({
+      id: crypto.randomUUID(), userId: localUserId,
+      name: String(formData.get("name") ?? "").trim(), issuer: String(formData.get("issuer") ?? "").trim(), last4,
+      creditLimitCents: limit, statementDay, paymentDueDay,
+      currentStatementAmountCents: statementAmount, unbilledAmountCents: unbilledAmount,
+      minimumPaymentCents: minimumPayment, installmentBalanceCents: installmentBalance,
+      autoPayAccountId: String(formData.get("autoPayAccountId") ?? "") || undefined,
+      annualFeeCents: annualFee, annualFeeWaiver: String(formData.get("waiver") ?? "").trim() || undefined,
+      note: `資料截至 ${String(formData.get("openingDate") ?? today).replace(/-/g, "/")}`,
+      isActive: true, recommendedUtilizationRate: 0.3, createdAt: now, updatedAt: now
+    });
+  }
+
+  function importInstallment(formData: FormData) {
+    if (cards.length === 0) return notify("error", "請先匯入信用卡");
+    const totalAmount = parseMoneyToCents(String(formData.get("totalAmount") ?? ""));
+    const periods = Number(formData.get("periods"));
+    const paidPeriods = Number(formData.get("paidPeriods"));
+    const monthlyPayment = parseMoneyToCents(String(formData.get("monthlyPayment") ?? "0"));
+    const paidRaw = String(formData.get("paidAmount") ?? "").trim();
+    const remainingRaw = String(formData.get("remainingAmount") ?? "").trim();
+    const paidAmount = paidRaw ? parseMoneyToCents(paidRaw) : undefined;
+    const remainingAmount = remainingRaw ? parseMoneyToCents(remainingRaw) : undefined;
+    const annualRate = Number(formData.get("annualRate") ?? 0) / 100;
+    const startedOn = String(formData.get("startedOn") ?? "");
+    const nextDueDate = String(formData.get("nextDueDate") ?? "");
+    const validation = combineValidations(
+      validatePositiveAmount(totalAmount, "分期總額"),
+      validateNonNegativeAmount(monthlyPayment, "每期應繳"),
+      validateNonNegativeAmount(paidAmount ?? 0, "累計已繳金額"),
+      validateNonNegativeAmount(remainingAmount ?? 0, "銀行剩餘金額"),
+      validateAnnualRate(annualRate),
+      validateIntegerRange(periods, 1, 600, "總期數"),
+      validateIntegerRange(paidPeriods, 0, periods, "已繳期數"),
+      validateDateRange(startedOn, nextDueDate || undefined)
+    );
+    if (!validation.valid) return notify("error", validation.errors[0]);
+    const balance = calculateInstallmentOpeningBalance({
+      totalAmountCents: totalAmount, periods, paidPeriods,
+      monthlyPaymentCents: monthlyPayment || undefined,
+      paidAmountCents: paidAmount,
+      remainingAmountCents: remainingAmount
+    });
+    const now = new Date().toISOString();
+    void onAddInstallment({
+      id: crypto.randomUUID(), userId: localUserId,
+      creditCardId: String(formData.get("creditCardId")), merchant: String(formData.get("merchant") ?? "").trim() || undefined,
+      installmentType: String(formData.get("installmentType") ?? "single_purchase") as CreditCardInstallment["installmentType"],
+      includedInCardBalance: formData.get("includedInCardBalance") === "on",
+      totalAmountCents: totalAmount, annualRate, periods, paidPeriods,
+      monthlyPaymentCents: balance.monthlyPaymentCents, paidAmountCents: balance.paidAmountCents,
+      remainingAmountCents: balance.remainingAmountCents, startedOn,
+      nextDueDate: nextDueDate || undefined, status: balance.remainingAmountCents === 0 ? "paid_off" : "active",
+      note: String(formData.get("note") ?? "").trim() || undefined,
+      metadata: { opening_balance_date: String(formData.get("openingDate") ?? today), source: "opening_balance" },
+      createdAt: now, updatedAt: now
+    });
+  }
+
+  function importLoan(formData: FormData) {
+    const principal = parseMoneyToCents(String(formData.get("principal") ?? ""));
+    const payment = parseMoneyToCents(String(formData.get("payment") ?? ""));
+    const remainingRaw = String(formData.get("remaining") ?? "").trim();
+    const remainingInput = parseMoneyToCents(remainingRaw || "0");
+    const paidAmountInput = parseMoneyToCents(String(formData.get("paidAmount") ?? "0"));
+    const prepaidInterest = parseMoneyToCents(String(formData.get("prepaidInterest") ?? "0"));
+    const termMonths = Number(formData.get("termMonths"));
+    const paidPeriods = Number(formData.get("paidPeriods"));
+    const annualRate = Number(formData.get("annualRate") ?? 0) / 100;
+    const paymentDay = Number(formData.get("paymentDay"));
+    const trackingMode = String(formData.get("trackingMode") ?? "amortized") as LoanTrackingMode;
+    const useBankBalance = formData.get("balanceSource") === "remaining";
+    if (useBankBalance && !remainingRaw) return notify("error", "請輸入銀行目前顯示的剩餘本金，或改用已繳期數估算");
+    const validation = combineValidations(
+      validatePositiveAmount(principal, "原始本金"), validatePositiveAmount(payment, "每期應繳"),
+      validateNonNegativeAmount(remainingInput, "銀行剩餘本金"), validateNonNegativeAmount(paidAmountInput, "累計實付"),
+      validateNonNegativeAmount(prepaidInterest, "預付利息"), validateAnnualRate(annualRate),
+      validateIntegerRange(termMonths, 1, 600, "貸款期數"), validateIntegerRange(paidPeriods, 0, termMonths, "已繳期數"),
+      validateIntegerRange(paymentDay, 1, 31, "還款日"), validateDateRange(String(formData.get("startDate") ?? ""))
+    );
+    if (!validation.valid) return notify("error", validation.errors[0]);
+    if (useBankBalance && remainingInput > principal) return notify("error", "銀行剩餘本金不可高於原始本金");
+    const effectivePaidAmount = paidAmountInput > 0
+      ? paidAmountInput
+      : payment * paidPeriods + (trackingMode === "prepaid_interest" ? prepaidInterest : 0);
+    const progress = calculateLoanProgress({
+      originalPrincipalCents: principal, remainingPrincipalCents: useBankBalance ? remainingInput : principal,
+      annualRate, termMonths, paidPeriods, paymentPerPeriodCents: payment, paidAmountCents: effectivePaidAmount,
+      trackingMode, prepaidInterestCents: prepaidInterest, autoCalculate: !useBankBalance
+    });
+    const now = new Date().toISOString();
+    void onAddLoan({
+      id: crypto.randomUUID(), userId: localUserId,
+      name: String(formData.get("name") ?? "").trim(), type: String(formData.get("loanType") ?? "other") as Loan["type"],
+      institution: String(formData.get("institution") ?? "").trim() || undefined,
+      originalPrincipalCents: principal, remainingPrincipalCents: progress.remainingPrincipalCents,
+      annualRate, termMonths, paidPeriods, paidAmountCents: progress.totalCashPaidCents,
+      monthlyPaymentDay: paymentDay, startDate: String(formData.get("startDate")),
+      repaymentMethod: trackingMode === "prepaid_interest" ? "fixed_payment" : "equal_payment",
+      paymentPerPeriodCents: payment,
+      metadata: { loan_tracking_mode: trackingMode, prepaid_interest_cents: prepaidInterest, auto_calculate_progress: !useBankBalance, opening_balance_date: String(formData.get("openingDate") ?? today), source: "opening_balance" },
+      status: progress.remainingPrincipalCents === 0 ? "paid_off" : "active", createdAt: now, updatedAt: now
+    });
+  }
+
+  return (
+    <div className="space-y-4">
+      <section className="panel overflow-hidden">
+        <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+          <div>
+            <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">從今天的真實狀態開始</p>
+            <h2 className="mt-1 text-xl font-bold">不用補登多年流水帳</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300">先輸入銀行與帳單目前顯示的餘額，再視需要匯入歷史交易。期初資料只建立現況，不會重複計入本月收入或支出。</p>
+          </div>
+          <button className="btn-secondary shrink-0" onClick={() => onNavigate("transactions")}><Upload size={16} />匯入交易 CSV</button>
+        </div>
+        <div className="mt-5 grid grid-cols-2 gap-2 lg:grid-cols-4">
+          {sections.map((item) => {
+            const Icon = item.icon;
+            return <button key={item.id} className={`flex min-h-16 items-center gap-3 rounded-md border px-3 text-left transition ${section === item.id ? "border-emerald-500 bg-emerald-50 text-emerald-900 dark:border-emerald-500 dark:bg-emerald-950 dark:text-emerald-100" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"}`} onClick={() => setSection(item.id)}><Icon size={18} /><span className="min-w-0"><span className="block font-semibold">{item.label}</span><span className="block text-xs opacity-70">目前 {item.count} 筆</span></span></button>;
+          })}
+        </div>
+      </section>
+
+      {section === "account" && <section className="panel max-w-3xl">
+        <h2 className="text-lg font-semibold">匯入帳戶目前餘額</h2>
+        <p className="helper-text mt-1">以網銀或存摺目前餘額為準，不會建立一筆收入。</p>
+        <form className="mt-4 grid gap-3 sm:grid-cols-2" onSubmit={handleFormSubmit(importAccount)}>
+          <Field label="帳戶名稱"><input className="input" name="name" required /></Field>
+          <Field label="帳戶類型"><select className="input" name="type">{Object.entries(accountTypeLabels).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
+          <Field label="金融機構"><input className="input" name="institution" /></Field>
+          <Field label="目前餘額"><input className="input" name="balance" inputMode="decimal" required /></Field>
+          <Field label="餘額日期"><input className="input" name="openingDate" type="date" defaultValue={today} required /></Field>
+          <Field label="備註"><input className="input" name="note" /></Field>
+          <label className="flex items-center gap-2 text-sm"><input name="available" type="checkbox" defaultChecked />列入可動用現金</label>
+          <label className="flex items-center gap-2 text-sm"><input name="emergency" type="checkbox" defaultChecked />列入緊急預備金</label>
+          <button className="btn-primary sm:col-span-2" type="submit"><Plus size={16} />匯入帳戶</button>
+        </form>
+      </section>}
+
+      {section === "card" && <section className="panel max-w-4xl">
+        <h2 className="text-lg font-semibold">匯入信用卡帳務現況</h2>
+        <p className="helper-text mt-1">若只知道銀行顯示的已用額度，可留空「未出帳」，系統會自動補差額。</p>
+        <form className="mt-4 grid gap-3 sm:grid-cols-2" onSubmit={handleFormSubmit(importCard)}>
+          <Field label="信用卡名稱"><input className="input" name="name" required /></Field><Field label="發卡銀行"><input className="input" name="issuer" required /></Field>
+          <Field label="末四碼"><input className="input" name="last4" maxLength={4} inputMode="numeric" required /></Field><Field label="信用額度"><input className="input" name="limit" inputMode="decimal" required /></Field>
+          <Field label="銀行顯示已用額度"><input className="input" name="knownUsed" inputMode="decimal" placeholder="可留空" /></Field><Field label="本期帳單"><input className="input" name="statementAmount" inputMode="decimal" defaultValue="0" /></Field>
+          <Field label="下期未出帳"><input className="input" name="unbilledAmount" inputMode="decimal" placeholder="留空可由已用額度回推" /></Field><Field label="尚未逐筆建檔的分期餘額"><input className="input" name="installmentBalance" inputMode="decimal" defaultValue="0" /></Field>
+          <Field label="最低應繳"><input className="input" name="minimumPayment" inputMode="decimal" defaultValue="0" /></Field><Field label="年費"><input className="input" name="annualFee" inputMode="decimal" defaultValue="0" /></Field>
+          <Field label="結帳日"><input className="input" name="statementDay" type="number" min={1} max={31} required /></Field><Field label="繳款截止日"><input className="input" name="paymentDueDay" type="number" min={1} max={31} required /></Field>
+          <Field label="資料日期"><input className="input" name="openingDate" type="date" defaultValue={today} required /></Field><Field label="自動扣款帳戶"><select className="input" name="autoPayAccountId"><option value="">未設定</option>{accounts.map((account)=><option key={account.id} value={account.id}>{account.name}</option>)}</select></Field>
+          <button className="btn-primary sm:col-span-2" type="submit"><Plus size={16} />匯入信用卡</button>
+        </form>
+      </section>}
+
+      {section === "installment" && <section className="panel max-w-4xl">
+        <h2 className="text-lg font-semibold">匯入進行中的信用卡分期</h2>
+        <p className="helper-text mt-1">銀行剩餘金額最準確；不知道時再用已繳期數估算。</p>
+        {cards.length === 0 ? <EmptyState label="請先在上方匯入至少一張信用卡。" /> : <form className="mt-4 grid gap-3 sm:grid-cols-2" onSubmit={handleFormSubmit(importInstallment)}>
+          <Field label="信用卡"><select className="input" name="creditCardId">{cards.map((card)=><option key={card.id} value={card.id}>{card.name}（{card.last4}）</option>)}</select></Field><Field label="商家或項目"><input className="input" name="merchant" required /></Field>
+          <Field label="分期類型"><select className="input" name="installmentType"><option value="single_purchase">單筆消費分期</option><option value="statement">帳單分期</option></select></Field><Field label="分期總額"><input className="input" name="totalAmount" inputMode="decimal" required /></Field>
+          <Field label="總期數"><input className="input" name="periods" type="number" min={1} defaultValue={12} required /></Field><Field label="已繳期數"><input className="input" name="paidPeriods" type="number" min={0} defaultValue={0} required /></Field>
+          <Field label="銀行顯示剩餘金額"><input className="input" name="remainingAmount" inputMode="decimal" placeholder="最優先，可留空" /></Field><Field label="累計已繳金額"><input className="input" name="paidAmount" inputMode="decimal" placeholder="可留空" /></Field>
+          <Field label="每期應繳"><input className="input" name="monthlyPayment" inputMode="decimal" placeholder="可留空自動估算" /></Field><Field label="年利率 %"><input className="input" name="annualRate" inputMode="decimal" defaultValue="0" /></Field>
+          <Field label="開始日"><input className="input" name="startedOn" type="date" required /></Field><Field label="下次應繳日"><input className="input" name="nextDueDate" type="date" /></Field>
+          <Field label="資料日期"><input className="input" name="openingDate" type="date" defaultValue={today} required /></Field><Field label="備註"><input className="input" name="note" /></Field>
+          <label className="sm:col-span-2 flex items-start gap-2 rounded-md border border-slate-200 p-3 text-sm dark:border-slate-700"><input className="mt-0.5" name="includedInCardBalance" type="checkbox" defaultChecked /><span><span className="block font-medium">已包含在信用卡已用額度</span><span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">一般銀行顯示的已用額度通常已包含分期餘額，維持勾選可避免重複計算。</span></span></label>
+          <button className="btn-primary sm:col-span-2" type="submit"><Plus size={16} />匯入分期</button>
+        </form>}
+      </section>}
+
+      {section === "loan" && <section className="panel max-w-4xl">
+        <h2 className="text-lg font-semibold">匯入貸款目前進度</h2>
+        <p className="helper-text mt-1">有銀行剩餘本金就直接採用；沒有時才依期數、利率與每期金額估算。</p>
+        <form className="mt-4 grid gap-3 sm:grid-cols-2" onSubmit={handleFormSubmit(importLoan)}>
+          <Field label="貸款名稱"><input className="input" name="name" required /></Field><Field label="金融機構"><input className="input" name="institution" /></Field>
+          <Field label="貸款類型"><select className="input" name="loanType"><option value="personal">信用貸款</option><option value="mortgage">房屋貸款</option><option value="auto">汽車貸款</option><option value="motorcycle">機車貸款</option><option value="student">學貸</option><option value="family">親友借款</option><option value="other">其他</option></select></Field><Field label="還款方式"><select className="input" name="trackingMode"><option value="amortized">本息按月攤還</option><option value="prepaid_interest">利息預付，本金按期攤還</option></select></Field>
+          <Field label="原始本金"><input className="input" name="principal" inputMode="decimal" required /></Field><Field label="銀行剩餘本金"><input className="input" name="remaining" inputMode="decimal" placeholder="依銀行 App 或帳單填寫" /></Field>
+          <Field label="總期數"><input className="input" name="termMonths" type="number" min={1} required /></Field><Field label="已繳期數"><input className="input" name="paidPeriods" type="number" min={0} defaultValue={0} required /></Field>
+          <Field label="每期應繳"><input className="input" name="payment" inputMode="decimal" required /></Field><Field label="累計實付"><input className="input" name="paidAmount" inputMode="decimal" defaultValue="0" /></Field>
+          <Field label="合約年利率 %"><input className="input" name="annualRate" inputMode="decimal" defaultValue="0" required /></Field><Field label="預付利息（如有）"><input className="input" name="prepaidInterest" inputMode="decimal" defaultValue="0" /></Field>
+          <Field label="每月還款日"><input className="input" name="paymentDay" type="number" min={1} max={31} required /></Field><Field label="貸款起始日"><input className="input" name="startDate" type="date" required /></Field>
+          <Field label="資料日期"><input className="input" name="openingDate" type="date" defaultValue={today} required /></Field><Field label="餘額依據"><select className="input" name="balanceSource"><option value="remaining">以銀行剩餘本金為準</option><option value="periods">依已繳期數估算</option></select></Field>
+          <button className="btn-primary sm:col-span-2" type="submit"><Plus size={16} />匯入貸款</button>
+        </form>
+      </section>}
+    </div>
+  );
+}
+
 function TransactionsPage({
   accounts,
   creditCards,
@@ -4795,6 +5104,16 @@ function TransactionsPage({
     .map(([category, amountCents]) => ({ category, amountCents }))
     .sort((a, b) => b.amountCents - a.amountCents)
     .slice(0, 6);
+
+  function downloadTransactionTemplate() {
+    const template = "\uFEFF日期,類型,金額,分類,子分類,商家,備註,是否必要,是否固定,標籤\n2026-08-01,支出,120,餐飲,早餐,早餐店,,是,否,日常|外食";
+    const url = URL.createObjectURL(new Blob([template], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "ez2savemore-交易匯入範本.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <div className="space-y-4">
@@ -4888,11 +5207,14 @@ function TransactionsPage({
         <div className="panel">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-lg font-semibold">CSV 匯入預覽</h2>
-            <label className="btn-secondary cursor-pointer">
-              <Upload size={16} />
-              選擇 CSV
-              <input className="hidden" type="file" accept=".csv,text/csv" onChange={(event) => onCsvUpload(event.target.files?.[0] ?? null)} />
-            </label>
+            <div className="flex flex-wrap gap-2">
+              <button className="btn-secondary" type="button" onClick={downloadTransactionTemplate}><Download size={16} />下載範本</button>
+              <label className="btn-secondary cursor-pointer">
+                <Upload size={16} />
+                選擇 CSV
+                <input className="hidden" type="file" accept=".csv,text/csv" onChange={(event) => onCsvUpload(event.target.files?.[0] ?? null)} />
+              </label>
+            </div>
           </div>
           {csvPreview.length > 0 && (
             <div className="mt-3 overflow-x-auto">
@@ -5115,9 +5437,8 @@ function CardsPage({
   cards,
   accounts,
   installments,
-  ledgerId,
-  setInstallments,
   onAdd,
+  onAddInstallment,
   onUpdate,
   onDelete,
   notify
@@ -5125,9 +5446,8 @@ function CardsPage({
   cards: CreditCard[];
   accounts: FinancialAccount[];
   installments: CreditCardInstallment[];
-  ledgerId?: string;
-  setInstallments: React.Dispatch<React.SetStateAction<CreditCardInstallment[]>>;
   onAdd: (card: CreditCard) => Promise<void>;
+  onAddInstallment: (installment: CreditCardInstallment) => Promise<void>;
   onUpdate: (card: CreditCard) => Promise<void>;
   onDelete: (card: CreditCard) => Promise<void>;
   notify: (type: ToastType, message: string) => void;
@@ -5181,7 +5501,10 @@ function CardsPage({
 
   async function addInstallment(formData: FormData) {
     const totalAmountCents = parseMoneyToCents(String(formData.get("totalAmount") ?? ""));
-    const paidAmountCents = parseMoneyToCents(String(formData.get("paidAmount") ?? "0"));
+    const paidRaw = String(formData.get("paidAmount") ?? "").trim();
+    const remainingRaw = String(formData.get("remainingAmount") ?? "").trim();
+    const paidAmountInput = paidRaw ? parseMoneyToCents(paidRaw) : undefined;
+    const remainingAmountInput = remainingRaw ? parseMoneyToCents(remainingRaw) : undefined;
     const annualRate = Number(formData.get("annualRate")) / 100;
     const periods = Number(formData.get("periods"));
     const paidPeriods = Number(formData.get("paidPeriods"));
@@ -5190,7 +5513,8 @@ function CardsPage({
     const nextDueDate = String(formData.get("nextDueDate") || "");
     const validation = combineValidations(
       validatePositiveAmount(totalAmountCents, "分期總額"),
-      validateNonNegativeAmount(paidAmountCents, "已還款金額"),
+      validateNonNegativeAmount(paidAmountInput ?? 0, "已還款金額"),
+      validateNonNegativeAmount(remainingAmountInput ?? 0, "剩餘金額"),
       validateNonNegativeAmount(monthlyPaymentInput, "每月應繳"),
       validateAnnualRate(annualRate),
       validateIntegerRange(periods, 1, 600, "分期期數"),
@@ -5198,9 +5522,15 @@ function CardsPage({
       validateDateRange(startedOn, nextDueDate || undefined)
     );
     if (!validation.valid) return notify("error", validation.errors[0]);
-    if (paidAmountCents > totalAmountCents) return notify("error", "已還款金額不可超過分期總額");
+    const balance = calculateInstallmentOpeningBalance({
+      totalAmountCents,
+      periods,
+      paidPeriods,
+      monthlyPaymentCents: monthlyPaymentInput || undefined,
+      paidAmountCents: paidAmountInput,
+      remainingAmountCents: remainingAmountInput
+    });
     const now = new Date().toISOString();
-    const remainingAmountCents = Math.max(0, totalAmountCents - paidAmountCents);
     const installment: CreditCardInstallment = {
       id: crypto.randomUUID(),
       userId: localUserId,
@@ -5212,23 +5542,17 @@ function CardsPage({
       annualRate,
       periods,
       paidPeriods,
-      monthlyPaymentCents: monthlyPaymentInput > 0 ? monthlyPaymentInput : Math.ceil(remainingAmountCents / Math.max(1, periods - paidPeriods)),
-      paidAmountCents,
-      remainingAmountCents,
+      monthlyPaymentCents: balance.monthlyPaymentCents,
+      paidAmountCents: balance.paidAmountCents,
+      remainingAmountCents: balance.remainingAmountCents,
       startedOn,
       nextDueDate: nextDueDate || undefined,
-      status: remainingAmountCents === 0 ? "paid_off" : "active",
+      status: balance.remainingAmountCents === 0 ? "paid_off" : "active",
       note: String(formData.get("note") ?? ""),
       createdAt: now,
       updatedAt: now
     };
-    try {
-      const saved = await createCreditCardInstallment(installment, ledgerId);
-      setInstallments((current) => [saved, ...current]);
-      notify("success", "信用卡分期已加入負債整理");
-    } catch (error) {
-      notify("error", error instanceof Error ? error.message : "信用卡分期儲存失敗");
-    }
+    await onAddInstallment(installment);
   }
 
   const creditSummary = summarizeCreditCardLimits(cards, installments);
@@ -5413,7 +5737,10 @@ function CardsPage({
               <Field label="總期數"><input className="input" name="periods" type="number" min={1} defaultValue={12} /></Field>
               <Field label="已還期數"><input className="input" name="paidPeriods" type="number" min={0} defaultValue={0} /></Field>
             </div>
-            <Field label="已還款金額"><input className="input" name="paidAmount" inputMode="decimal" defaultValue="0" /></Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="已還款金額"><input className="input" name="paidAmount" inputMode="decimal" placeholder="可留空由期數估算" /></Field>
+              <Field label="銀行剩餘金額"><input className="input" name="remainingAmount" inputMode="decimal" placeholder="有資料時優先填這裡" /></Field>
+            </div>
             <Field label="每月應繳"><input className="input" name="monthlyPayment" inputMode="decimal" placeholder="可留空自動估算" /></Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="開始日"><input className="input" name="startedOn" type="date" defaultValue={today} /></Field>
