@@ -8,6 +8,7 @@ import {
   shouldDeliver,
   taipeiDate
 } from "./push-candidates.js";
+import { verifyCronSecret } from "./push-utils.js";
 
 describe("web push reminder candidates", () => {
   it("uses the real last day for shorter months", () => {
@@ -57,5 +58,18 @@ describe("web push reminder candidates", () => {
 
   it("creates stable keys without financial details", () => {
     expect(notificationKey({ type: "loan", sourceId: "record-id", kind: "payment", dueDate: "2026-08-04" })).toBe("loan:record-id:payment:2026-08-04");
+  });
+});
+
+describe("web push cron authorization", () => {
+  it("accepts a Vercel secret with a trailing input newline", () => {
+    const previous = process.env.CRON_SECRET;
+    process.env.CRON_SECRET = "a-secure-cron-secret-value-123456\n";
+    try {
+      expect(verifyCronSecret({ headers: { authorization: "Bearer a-secure-cron-secret-value-123456" } })).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.CRON_SECRET;
+      else process.env.CRON_SECRET = previous;
+    }
   });
 });

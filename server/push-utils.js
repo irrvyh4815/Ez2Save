@@ -94,7 +94,7 @@ export function parseBody(request) {
 }
 
 export function verifyCronSecret(request) {
-  const expected = String(process.env.CRON_SECRET || "");
+  const expected = String(process.env.CRON_SECRET || "").trim();
   const received = String(request.headers.authorization || "");
   const expectedHeader = `Bearer ${expected}`;
   if (expected.length < 16 || received.length !== expectedHeader.length) return false;
