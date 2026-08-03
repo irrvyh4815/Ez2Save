@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "typecheck": "tsc -b",
     "lint": "eslint . --max-warnings=0",
+    "push:keys": "web-push generate-vapid-keys --json",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -16,7 +17,8 @@
     "@supabase/supabase-js": "^2.45.4",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

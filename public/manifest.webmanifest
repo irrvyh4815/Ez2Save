@@ -1,0 +1,33 @@
+{
+  "id": "/",
+  "name": "Ez2SaveMore 個人投資理財助手",
+  "short_name": "Ez2SaveMore",
+  "description": "安全管理多帳本、收支、負債、保險與投資資料。",
+  "lang": "zh-Hant-TW",
+  "dir": "ltr",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f4f7fb",
+  "theme_color": "#081226",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "理財總覽",
+      "short_name": "總覽",
+      "url": "/?open=dashboard",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "收支紀錄",
+      "short_name": "記一筆",
+      "url": "/?open=transactions",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

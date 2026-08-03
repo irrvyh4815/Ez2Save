@@ -16,6 +16,7 @@ Ez2SaveMore 是以台灣使用者為預設的個人投資理財助手。第一�
 - 存款管理與試算：單利、複利、定期定額追加、扣除率。
 - 保險管理：保費、保障額、已理賠、待理賠、續保日、保費與保障分布。
 - 預算、固定帳單、報表與 CSV 匯出。
+- PWA 與手機通知：可安裝到手機或電腦，依帳本設定接收信用卡、貸款、分期、定存、保險與固定帳單提醒。
 - AI 理財健檢：由使用者主動點擊才產生，預設 mock mode，不需要 API Key 也能運作。
 
 ## 本機安裝
@@ -55,6 +56,7 @@ supabase db push
 - `supabase/migrations/202607230011_security_hardening.sql`
 - `supabase/migrations/202607230012_ledger_currencies_forex_crypto.sql`
 - `supabase/migrations/202608030013_ledger_scoped_opening_imports.sql`
+- `supabase/migrations/202608030014_web_push_notifications.sql`
 
 所有個人理財表都啟用 RLS。新版安全模型以 `ledger_id` + `ledger_members` 隔離資料；使用者必須是帳本成員才可讀取，且只有 `owner`、`admin`、`editor` 可寫入。
 
@@ -83,6 +85,24 @@ supabase db push
 - `MAX_AI_SUMMARY_ITEMS`
 - `SUPABASE_SERVICE_ROLE_KEY`（僅 `/api/admin/users` 使用，絕不可加上 `VITE_`）
 - `ADMIN_RATE_LIMIT_PER_MINUTE`
+- `WEB_PUSH_VAPID_PUBLIC_KEY`
+- `WEB_PUSH_VAPID_PRIVATE_KEY`
+- `WEB_PUSH_VAPID_SUBJECT`
+- `CRON_SECRET`
+
+## PWA 與手機通知
+
+先產生一組 VAPID 金鑰：
+
+```bash
+npm run push:keys
+```
+
+將輸出的公鑰與私鑰分別設定為 `WEB_PUSH_VAPID_PUBLIC_KEY` 與 `WEB_PUSH_VAPID_PRIVATE_KEY`，`WEB_PUSH_VAPID_SUBJECT` 使用管理信箱，例如 `mailto:admin@example.com`。再建立至少 32 字元的隨機 `CRON_SECRET`。這些值只放在本機 `.env.local` 或 Vercel，不可提交 Git。
+
+Android、Windows 與 macOS 可從支援的瀏覽器安裝；iPhone/iPad 需先用 Safari「加入主畫面」，再從主畫面開啟並允許通知。推播只傳送通用提醒與站內頁面位置，不傳送金額、銀行、卡片或帳本名稱。
+
+Vercel 每日呼叫 `GET /api/send-push-notifications`。Hobby 方案的排程為每日一次；若升級至支援更密集排程的方案，可調整 `vercel.json`，伺服器仍會遵守使用者設定的單次或重複提醒間隔。
 
 ## AI Mock Mode
 
@@ -167,7 +187,7 @@ Node.js：
 >=20
 ```
 
-部署 Preview 前請確認 Vercel 專案環境變數已設定 Supabase anon key，AI Key 僅設定在 server-side environment。
+部署 Preview 前請確認 Vercel 專案環境變數已設定 Supabase anon key。AI Key、Web Push 私鑰、`CRON_SECRET` 與 Supabase service role key 僅設定在 server-side environment。
 
 ## 資安注意事項
 

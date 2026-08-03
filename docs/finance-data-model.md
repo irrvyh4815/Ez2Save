@@ -136,6 +136,12 @@ Apply `supabase/migrations/202607220009_financial_plans.sql` after the ledger an
 
 Apply `supabase/migrations/202607220010_ledger_notification_preferences.sql` after the ledger and access-hardening migrations. It only adds a new preference table and uses `can_read_ledger` and `can_write_ledger` RLS policies, so one ledger cannot read or change another ledger's notification settings.
 
+## Web Push
+
+`web_push_subscriptions` stores each authenticated user's browser subscription and encrypted delivery keys. `web_push_deliveries` stores only delivery control data used to prevent duplicate notifications and enforce repeat intervals. Both tables use `user_id` RLS; browser users cannot read another user's devices or write delivery history.
+
+Apply `supabase/migrations/202608030014_web_push_notifications.sql`. The scheduled server function reads only the minimum due-date fields and sends a generic payload without financial amounts, institution names, card details, or ledger names.
+
 ## Security Hardening
 
 Apply `supabase/migrations/202607230011_security_hardening.sql` after all previous migrations. It keeps RLS enforced for every finance and ledger table, and makes financial record ownership, ledger ownership, membership identity, and invitation ownership immutable after creation. Existing financial records are not changed.

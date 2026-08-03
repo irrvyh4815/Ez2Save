@@ -36,6 +36,16 @@ supabase db push
 
 ## Vercel
 
+### PWA 與手機通知
+
+1. 套用 `202608030014_web_push_notifications.sql`。
+2. 執行 `npm run push:keys` 產生 VAPID 金鑰。
+3. 在 Vercel Production 與 Preview 設定 `WEB_PUSH_VAPID_PUBLIC_KEY`、`WEB_PUSH_VAPID_PRIVATE_KEY`、`WEB_PUSH_VAPID_SUBJECT`、`CRON_SECRET`。
+4. `WEB_PUSH_VAPID_PRIVATE_KEY` 與 `CRON_SECRET` 不可加上 `VITE_`，也不可提交 Git。
+5. 部署後從設定頁啟用手機通知並傳送測試通知。
+
+`vercel.json` 的排程每天於台灣時間約 08:00 執行。Vercel Hobby 排程可能在該時段內延後執行；需要更密集且精準的提醒時，應升級支援較高頻率排程的方案後再調整 cron。Service worker 不快取 `/api` 或 Supabase 財務資料，鎖定畫面的通知也不包含財務明細。
+
 設定：
 
 - Framework: Vite

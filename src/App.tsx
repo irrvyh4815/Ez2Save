@@ -37,6 +37,8 @@ import {
   KeyRound,
   Pencil,
   RefreshCw,
+  Send,
+  Smartphone,
   WalletCards
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -72,6 +74,8 @@ import { getNotificationStatus, isNotificationVisible } from "./lib/notification
 import { isSupabaseConfigured } from "./services/supabaseClient";
 import { mockAiFinancialHealth, requestAiFinancialHealth } from "./services/aiFinancialHealth";
 import { listAdminUsers, manageAdminUser, type AdminManagedUser, type AdminAuditLog } from "./services/adminUsers";
+import { disableWebPush, enableWebPush, getWebPushState, sendTestWebPush, type WebPushState } from "./services/webPush";
+import { installPwa, isPwaInstallAvailable } from "./services/pwaInstall";
 import {
   checkSupabaseConnection,
   createLedgerBook,
@@ -172,6 +176,13 @@ type Page =
   | "notification_settings"
   | "settings"
   | "users";
+
+const pushDestinationPages = new Set<Page>(["dashboard", "transactions", "cards", "loans", "deposits", "insurance", "reminders", "settings"]);
+
+function getInitialPage(): Page {
+  const requested = new URLSearchParams(window.location.search).get("open") as Page | null;
+  return requested && pushDestinationPages.has(requested) ? requested : "dashboard";
+}
 
 type PeriodMode = "all" | "month" | "three_months" | "six_months" | "year" | "range";
 
@@ -645,7 +656,7 @@ export default function App() {
   const [allLedgerNotificationData, setAllLedgerNotificationData] = useState<Awaited<ReturnType<typeof loadAllLedgerNotificationData>>>([]);
   const [ledgerHomeView, setLedgerHomeView] = useState<"ledgers" | "users">("ledgers");
   const [ledgerTransitioning, setLedgerTransitioning] = useState(false);
-  const [page, setPage] = useState<Page>("dashboard");
+  const [page, setPage] = useState<Page>(getInitialPage);
   const [month, setMonth] = useState(currentTaipeiMonth());
   const [periodMode, setPeriodMode] = useState<PeriodMode>("all");
   const [periodYear, setPeriodYear] = useState(currentTaipeiMonth().slice(0, 4));
@@ -8367,6 +8378,98 @@ function formatAdminDate(value: string) {
   return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
 }
 
+function WebPushSettingsCard({ sessionEmail, notify }: { sessionEmail: string | null; notify: (type: ToastType, message: string) => void }) {
+  const [state, setState] = useState<WebPushState | null>(null);
+  const [loading, setLoading] = useState(Boolean(sessionEmail));
+  const [pending, setPending] = useState<"enable" | "disable" | "test" | "install" | null>(null);
+  const [installAvailable, setInstallAvailable] = useState(isPwaInstallAvailable);
+
+  useEffect(() => {
+    const updateInstallState = () => setInstallAvailable(isPwaInstallAvailable());
+    window.addEventListener("ez2save-install-ready", updateInstallState);
+    return () => window.removeEventListener("ez2save-install-ready", updateInstallState);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    if (!sessionEmail) {
+      setLoading(false);
+      setState(null);
+      return () => { active = false; };
+    }
+    setLoading(true);
+    void getWebPushState().then((nextState) => {
+      if (active) setState(nextState);
+    }).finally(() => {
+      if (active) setLoading(false);
+    });
+    return () => { active = false; };
+  }, [sessionEmail]);
+
+  const runAction = async (action: "enable" | "disable" | "test" | "install") => {
+    setPending(action);
+    try {
+      if (action === "enable") {
+        setState(await enableWebPush());
+        notify("success", "這台裝置已開啟手機通知");
+      } else if (action === "disable") {
+        setState(await disableWebPush());
+        notify("success", "這台裝置已關閉手機通知");
+      } else if (action === "test") {
+        await sendTestWebPush();
+        notify("success", "測試通知已送出");
+      } else {
+        const installed = await installPwa();
+        setInstallAvailable(isPwaInstallAvailable());
+        if (installed) notify("success", "Ez2SaveMore 已加入裝置");
+      }
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "手機通知設定失敗");
+    } finally {
+      setPending(null);
+    }
+  };
+
+  const statusLabel = loading
+    ? "正在確認"
+    : !sessionEmail
+      ? "請先登入"
+      : !state?.supported
+        ? "此瀏覽器不支援"
+        : state.subscribed
+          ? "這台裝置已開啟"
+          : "尚未開啟";
+  const statusTone = state?.subscribed
+    ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-100"
+    : "bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300";
+
+  return (
+    <section className="panel lg:col-span-2">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <span className="icon-button mt-0.5 bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-200"><Smartphone size={18} /></span>
+          <div><h2 className="text-lg font-semibold">手機通知與安裝</h2><p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">離開網頁後仍可收到到期提醒，通知內容不會顯示金額或金融機構。</p></div>
+        </div>
+        <span className={`rounded-md px-2.5 py-1.5 text-xs font-semibold ${statusTone}`}>{statusLabel}</span>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <Info label="這台裝置" value={state?.subscribed ? "通知已開啟" : "通知未開啟"} />
+        <Info label="已連接裝置" value={`${state?.devices.length ?? 0} 台`} />
+        <Info label="提醒方式" value="依各帳本設定" />
+      </div>
+      {state?.requiresHomeScreen && <div className="mt-4 rounded-md border border-sky-200 bg-sky-50 px-3 py-3 text-sm leading-6 text-sky-800 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-100">在 iPhone 的 Safari 點選分享，再選「加入主畫面」。從主畫面開啟 Ez2SaveMore 後即可啟用通知。</div>}
+      {state?.permission === "denied" && <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">此裝置已封鎖通知，請到瀏覽器或手機設定重新允許。</div>}
+      {sessionEmail && state?.supported && !state.backendReady && !loading && <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">手機通知服務尚待完成雲端設定，其他理財功能不受影響。</div>}
+      <div className="mt-4 flex flex-wrap gap-2">
+        {!state?.subscribed && <button className="btn-primary" type="button" onClick={() => void runAction("enable")} disabled={!sessionEmail || loading || pending !== null || !state?.supported || state.requiresHomeScreen}><Bell size={16} />{pending === "enable" ? "開啟中" : "開啟手機通知"}</button>}
+        {state?.subscribed && <button className="btn-secondary" type="button" onClick={() => void runAction("test")} disabled={pending !== null || !state.backendReady}><Send size={16} />{pending === "test" ? "傳送中" : "傳送測試通知"}</button>}
+        {state?.subscribed && <button className="btn-secondary" type="button" onClick={() => void runAction("disable")} disabled={pending !== null}><Bell size={16} />{pending === "disable" ? "關閉中" : "關閉這台裝置"}</button>}
+        {installAvailable && !state?.isStandalone && <button className="btn-secondary" type="button" onClick={() => void runAction("install")} disabled={pending !== null}><Download size={16} />{pending === "install" ? "安裝中" : "安裝到裝置"}</button>}
+      </div>
+    </section>
+  );
+}
+
 function SettingsPage({
   isSupabaseConfigured,
   sessionEmail,
@@ -8435,6 +8538,7 @@ function SettingsPage({
         <div><h2 className="text-lg font-semibold">登入工作階段</h2><p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">目前裝置上的登入狀態與個人資料會分開管理。</p></div>
         <div className="flex flex-wrap gap-2"><button className="btn-secondary" onClick={onRefresh}>重新讀取資料</button><button className="btn-danger" onClick={() => void onSignOut()} disabled={!sessionEmail}>登出</button></div>
       </section>
+      <WebPushSettingsCard sessionEmail={sessionEmail} notify={notify} />
       <section className="lg:col-span-2">
         <NotificationSettingsPage preferences={notificationPreferences} onSave={onSaveNotificationPreferences} notify={notify} compact />
       </section>
