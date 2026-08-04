@@ -99,11 +99,11 @@ supabase db push
 npm run push:keys
 ```
 
-將輸出的公鑰與私鑰分別設定為 `WEB_PUSH_VAPID_PUBLIC_KEY` 與 `WEB_PUSH_VAPID_PRIVATE_KEY`，`WEB_PUSH_VAPID_SUBJECT` 使用管理信箱，例如 `mailto:admin@example.com`。再建立至少 32 字元的隨機 `CRON_SECRET`。這些值只放在本機 `.env.local` 或 Vercel，不可提交 Git。
+將輸出的公鑰與私鑰分別設定為 `WEB_PUSH_VAPID_PUBLIC_KEY` 與 `WEB_PUSH_VAPID_PRIVATE_KEY`，`WEB_PUSH_VAPID_SUBJECT` 使用管理信箱，例如 `mailto:admin@example.com`。再建立至少 32 字元的隨機 `CRON_SECRET`，並將相同值加入 Vercel 環境變數與 GitHub Actions repository secret。這些值只放在密鑰設定中，不可提交 Git。
 
 Android、Windows 與 macOS 可從支援的瀏覽器安裝；iPhone/iPad 需先用 Safari「加入主畫面」，再從主畫面開啟並允許通知。推播只傳送通用提醒與站內頁面位置，不傳送金額、銀行、卡片或帳本名稱。
 
-Vercel 每日呼叫 `GET /api/send-push-notifications`。Hobby 方案的排程為每日一次；若升級至支援更密集排程的方案，可調整 `vercel.json`，伺服器仍會遵守使用者設定的單次或重複提醒間隔。
+通知預設每 12 小時重複，使用者可在通知設定中改為單次或 `1–168` 小時。GitHub Actions 每 12 小時呼叫 `GET /api/send-push-notifications`，Vercel Hobby 的每日排程則作為備援。排程檔必須進入 GitHub 預設分支才會自動執行。
 
 ## AI Mock Mode
 
