@@ -3377,13 +3377,13 @@ function NotificationSettingsPage({ preferences, onSave, notify, compact = false
       >
         <div className="space-y-3 text-sm text-slate-200">
           <p>關閉某一類後，該類事項不會出現在此帳本的通知中心。</p>
-          <p>持續提醒會在應用程式開啟期間，依設定間隔再次顯示；單次提醒只保留一則提示。</p>
+          <p>未另行設定時每 12 小時提醒一次；啟用手機通知後，關閉頁面也能接收。</p>
         </div>
       </FeatureHero>}
 
       <form className="panel" onSubmit={(event) => { event.preventDefault(); save(new FormData(event.currentTarget)); }}>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div><h2 className="text-lg font-semibold">繳款與到期提醒</h2><p className="text-sm text-slate-500 dark:text-slate-400">設定目前帳本各類事項要在截止日前幾天出現在通知中心。</p></div>
+          <div><h2 className="text-lg font-semibold">繳款與到期提醒</h2><p className="text-sm text-slate-500 dark:text-slate-400">預設每 12 小時提醒，可依目前帳本的需求調整。</p></div>
           <button className="btn-primary" type="submit"><CheckCircle2 size={16} />儲存通知設定</button>
         </div>
         <div className="mt-4 grid gap-3 xl:grid-cols-2">
@@ -3399,7 +3399,7 @@ function NotificationSettingsPage({ preferences, onSave, notify, compact = false
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
                   <Field label="截止日前幾天"><input className="input" name={"days-" + type} type="number" min={0} max={90} defaultValue={existing?.remindDaysBefore ?? (type === "deposit" || type === "insurance" ? 14 : 7)} /></Field>
                   <Field label="提醒方式"><select className="input" name={"mode-" + type} defaultValue={existing?.deliveryMode ?? "repeat"}><option value="single">單次提醒</option><option value="repeat">持續提醒</option></select></Field>
-                  <Field label="持續間隔"><select className="input" name={"hours-" + type} defaultValue={existing?.repeatHours ?? 12}><option value={6}>每 6 小時</option><option value={12}>每 12 小時</option><option value={24}>每 24 小時</option><option value={48}>每 48 小時</option></select></Field>
+                  <Field label="持續間隔（小時）"><input className="input" name={"hours-" + type} type="number" min={1} max={168} defaultValue={existing?.repeatHours ?? 12} /></Field>
                 </div>
               </section>
             );

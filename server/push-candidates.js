@@ -5,7 +5,7 @@ export const notificationDefaults = Object.freeze({
   installment: { remindDaysBefore: 7, deliveryMode: "repeat", repeatHours: 12 },
   loan: { remindDaysBefore: 7, deliveryMode: "repeat", repeatHours: 12 },
   reminder: { remindDaysBefore: 3, deliveryMode: "repeat", repeatHours: 12 },
-  deposit: { remindDaysBefore: 14, deliveryMode: "single", repeatHours: 24 },
+  deposit: { remindDaysBefore: 14, deliveryMode: "repeat", repeatHours: 12 },
   insurance: { remindDaysBefore: 14, deliveryMode: "repeat", repeatHours: 12 }
 });
 

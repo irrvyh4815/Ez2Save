@@ -44,7 +44,7 @@ supabase db push
 4. `WEB_PUSH_VAPID_PRIVATE_KEY` 與 `CRON_SECRET` 不可加上 `VITE_`，也不可提交 Git。
 5. 部署後從設定頁啟用手機通知並傳送測試通知。
 
-`vercel.json` 的排程每天於台灣時間約 08:00 執行。Vercel Hobby 排程可能在該時段內延後執行；需要更密集且精準的提醒時，應升級支援較高頻率排程的方案後再調整 cron。Service worker 不快取 `/api` 或 Supabase 財務資料，鎖定畫面的通知也不包含財務明細。
+`vercel.json` 每 12 小時執行一次通知排程。Vercel Pro 或 Enterprise 方案支援這個頻率；Hobby 方案最多每天一次，並會拒絕高頻率 cron 的部署。Service worker 不快取 `/api` 或 Supabase 財務資料，鎖定畫面的通知也不包含財務明細。
 
 設定：
 

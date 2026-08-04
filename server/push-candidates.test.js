@@ -3,6 +3,7 @@ import {
   buildDueEvents,
   isEventDue,
   monthlyDueDate,
+  notificationDefaults,
   notificationKey,
   preferenceFor,
   shouldDeliver,
@@ -11,6 +12,10 @@ import {
 import { verifyCronSecret } from "./push-utils.js";
 
 describe("web push reminder candidates", () => {
+  it("defaults every reminder type to a 12-hour repeat", () => {
+    expect(Object.values(notificationDefaults).every((item) => item.deliveryMode === "repeat" && item.repeatHours === 12)).toBe(true);
+  });
+
   it("uses the real last day for shorter months", () => {
     expect(monthlyDueDate("2026-02-03", 31)).toBe("2026-02-28");
   });
