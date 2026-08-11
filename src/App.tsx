@@ -735,6 +735,7 @@ export default function App() {
   }, [darkMode]);
   const [aiLoading, setAiLoading] = useState(false);
   const refreshFinanceDataRef = useRef<() => Promise<void>>(async () => undefined);
+  const loadedSessionUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     void refreshFinanceDataRef.current();
@@ -744,12 +745,20 @@ export default function App() {
     if (!supabase) return;
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "SIGNED_OUT") {
+        loadedSessionUserIdRef.current = null;
         setSessionEmail(null);
         setCurrentProfile(null);
         setActiveLedgerId(null);
         return;
       }
-      if (session) setSessionEmail(session.user.email ?? null);
+      if (!session) return;
+      setSessionEmail(session.user.email ?? null);
+      if (event === "INITIAL_SESSION" || event === "SIGNED_IN") {
+        const userId = session.user.id;
+        window.setTimeout(() => {
+          if (loadedSessionUserIdRef.current !== userId) void refreshFinanceDataRef.current();
+        }, 0);
+      }
     });
     return () => subscription.unsubscribe();
   }, []);
@@ -842,6 +851,7 @@ export default function App() {
     setDataLoading(true);
     try {
       let result = await loadFinanceData();
+      loadedSessionUserIdRef.current = result.session?.user.id ?? null;
       const userId = result.session?.user.id ?? localUserId;
       let nextLedgerBooks: LedgerBook[] = [];
       let nextInvitations: LedgerInvitation[] = [];
