@@ -17,6 +17,7 @@ export type TransactionType =
   | "credit_card_purchase"
   | "credit_card_payment"
   | "loan_payment"
+  | "loan_drawdown"
   | "deposit_transfer"
   | "investment_buy"
   | "investment_sell";
@@ -28,6 +29,7 @@ export type LoanType =
   | "motorcycle"
   | "student"
   | "family"
+  | "reserve_credit"
   | "other";
 
 export type LoanRepaymentMethod =
@@ -152,6 +154,7 @@ export interface Loan extends BaseEntity {
   type: LoanType;
   institution?: string;
   originalPrincipalCents: number;
+  creditLimitCents?: number;
   remainingPrincipalCents: number;
   annualRate: number;
   termMonths: number;

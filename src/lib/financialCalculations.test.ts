@@ -11,6 +11,7 @@ import {
   calculateInstallmentOpeningBalance,
   calculateLoan,
   calculateLoanProgress,
+  calculateReserveCredit,
   inferAnnualRateFromPayment,
   inferLoanTrackingMode,
   calculateMonthlyBalance,
@@ -177,6 +178,46 @@ describe("loan calculations", () => {
 
     expect(result.interestSavedCents).toBeGreaterThan(0);
     expect(result.payoffMonths).toBeLessThan(48);
+  });
+
+  it("calculates reserve credit interest only on the utilized balance", () => {
+    const result = calculateReserveCredit({
+      creditLimitCents: 500_000_00,
+      utilizedBalanceCents: 120_000_00,
+      annualRate: 0.06,
+      billingDays: 30,
+      installmentMonths: 12
+    });
+
+    expect(result.availableCreditCents).toBe(380_000_00);
+    expect(result.billingInterestCents).toBe(Math.round(120_000_00 * 0.06 * 30 / 365));
+    expect(result.installmentPaymentCents).toBeGreaterThan(10_000_00);
+    expect(result.schedule).toHaveLength(12);
+  });
+
+  it("reduces reserve credit interest with immediate and monthly prepayments", () => {
+    const normal = calculateReserveCredit({
+      creditLimitCents: 500_000_00,
+      utilizedBalanceCents: 200_000_00,
+      annualRate: 0.08,
+      billingDays: 30,
+      installmentMonths: 24
+    });
+    const prepaid = calculateReserveCredit({
+      creditLimitCents: 500_000_00,
+      utilizedBalanceCents: 200_000_00,
+      annualRate: 0.08,
+      billingDays: 30,
+      installmentMonths: 24,
+      immediatePrepaymentCents: 50_000_00,
+      extraMonthlyPaymentCents: 3_000_00
+    });
+
+    expect(prepaid.principalAfterPrepaymentCents).toBe(150_000_00);
+    expect(prepaid.availableCreditCents).toBe(350_000_00);
+    expect(prepaid.totalInstallmentInterestCents).toBeLessThan(normal.totalInstallmentInterestCents);
+    expect(prepaid.interestSavedCents).toBeGreaterThan(0);
+    expect(prepaid.payoffMonths).toBeLessThan(normal.payoffMonths);
   });
 });
 
@@ -437,13 +478,47 @@ describe("summary calculations", () => {
   it("does not count transfers and credit-card payments as income or expense", () => {
     const transfer = transaction("tx-transfer", "transfer", 10_000_00);
     const cardPayment = transaction("tx-card-payment", "credit_card_payment", 10_000_00);
+    const reserveDrawdown = transaction("tx-reserve-draw", "loan_drawdown", 10_000_00);
     const investmentBuy = transaction("tx-investment-buy", "investment_buy", 10_000_00);
     const expense = transaction("tx-expense", "expense", 10_000_00);
 
     expect(isIncomeExpenseTransaction(transfer)).toBe(false);
     expect(isIncomeExpenseTransaction(cardPayment)).toBe(false);
+    expect(isIncomeExpenseTransaction(reserveDrawdown)).toBe(false);
     expect(isIncomeExpenseTransaction(investmentBuy)).toBe(false);
     expect(isIncomeExpenseTransaction(expense)).toBe(true);
+  });
+
+  it("counts only utilized reserve credit as debt", () => {
+    const reserveCredit: Loan = {
+      ...base,
+      id: "reserve-credit",
+      name: "週轉備用金",
+      type: "reserve_credit",
+      originalPrincipalCents: 120_000_00,
+      creditLimitCents: 500_000_00,
+      remainingPrincipalCents: 120_000_00,
+      annualRate: 0.06,
+      termMonths: 12,
+      paidPeriods: 0,
+      paidAmountCents: 0,
+      monthlyPaymentDay: 15,
+      startDate: "2026-08-01",
+      repaymentMethod: "manual",
+      paymentPerPeriodCents: 0,
+      status: "active"
+    };
+    const summary = summarizeDashboard({
+      accounts: [],
+      creditCards: [],
+      loans: [reserveCredit],
+      transactions: [],
+      month: "2026-08",
+      averageNecessaryExpenseCents: 0
+    });
+
+    expect(summary.totalLiabilitiesCents).toBe(120_000_00);
+    expect(summary.totalLiabilitiesCents).not.toBe(reserveCredit.creditLimitCents);
   });
 
   it("summarizes dashboard without NaN or Infinity", () => {

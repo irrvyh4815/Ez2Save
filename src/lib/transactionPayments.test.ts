@@ -38,15 +38,24 @@ describe("transaction payment selection", () => {
     expect(resolveTransactionPayment("loan_payment", "account", "account-1", "", "").error).toBe("請選擇還款貸款");
   });
 
+  it("requires a receiving account and reserve credit for drawdowns", () => {
+    expect(resolveTransactionPayment("loan_drawdown", "account", "account-1", "", "reserve-1")).toEqual({
+      type: "loan_drawdown",
+      accountId: "account-1",
+      loanId: "reserve-1"
+    });
+    expect(resolveTransactionPayment("loan_drawdown", "account", "", "", "reserve-1").error).toBe("請選擇入帳帳戶");
+  });
+
   it("estimates the principal and interest portions", () => {
-    expect(calculateLoanPaymentBreakdown(10_000, 1_000_000, 2.4)).toEqual({
+    expect(calculateLoanPaymentBreakdown(10_000, 1_000_000, 0.024)).toEqual({
       principalCents: 8_000,
       interestCents: 2_000
     });
   });
 
   it("allows interest-only or prepaid-interest loan payments", () => {
-    expect(calculateLoanPaymentBreakdown(10_000, 1_000_000, 2.4, 0)).toEqual({
+    expect(calculateLoanPaymentBreakdown(10_000, 1_000_000, 0.024, 0)).toEqual({
       principalCents: 0,
       interestCents: 10_000
     });

@@ -41,6 +41,28 @@ export interface LoanCalculationResult {
   schedule: AmortizationRow[];
 }
 
+export interface ReserveCreditCalculationInput {
+  creditLimitCents: number;
+  utilizedBalanceCents: number;
+  annualRate: number;
+  billingDays: number;
+  installmentMonths: number;
+  extraMonthlyPaymentCents?: number;
+  immediatePrepaymentCents?: number;
+}
+
+export interface ReserveCreditCalculationResult {
+  utilizedBalanceCents: number;
+  availableCreditCents: number;
+  billingInterestCents: number;
+  principalAfterPrepaymentCents: number;
+  installmentPaymentCents: number;
+  totalInstallmentInterestCents: number;
+  interestSavedCents: number;
+  payoffMonths: number;
+  schedule: AmortizationRow[];
+}
+
 export type LoanTrackingMode = "amortized" | "prepaid_interest" | "manual";
 
 export interface LoanProgressInput {
@@ -613,6 +635,44 @@ export function calculateLoan(input: LoanCalculationInput): LoanCalculationResul
   };
 }
 
+export function calculateReserveCredit(input: ReserveCreditCalculationInput): ReserveCreditCalculationResult {
+  const creditLimitCents = Math.max(0, cents(input.creditLimitCents));
+  const utilizedBalanceCents = Math.min(creditLimitCents, Math.max(0, cents(input.utilizedBalanceCents)));
+  const billingDays = Math.min(366, Math.max(1, Math.round(input.billingDays)));
+  const annualRate = Math.max(0, input.annualRate);
+  const immediatePrepaymentCents = Math.min(
+    utilizedBalanceCents,
+    Math.max(0, cents(input.immediatePrepaymentCents ?? 0))
+  );
+  const principalAfterPrepaymentCents = utilizedBalanceCents - immediatePrepaymentCents;
+  const billingInterestCents = cents(utilizedBalanceCents * annualRate * billingDays / 365);
+  const installmentMonths = Math.max(0, Math.round(input.installmentMonths));
+  const base = installmentMonths > 0 && utilizedBalanceCents > 0
+    ? calculateLoan({ principalCents: utilizedBalanceCents, annualRate, termMonths: installmentMonths, method: "equal_payment" })
+    : null;
+  const adjusted = installmentMonths > 0 && principalAfterPrepaymentCents > 0
+    ? calculateLoan({
+        principalCents: principalAfterPrepaymentCents,
+        annualRate,
+        termMonths: installmentMonths,
+        method: "equal_payment",
+        extraMonthlyPaymentCents: Math.max(0, cents(input.extraMonthlyPaymentCents ?? 0))
+      })
+    : null;
+
+  return {
+    utilizedBalanceCents,
+    availableCreditCents: Math.max(0, creditLimitCents - principalAfterPrepaymentCents),
+    billingInterestCents,
+    principalAfterPrepaymentCents,
+    installmentPaymentCents: adjusted?.monthlyPaymentCents ?? billingInterestCents,
+    totalInstallmentInterestCents: adjusted?.totalInterestCents ?? 0,
+    interestSavedCents: Math.max(0, (base?.totalInterestCents ?? 0) - (adjusted?.totalInterestCents ?? 0)),
+    payoffMonths: adjusted?.payoffMonths ?? 0,
+    schedule: adjusted?.schedule ?? []
+  };
+}
+
 function amortize(input: LoanCalculationInput): Pick<LoanCalculationResult, "schedule" | "totalInterestCents" | "totalPaymentCents"> {
   const schedule: AmortizationRow[] = [];
   let remaining = Math.max(0, cents(input.principalCents));
@@ -638,6 +698,10 @@ function amortize(input: LoanCalculationInput): Pick<LoanCalculationResult, "sch
     } else {
       scheduledPayment = baseEqualPayment;
       principal = Math.min(remaining, scheduledPayment - interest);
+    }
+
+    if ((input.method === "equal_payment" || input.method === "equal_principal") && period >= input.termMonths) {
+      principal = remaining;
     }
 
     const prepayment = period === oneTimeMonth ? oneTime : 0;

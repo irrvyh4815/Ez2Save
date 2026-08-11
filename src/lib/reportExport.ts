@@ -27,6 +27,7 @@ const transactionTypeLabels: Record<Transaction["type"], string> = {
   credit_card_purchase: "信用卡消費",
   credit_card_payment: "信用卡繳款",
   loan_payment: "貸款還款",
+  loan_drawdown: "備用金動用",
   deposit_transfer: "存款轉入",
   investment_buy: "投資買入",
   investment_sell: "投資賣出"

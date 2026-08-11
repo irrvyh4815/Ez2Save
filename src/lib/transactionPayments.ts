@@ -40,6 +40,12 @@ export function resolveTransactionPayment(
     return { type: requestedType, accountId, loanId };
   }
 
+  if (requestedType === "loan_drawdown") {
+    if (!accountId) return { type: requestedType, error: "請選擇入帳帳戶" };
+    if (!loanId) return { type: requestedType, accountId, error: "請選擇備用金" };
+    return { type: requestedType, accountId, loanId };
+  }
+
   return {
     type: requestedType,
     accountId: accountId || undefined,
@@ -65,7 +71,7 @@ export function calculateLoanPaymentBreakdown(
 
   const estimatedInterestCents = Math.min(
     paymentCents,
-    Math.max(0, Math.round(remainingPrincipalCents * Math.max(0, annualRate) / 100 / 12))
+    Math.max(0, Math.round(remainingPrincipalCents * Math.max(0, annualRate) / 12))
   );
   const principalCents = Math.min(remainingPrincipalCents, Math.max(0, paymentCents - estimatedInterestCents));
   return { principalCents, interestCents: Math.max(0, paymentCents - principalCents) };

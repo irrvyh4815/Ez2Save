@@ -106,6 +106,7 @@ Apply `supabase/migrations/202608110016_atomic_financial_events.sql` before depl
 - credit card purchases increase unbilled card debt without decreasing cash
 - credit card payments decrease cash and the selected card balance, and create a payment record
 - loan payments decrease cash and principal, advance payment progress, and create a payment record
+- reserve-credit drawdowns increase both the selected cash account and utilized principal without treating borrowed cash as income
 - investment buys and sells update both cash and holding quantity
 
 All linked changes run in one PostgreSQL transaction. If one validation or update fails, nothing is posted. Soft-deleting a posted transaction reverses its linked effects. Existing transactions are not replayed or rewritten by the migration.
@@ -115,6 +116,10 @@ When a card payment includes selected installment items, the same event advances
 `deposits.account_id` can link a deposit detail to one savings or time-deposit account in the same ledger. A linked deposit uses the account balance in total assets, so the principal is not counted twice.
 
 Account names, remembered categories, card identities, import fingerprints, budgets, snapshots, summaries, and AI report caches are unique within a ledger instead of across the whole user account. The same user can therefore use the same familiar names in separate personal, family, or investment ledgers without the records affecting one another.
+
+Reserve credit uses `loans.loan_type = 'reserve_credit'` and `credit_limit_cents`. Only `remaining_principal_cents` is included in liabilities; unused credit is informational. A drawdown is stored as `transactions.transaction_type = 'loan_drawdown'`, allowing the database to atomically validate the available limit and update the selected account. Repayments can be marked as a regular period or an early payment so early principal reductions do not incorrectly advance the installment count.
+
+Apply `supabase/migrations/202608110017_reserve_credit.sql` after the atomic financial events migration. It is additive and does not rewrite existing loans, balances, or transactions.
 
 ## Credit Card Installment Debt
 
