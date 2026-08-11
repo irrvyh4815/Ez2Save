@@ -74,7 +74,7 @@ import { parseTransactionsCsv } from "./lib/csv";
 import { combineValidations, validateAnnualRate, validateDateRange, validateIntegerRange, validateNonNegativeAmount, validatePositiveAmount } from "./lib/validation";
 import { exportReportToExcel, exportReportToPdf } from "./lib/reportExport";
 import { getNotificationStatus, isNotificationVisible } from "./lib/notificationRules";
-import { calculateLoanPaymentBreakdown, resolveTransactionPayment, type ExpensePaymentMethod } from "./lib/transactionPayments";
+import { calculateLoanPaymentBreakdown, normalizeReserveInstallmentMonths, resolveTransactionPayment, type ExpensePaymentMethod } from "./lib/transactionPayments";
 import { isSupabaseConfigured, supabase } from "./services/supabaseClient";
 import { mockAiFinancialHealth, requestAiFinancialHealth } from "./services/aiFinancialHealth";
 import { listAdminUsers, manageAdminUser, type AdminManagedUser, type AdminAuditLog } from "./services/adminUsers";
@@ -1600,6 +1600,9 @@ export default function App() {
       if (sourceAccount.balanceCents < amountCents) return notify("error", "付款帳戶餘額不足");
     }
     const selectedLoan = payment.loanId ? loans.find((candidate) => candidate.id === payment.loanId) : undefined;
+    const reserveInstallmentMonths = type === "loan_drawdown"
+      ? normalizeReserveInstallmentMonths(formData.get("reserveInstallmentMonths"))
+      : undefined;
     const principalInput = String(formData.get("principalAmount") ?? "").trim();
     const explicitPrincipalCents = principalInput === "" ? undefined : parseMoneyToCents(principalInput);
     if (type === "loan_payment" && !selectedLoan) return notify("error", "找不到選擇的貸款");
@@ -1607,6 +1610,9 @@ export default function App() {
       if (!selectedLoan || selectedLoan.type !== "reserve_credit") return notify("error", "請選擇有效的備用金");
       const availableCreditCents = Math.max(0, (selectedLoan.creditLimitCents ?? 0) - selectedLoan.remainingPrincipalCents);
       if (amountCents > availableCreditCents) return notify("error", "動用金額不可超過備用金可用額度");
+      if (reserveInstallmentMonths === null) {
+        return notify("error", "請選擇 1 至 120 期的分期期數");
+      }
     }
     if (type === "loan_payment" && explicitPrincipalCents !== undefined && (explicitPrincipalCents < 0 || explicitPrincipalCents > amountCents)) {
       return notify("error", "本期本金不可小於 0 或大於還款金額");
@@ -1643,7 +1649,12 @@ export default function App() {
         } : {}),
         ...(investmentQuantity ? { investment_quantity: investmentQuantity } : {}),
         ...(installmentIds.length ? { credit_card_installment_ids: installmentIds } : {}),
-        ...(advanceLoanPeriod !== undefined ? { advance_loan_period: advanceLoanPeriod } : {})
+        ...(advanceLoanPeriod !== undefined ? { advance_loan_period: advanceLoanPeriod } : {}),
+        ...(reserveInstallmentMonths ? {
+          reserve_installment_months: reserveInstallmentMonths,
+          reserve_billing_days: Number(selectedLoan?.metadata?.reserve_billing_days ?? 30),
+          reserve_annual_rate: selectedLoan?.annualRate ?? 0
+        } : {})
       },
       createdAt: now,
       updatedAt: now
@@ -2349,7 +2360,7 @@ export default function App() {
                 notify={notify}
               />
             )}
-            {page === "loans" && <LoansPage loans={loans} onAdd={addLoan} onUpdate={saveLoan} onDelete={removeLoan} onRecordPayment={(loan) => {
+            {page === "loans" && <LoansPage loans={loans} transactions={transactions} onAdd={addLoan} onUpdate={saveLoan} onDelete={removeLoan} onRecordPayment={(loan) => {
               setTransactionPreset({ type: "loan_payment", loanId: loan.id });
               navigateToPage("transactions");
             }} onDrawdown={(loan) => {
@@ -5491,8 +5502,9 @@ function TransactionsPage({
       : "";
     if (transaction.loanId) {
       const loan = loans.find((candidate) => candidate.id === transaction.loanId);
+      const installmentMonths = Number(transaction.metadata?.reserve_installment_months ?? 0);
       return transaction.type === "loan_drawdown"
-        ? `${loan?.name ?? "備用金"} → ${accountName || "帳戶"}`
+        ? `${loan?.name ?? "備用金"}${installmentMonths > 0 ? ` · ${installmentMonths} 期` : ""} → ${accountName || "帳戶"}`
         : `${accountName || "帳戶"} → ${loan?.name ?? "貸款"}`;
     }
     if (transaction.creditCardId) {
@@ -5631,6 +5643,14 @@ function TransactionsPage({
                 <option value="" disabled>{selectableLoans.length ? (transactionType === "loan_drawdown" ? "請選擇備用金" : "請選擇貸款") : (transactionType === "loan_drawdown" ? "尚無可用備用金" : "尚無進行中貸款")}</option>
                 {selectableLoans.map((loan) => <option key={loan.id} value={loan.id}>{loan.name} · {transactionType === "loan_drawdown" ? `可用 ${formatMoney(Math.max(0, (loan.creditLimitCents ?? 0) - loan.remainingPrincipalCents))}` : `剩餘 ${formatMoney(loan.remainingPrincipalCents)}`}</option>)}
               </select>
+            </Field>
+          )}
+          {transactionType === "loan_drawdown" && (
+            <Field label="本次分期期數">
+              <select className="input" name="reserveInstallmentMonths" defaultValue="12" required>
+                {[3, 6, 12, 18, 24, 36, 48, 60].map((months) => <option key={months} value={months}>{months} 期</option>)}
+              </select>
+              <p className="helper-text mt-1">每次動用會建立獨立期數，並依當次動用金額按日計息。</p>
             </Field>
           )}
           {needsInvestmentAsset && (
@@ -6360,6 +6380,7 @@ function updateLoanFormEstimate(form: HTMLFormElement | null) {
 
 function LoansPage({
   loans,
+  transactions,
   onAdd,
   onUpdate,
   onDelete,
@@ -6368,6 +6389,7 @@ function LoansPage({
   notify
 }: {
   loans: Loan[];
+  transactions: Transaction[];
   onAdd: (loan: Loan) => Promise<void>;
   onUpdate: (loan: Loan) => Promise<void>;
   onDelete: (loan: Loan) => Promise<void>;
@@ -6630,6 +6652,7 @@ function LoansPage({
                 <Info label="還款日" value={`每月 ${loan.monthlyPaymentDay} 日`} />
                 {progress.prepaidInterestCents > 0 && <Info label="預付利息" value={formatMoney(progress.prepaidInterestCents)} />}
               </div>
+              {loan.type === "reserve_credit" && <ReserveDrawdownHistory loan={loan} transactions={transactions} />}
               {loan.status === "active" && (
                 <div className="mt-4 grid gap-2 sm:grid-cols-2">
                   {loan.type === "reserve_credit" && (loan.creditLimitCents ?? 0) > loan.remainingPrincipalCents && (
@@ -6807,6 +6830,49 @@ function LoansPage({
         </div>
       </section>
     </div>
+  );
+}
+
+function ReserveDrawdownHistory({ loan, transactions }: { loan: Loan; transactions: Transaction[] }) {
+  const drawdowns = transactions
+    .filter((transaction) => transaction.type === "loan_drawdown" && transaction.loanId === loan.id)
+    .map((transaction) => {
+      const installmentMonths = Math.max(1, Number(transaction.metadata?.reserve_installment_months ?? loan.termMonths));
+      const billingDays = Number(transaction.metadata?.reserve_billing_days ?? loan.metadata?.reserve_billing_days ?? 30);
+      const annualRate = Number(transaction.metadata?.reserve_annual_rate ?? loan.annualRate);
+      const estimate = calculateReserveCredit({
+        creditLimitCents: transaction.amountCents,
+        utilizedBalanceCents: transaction.amountCents,
+        annualRate,
+        billingDays,
+        installmentMonths
+      });
+      return { transaction, installmentMonths, annualRate, estimate };
+    })
+    .sort((a, b) => b.transaction.date.localeCompare(a.transaction.date));
+
+  if (drawdowns.length === 0) return null;
+  return (
+    <details className="group mt-4 border-t border-slate-200 pt-3 dark:border-slate-800">
+      <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-semibold text-brand-700 dark:text-brand-100">
+        <span>動用分期 · {drawdowns.length} 筆</span>
+        <ChevronDown size={16} className="transition group-open:rotate-180" />
+      </summary>
+      <div className="mt-3 divide-y divide-slate-200 rounded-md border border-slate-200 px-3 dark:divide-slate-800 dark:border-slate-800">
+        {drawdowns.map(({ transaction, installmentMonths, annualRate, estimate }) => (
+          <div key={transaction.id} className="grid gap-2 py-3 text-sm sm:grid-cols-[1fr_auto] sm:items-center">
+            <div>
+              <p className="font-medium">{formatDate(transaction.date)} · {installmentMonths} 期</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">動用 {formatMoney(transaction.amountCents)} · 年利率 {formatPercent(annualRate)} · 每日利息 {formatMoney(estimate.dailyInterestCents)}</p>
+            </div>
+            <div className="text-left sm:text-right">
+              <p className="font-semibold">{formatMoney(estimate.installmentPaymentCents)}／期</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">初始估算</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }
 

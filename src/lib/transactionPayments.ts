@@ -58,6 +58,11 @@ export interface LoanPaymentBreakdown {
   interestCents: number;
 }
 
+export function normalizeReserveInstallmentMonths(value: FormDataEntryValue | number | null): number | null {
+  const months = Number(value);
+  return Number.isInteger(months) && months >= 1 && months <= 120 ? months : null;
+}
+
 export function calculateLoanPaymentBreakdown(
   paymentCents: number,
   remainingPrincipalCents: number,

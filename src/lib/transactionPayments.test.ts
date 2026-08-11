@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateLoanPaymentBreakdown, resolveTransactionPayment } from "./transactionPayments";
+import { calculateLoanPaymentBreakdown, normalizeReserveInstallmentMonths, resolveTransactionPayment } from "./transactionPayments";
 
 describe("transaction payment selection", () => {
   it("keeps an account expense as a regular expense", () => {
@@ -45,6 +45,13 @@ describe("transaction payment selection", () => {
       loanId: "reserve-1"
     });
     expect(resolveTransactionPayment("loan_drawdown", "account", "", "", "reserve-1").error).toBe("請選擇入帳帳戶");
+  });
+
+  it("requires each reserve drawdown to choose a valid installment term", () => {
+    expect(normalizeReserveInstallmentMonths("12")).toBe(12);
+    expect(normalizeReserveInstallmentMonths("0")).toBeNull();
+    expect(normalizeReserveInstallmentMonths("121")).toBeNull();
+    expect(normalizeReserveInstallmentMonths("6.5")).toBeNull();
   });
 
   it("estimates the principal and interest portions", () => {
