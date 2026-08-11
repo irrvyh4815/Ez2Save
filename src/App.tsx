@@ -74,7 +74,7 @@ import { combineValidations, validateAnnualRate, validateDateRange, validateInte
 import { exportReportToExcel, exportReportToPdf } from "./lib/reportExport";
 import { getNotificationStatus, isNotificationVisible } from "./lib/notificationRules";
 import { calculateLoanPaymentBreakdown, resolveTransactionPayment, type ExpensePaymentMethod } from "./lib/transactionPayments";
-import { isSupabaseConfigured } from "./services/supabaseClient";
+import { isSupabaseConfigured, supabase } from "./services/supabaseClient";
 import { mockAiFinancialHealth, requestAiFinancialHealth } from "./services/aiFinancialHealth";
 import { listAdminUsers, manageAdminUser, type AdminManagedUser, type AdminAuditLog } from "./services/adminUsers";
 import { disableWebPush, enableWebPush, getWebPushState, sendTestWebPush, type WebPushState } from "./services/webPush";
@@ -738,6 +738,20 @@ export default function App() {
 
   useEffect(() => {
     void refreshFinanceDataRef.current();
+  }, []);
+
+  useEffect(() => {
+    if (!supabase) return;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_OUT") {
+        setSessionEmail(null);
+        setCurrentProfile(null);
+        setActiveLedgerId(null);
+        return;
+      }
+      if (session) setSessionEmail(session.user.email ?? null);
+    });
+    return () => subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
