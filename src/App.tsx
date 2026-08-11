@@ -6398,7 +6398,6 @@ function LoansPage({
   notify: (type: ToastType, message: string) => void;
 }) {
   const [newLoanType, setNewLoanType] = useState<Loan["type"]>("personal");
-  const [reserveMode, setReserveMode] = useState<"revolving" | "installment">("revolving");
   const [calcInput, setCalcInput] = useState<LoanCalculationInput>({
     principalCents: 600_000_00,
     annualRate: 0.0275,
@@ -6463,16 +6462,13 @@ function LoansPage({
     const loanType = String(formData.get("loanType") ?? "personal") as Loan["type"];
     const principal = parseMoneyToCents(String(formData.get("principal") ?? ""));
     const creditLimitCents = loanType === "reserve_credit" ? parseMoneyToCents(String(formData.get("creditLimit") ?? "")) : undefined;
-    const termMonths = Number(formData.get("termMonths"));
-    const paidPeriods = Number(formData.get("paidPeriods") ?? 0);
+    const termMonths = loanType === "reserve_credit" ? 120 : Number(formData.get("termMonths"));
+    const paidPeriods = loanType === "reserve_credit" ? 0 : Number(formData.get("paidPeriods") ?? 0);
     const enteredPaidAmountCents = parseMoneyToCents(String(formData.get("paidAmount") ?? "0"));
-    const paymentInputCents = parseMoneyToCents(String(formData.get("payment") ?? "0"));
-    const selectedReserveMode = String(formData.get("reserveMode") ?? "revolving") as "revolving" | "installment";
-    const trackingMode = loanType === "reserve_credit"
-      ? (selectedReserveMode === "installment" ? "amortized" : "manual")
-      : String(formData.get("trackingMode") ?? "amortized") as LoanTrackingMode;
+    const paymentInputCents = loanType === "reserve_credit" ? 0 : parseMoneyToCents(String(formData.get("payment") ?? "0"));
+    const trackingMode = loanType === "reserve_credit" ? "manual" : String(formData.get("trackingMode") ?? "amortized") as LoanTrackingMode;
     const autoCalculate = formData.get("autoCalculateProgress") === "on" && trackingMode !== "manual";
-    const effectiveAutoCalculate = loanType === "reserve_credit" ? selectedReserveMode === "installment" : autoCalculate;
+    const effectiveAutoCalculate = loanType === "reserve_credit" ? false : autoCalculate;
     const prepaidInterestCents = parseMoneyToCents(String(formData.get("prepaidInterest") ?? "0"));
     const inferredAnnualRate = loanType !== "reserve_credit" && trackingMode === "amortized" && paymentInputCents > 0
       ? inferAnnualRateFromPayment(principal, paymentInputCents, termMonths)
@@ -6487,8 +6483,8 @@ function LoansPage({
       validateNonNegativeAmount(prepaidInterestCents, "預付利息"),
       validateNonNegativeAmount(paymentInputCents, "每期還款金額"),
       validateAnnualRate(annualRate),
-      validateIntegerRange(termMonths, 1, 600, "貸款期數"),
-      validateIntegerRange(paidPeriods, 0, termMonths, "已繳期數"),
+      loanType === "reserve_credit" ? { valid: true, errors: [] } : validateIntegerRange(termMonths, 1, 600, "貸款期數"),
+      loanType === "reserve_credit" ? { valid: true, errors: [] } : validateIntegerRange(paidPeriods, 0, termMonths, "已繳期數"),
       validateIntegerRange(paymentDay, 1, 31, "每月還款日"),
       validateDateRange(startDate)
     );
@@ -6500,11 +6496,11 @@ function LoansPage({
       utilizedBalanceCents: principal,
       annualRate,
       billingDays: Number(formData.get("billingDays") ?? 30),
-      installmentMonths: selectedReserveMode === "installment" ? termMonths : 0
+      installmentMonths: 0
     }) : null;
     const payment = paymentInputCents > 0
       ? paymentInputCents
-      : reserveEstimate?.installmentPaymentCents ?? calculateLoan({ principalCents: principal, annualRate, termMonths, method: "equal_payment" }).monthlyPaymentCents;
+      : reserveEstimate?.billingInterestCents ?? calculateLoan({ principalCents: principal, annualRate, termMonths, method: "equal_payment" }).monthlyPaymentCents;
     const progress = calculateLoanProgress({
       originalPrincipalCents: principal,
       remainingPrincipalCents: principal,
@@ -6540,7 +6536,7 @@ function LoansPage({
           prepaid_interest_cents: prepaidInterestCents,
           auto_calculate_progress: effectiveAutoCalculate,
           ...(loanType === "reserve_credit" ? {
-            reserve_mode: selectedReserveMode,
+            reserve_mode: "revolving",
             reserve_billing_days: Number(formData.get("billingDays") ?? 30)
           } : {})
         },
@@ -6600,26 +6596,20 @@ function LoansPage({
             </Field>}
             {newLoanType === "reserve_credit" && (
               <>
-                <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-100">只針對實際動用金額計息；未使用額度不列入負債。</div>
+                <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-100">先建立備用金額度，不需要設定期數。每次實際動用時再選擇該筆期數，未使用額度不列入負債。</div>
                 <Field label="核准額度"><input className="input" name="creditLimit" inputMode="decimal" required /></Field>
-                <Field label="使用方式">
-                  <select className="input" name="reserveMode" value={reserveMode} onChange={(event) => setReserveMode(event.target.value as "revolving" | "installment")}>
-                    <option value="revolving">隨借隨還</option>
-                    <option value="installment">申請分期</option>
-                  </select>
-                </Field>
                 <Field label="本期計息天數"><input className="input" name="billingDays" type="number" min={1} max={366} defaultValue={30} /></Field>
               </>
             )}
             <Field label={newLoanType === "reserve_credit" ? "目前已動用" : "原始本金"}><input className="input" name="principal" inputMode="decimal" defaultValue={newLoanType === "reserve_credit" ? "0" : undefined} onChange={(event) => updateLoanFormEstimate(event.currentTarget.form)} required /></Field>
             <Field label="年利率 %"><input className="input" name="annualRate" inputMode="decimal" defaultValue="2.75" required /></Field>
-            <Field label={newLoanType === "reserve_credit" && reserveMode === "installment" ? "分期期數（月）" : "貸款期數（月）"}><input className="input" name="termMonths" type="number" min={1} defaultValue={newLoanType === "reserve_credit" ? 12 : 60} onChange={(event) => updateLoanFormEstimate(event.currentTarget.form)} /></Field>
-            <Field label={newLoanType === "reserve_credit" ? "預計每期還款" : "每期還款金額"}><input className="input" name="payment" inputMode="decimal" placeholder={newLoanType === "reserve_credit" ? "留空由系統估算" : "輸入後自動估算利率"} onChange={(event) => updateLoanFormEstimate(event.currentTarget.form)} /></Field>
-            <p data-loan-rate-hint className="helper-text">{newLoanType === "reserve_credit" ? "每日利息＝累積已動用金額 × 年利率 ÷ 365，不會由月付金反推利率。" : "留空時會依本金、年利率與期數計算每期金額。"}</p>
-            <div className="grid grid-cols-2 gap-3">
+            {newLoanType !== "reserve_credit" && <Field label="貸款期數（月）"><input className="input" name="termMonths" type="number" min={1} defaultValue={60} onChange={(event) => updateLoanFormEstimate(event.currentTarget.form)} /></Field>}
+            {newLoanType !== "reserve_credit" && <Field label="每期還款金額"><input className="input" name="payment" inputMode="decimal" placeholder="輸入後自動估算利率" onChange={(event) => updateLoanFormEstimate(event.currentTarget.form)} /></Field>}
+            <p data-loan-rate-hint className="helper-text">{newLoanType === "reserve_credit" ? "每日利息＝累積已動用金額 × 年利率 ÷ 365；各筆動用金額會各自保留分期期數。" : "留空時會依本金、年利率與期數計算每期金額。"}</p>
+            {newLoanType !== "reserve_credit" ? <div className="grid grid-cols-2 gap-3">
               <Field label="已繳期數"><input className="input" name="paidPeriods" type="number" min={0} defaultValue={0} onChange={(event) => updateLoanProgressEstimate(event.currentTarget.form)} /></Field>
               <Field label="目前已繳款金額"><input className="input" name="paidAmount" inputMode="decimal" defaultValue="0" /></Field>
-            </div>
+            </div> : <Field label="過去累計已還款"><input className="input" name="paidAmount" inputMode="decimal" defaultValue="0" /></Field>}
             {newLoanType !== "reserve_credit" && <Field label="預付利息（如有）"><input className="input" name="prepaidInterest" inputMode="decimal" defaultValue="0" onChange={(event) => updateLoanProgressEstimate(event.currentTarget.form)} /></Field>}
             {newLoanType !== "reserve_credit" && <label className="flex items-start gap-3 rounded-md border border-slate-200 p-3 text-sm dark:border-slate-700">
               <input className="mt-0.5 h-4 w-4 accent-emerald-600" name="autoCalculateProgress" type="checkbox" defaultChecked onChange={(event) => updateLoanProgressEstimate(event.currentTarget.form)} />
@@ -6628,7 +6618,7 @@ function LoansPage({
                 <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">同步計算已清償本金、剩餘本金與累計實付。</span>
               </span>
             </label>}
-            <p data-loan-progress-hint className="helper-text">輸入已繳期數後，系統會立即更新清償進度。</p>
+            <p data-loan-progress-hint className="helper-text">{newLoanType === "reserve_credit" ? "若這筆額度已經使用一段時間，可填入過去累計已還款金額。" : "輸入已繳期數後，系統會立即更新清償進度。"}</p>
             <Field label="每月還款日"><input className="input" name="paymentDay" type="number" min={1} max={31} defaultValue={12} /></Field>
             <Field label="起始日期"><input className="input" name="startDate" type="date" defaultValue={today} /></Field>
             <button className="btn-primary w-full" type="submit"><Plus size={16} />新增貸款</button>
@@ -6638,7 +6628,7 @@ function LoansPage({
           {loans.length === 0 ? <div className="md:col-span-2"><EmptyState label="尚未建立貸款，新增後可直接試算每月還款與總利息。" /></div> : loansWithProgress.map(({ loan, progress, trackingMode, reserveSummary }) => (
             <div key={loan.id} className="panel">
               <div className="flex items-start justify-between gap-3"><p className="font-semibold">{loan.name}</p><div className="flex items-center gap-2"><Badge>{loan.status === "paid_off" ? "已結清" : loan.status === "active" ? "進行中" : "已暫停"}</Badge><button className="btn-danger h-8 w-8 px-0" onClick={() => void onDelete(loan)} title="刪除貸款" aria-label={`刪除 ${loan.name}`}><Trash2 size={15} /></button></div></div>
-              <p className="text-sm text-slate-500 dark:text-slate-400">{loan.institution} · {loanTypeLabels[loan.type]} · 年利率 {formatPercent(loan.annualRate)} · {loan.type === "reserve_credit" ? (loan.metadata?.reserve_mode === "installment" ? "分期中" : "隨借隨還") : trackingMode === "prepaid_interest" ? "利息預付" : trackingMode === "manual" ? "手動追蹤" : "按月攤還"}</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">{loan.institution} · {loanTypeLabels[loan.type]} · 年利率 {formatPercent(loan.annualRate)} · {loan.type === "reserve_credit" ? "各筆動用獨立分期" : trackingMode === "prepaid_interest" ? "利息預付" : trackingMode === "manual" ? "手動追蹤" : "按月攤還"}</p>
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                 <Info label="剩餘本金" value={formatMoney(progress.remainingPrincipalCents)} />
                 <Info label={loan.type === "reserve_credit" ? "本期預估應繳" : "每期應繳"} value={formatMoney(getLoanPaymentDueCents(loan))} />
@@ -6648,7 +6638,7 @@ function LoansPage({
                 {reserveSummary && <Info label="本期預估利息" value={formatMoney(reserveSummary.billingInterestCents)} />}
                 <Info label="已清償本金" value={formatMoney(progress.principalPaidCents)} />
                 <Info label="累計實付" value={formatMoney(progress.totalCashPaidCents)} />
-                <Info label="已繳期數" value={`${loan.paidPeriods}/${loan.termMonths}`} />
+                {loan.type !== "reserve_credit" && <Info label="已繳期數" value={`${loan.paidPeriods}/${loan.termMonths}`} />}
                 <Info label="還款日" value={`每月 ${loan.monthlyPaymentDay} 日`} />
                 {progress.prepaidInterestCents > 0 && <Info label="預付利息" value={formatMoney(progress.prepaidInterestCents)} />}
               </div>
@@ -6684,14 +6674,9 @@ function LoansPage({
                   const annualRate = Math.max(0, Number(formData.get("annualRate") ?? 0) / 100);
                   const enteredPaidAmountCents = Math.max(0, parseMoneyToCents(String(formData.get("paidAmount") ?? "0")));
                   const paymentPerPeriodCents = Math.max(0, parseMoneyToCents(String(formData.get("payment") ?? "0")));
-                  const paidPeriods = Math.min(loan.termMonths, Math.max(0, Number(formData.get("paidPeriods") ?? loan.paidPeriods)));
-                  const selectedReserveMode = String(formData.get("reserveMode") ?? loan.metadata?.reserve_mode ?? "revolving");
-                  const nextTrackingMode = loan.type === "reserve_credit"
-                    ? (selectedReserveMode === "installment" ? "amortized" : "manual")
-                    : String(formData.get("trackingMode") ?? trackingMode) as LoanTrackingMode;
-                  const autoCalculate = loan.type === "reserve_credit"
-                    ? selectedReserveMode === "installment"
-                    : formData.get("autoCalculateProgress") === "on" && nextTrackingMode !== "manual";
+                  const paidPeriods = loan.type === "reserve_credit" ? 0 : Math.min(loan.termMonths, Math.max(0, Number(formData.get("paidPeriods") ?? loan.paidPeriods)));
+                  const nextTrackingMode = loan.type === "reserve_credit" ? "manual" : String(formData.get("trackingMode") ?? trackingMode) as LoanTrackingMode;
+                  const autoCalculate = loan.type === "reserve_credit" ? false : formData.get("autoCalculateProgress") === "on" && nextTrackingMode !== "manual";
                   const prepaidInterestCents = Math.max(0, parseMoneyToCents(String(formData.get("prepaidInterest") ?? "0")));
                   const nextCreditLimitCents = loan.type === "reserve_credit"
                     ? Math.max(0, parseMoneyToCents(String(formData.get("creditLimit") ?? "0")))
@@ -6703,7 +6688,7 @@ function LoansPage({
                     loan.type === "reserve_credit" ? validateNonNegativeAmount(paymentPerPeriodCents, "每期應繳") : validatePositiveAmount(paymentPerPeriodCents, "每期應繳"),
                     loan.type === "reserve_credit" ? validatePositiveAmount(nextCreditLimitCents ?? 0, "核准額度") : { valid: true, errors: [] },
                     validateAnnualRate(annualRate),
-                    validateIntegerRange(paidPeriods, 0, loan.termMonths, "已繳期數")
+                    loan.type === "reserve_credit" ? { valid: true, errors: [] } : validateIntegerRange(paidPeriods, 0, loan.termMonths, "已繳期數")
                   );
                   if (!validation.valid) return notify("error", validation.errors[0]);
                   if (loan.type === "reserve_credit" && enteredRemainingPrincipalCents > (nextCreditLimitCents ?? 0)) return notify("error", "已動用金額不可大於核准額度");
@@ -6738,7 +6723,7 @@ function LoansPage({
                       prepaid_interest_cents: prepaidInterestCents,
                       auto_calculate_progress: autoCalculate,
                       ...(loan.type === "reserve_credit" ? {
-                        reserve_mode: selectedReserveMode,
+                        reserve_mode: "revolving",
                         reserve_billing_days: Math.min(366, Math.max(1, Number(formData.get("billingDays") ?? loan.metadata?.reserve_billing_days ?? 30)))
                       } : {})
                     },
@@ -6756,16 +6741,16 @@ function LoansPage({
                     </select>
                   </Field> : (
                     <>
-                      <input name="trackingMode" type="hidden" value={loan.metadata?.reserve_mode === "installment" ? "amortized" : "manual"} />
+                      <input name="trackingMode" type="hidden" value="manual" />
                       <Field label="核准額度"><input className="input" name="creditLimit" defaultValue={(loan.creditLimitCents ?? 0) / 100} inputMode="decimal" required /></Field>
-                      <Field label="使用方式"><select className="input" name="reserveMode" defaultValue={String(loan.metadata?.reserve_mode ?? "revolving")}><option value="revolving">隨借隨還</option><option value="installment">申請分期</option></select></Field>
                       <Field label="本期計息天數"><input className="input" name="billingDays" type="number" min={1} max={366} defaultValue={Number(loan.metadata?.reserve_billing_days ?? 30)} /></Field>
+                      <p className="helper-text">備用金額度本身沒有期數；每筆動用的分期期數請在收支紀錄中管理。</p>
                     </>
                   )}
                   <div className="grid grid-cols-2 gap-3"><Field label="剩餘本金"><input className="input" name="remaining" defaultValue={progress.remainingPrincipalCents / 100} inputMode="decimal" required /></Field><Field label="年利率 %"><input className="input" name="annualRate" defaultValue={loan.annualRate * 100} inputMode="decimal" required /></Field></div>
-                  <div className="grid grid-cols-2 gap-3"><Field label="已繳期數"><input className="input" name="paidPeriods" type="number" min={0} max={loan.termMonths} defaultValue={loan.paidPeriods} onChange={(event) => updateLoanProgressEstimate(event.currentTarget.form)} /></Field><Field label="累計實付"><input className="input" name="paidAmount" defaultValue={progress.totalCashPaidCents / 100} inputMode="decimal" /></Field></div>
+                  {loan.type !== "reserve_credit" ? <div className="grid grid-cols-2 gap-3"><Field label="已繳期數"><input className="input" name="paidPeriods" type="number" min={0} max={loan.termMonths} defaultValue={loan.paidPeriods} onChange={(event) => updateLoanProgressEstimate(event.currentTarget.form)} /></Field><Field label="累計實付"><input className="input" name="paidAmount" defaultValue={progress.totalCashPaidCents / 100} inputMode="decimal" /></Field></div> : <Field label="累計實付"><input className="input" name="paidAmount" defaultValue={progress.totalCashPaidCents / 100} inputMode="decimal" /></Field>}
                   {loan.type !== "reserve_credit" && <Field label="預付利息（如有）"><input className="input" name="prepaidInterest" defaultValue={progress.prepaidInterestCents / 100} inputMode="decimal" onChange={(event) => updateLoanProgressEstimate(event.currentTarget.form)} /></Field>}
-                  <div className="grid grid-cols-2 gap-3"><Field label="每月還款日"><input className="input" name="paymentDay" type="number" min={1} max={31} defaultValue={loan.monthlyPaymentDay} /></Field><Field label={loan.type === "reserve_credit" ? "本期預估應繳" : "每期應繳"}><input className="input" name="payment" defaultValue={getLoanPaymentDueCents(loan) / 100} inputMode="decimal" onChange={(event) => updateLoanFormEstimate(event.currentTarget.form)} required /></Field></div>
+                  {loan.type !== "reserve_credit" ? <div className="grid grid-cols-2 gap-3"><Field label="每月還款日"><input className="input" name="paymentDay" type="number" min={1} max={31} defaultValue={loan.monthlyPaymentDay} /></Field><Field label="每期應繳"><input className="input" name="payment" defaultValue={getLoanPaymentDueCents(loan) / 100} inputMode="decimal" onChange={(event) => updateLoanFormEstimate(event.currentTarget.form)} required /></Field></div> : <Field label="每月結算日"><input className="input" name="paymentDay" type="number" min={1} max={31} defaultValue={loan.monthlyPaymentDay} /></Field>}
                   <p data-loan-rate-hint className="helper-text">{loan.type === "reserve_credit" ? "依目前累積已動用金額、年利率與本期天數按日估算；實際帳單仍以金融機構結算為準。" : trackingMode === "prepaid_interest" ? "合約利率會保留；每期款主要沖減本金，不用月付金反推利率。" : "調整每期金額後，系統會依原始本金與總期數估算年利率。"}</p>
                   {loan.type !== "reserve_credit" && <label className="flex items-start gap-3 rounded-md border border-slate-200 p-3 text-sm dark:border-slate-700">
                     <input className="mt-0.5 h-4 w-4 accent-emerald-600" name="autoCalculateProgress" type="checkbox" defaultChecked={loan.metadata?.auto_calculate_progress !== false && trackingMode !== "manual"} onChange={(event) => updateLoanProgressEstimate(event.currentTarget.form)} />

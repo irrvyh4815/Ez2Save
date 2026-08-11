@@ -8,41 +8,49 @@ alter table public.deposits
 
 alter table public.financial_accounts drop constraint if exists financial_accounts_name_unique;
 alter table public.financial_accounts drop constraint if exists financial_accounts_ledger_name_unique;
+drop index if exists public.financial_accounts_ledger_name_unique;
 alter table public.financial_accounts add constraint financial_accounts_ledger_name_unique
   unique (ledger_id, user_id, name);
 
 alter table public.transaction_categories drop constraint if exists transaction_categories_name_unique;
 alter table public.transaction_categories drop constraint if exists transaction_categories_ledger_name_unique;
+drop index if exists public.transaction_categories_ledger_name_unique;
 alter table public.transaction_categories add constraint transaction_categories_ledger_name_unique
   unique (ledger_id, user_id, name, transaction_type);
 
 alter table public.credit_cards drop constraint if exists credit_cards_unique;
 alter table public.credit_cards drop constraint if exists credit_cards_ledger_unique;
+drop index if exists public.credit_cards_ledger_unique;
 alter table public.credit_cards add constraint credit_cards_ledger_unique
   unique (ledger_id, user_id, issuer, last4);
 
 alter table public.transactions drop constraint if exists transactions_import_unique;
 alter table public.transactions drop constraint if exists transactions_ledger_import_unique;
+drop index if exists public.transactions_ledger_import_unique;
 alter table public.transactions add constraint transactions_ledger_import_unique
   unique (ledger_id, user_id, import_fingerprint);
 
 alter table public.budgets drop constraint if exists budgets_unique;
 alter table public.budgets drop constraint if exists budgets_ledger_unique;
+drop index if exists public.budgets_ledger_unique;
 alter table public.budgets add constraint budgets_ledger_unique
   unique (ledger_id, user_id, budget_month, category_id);
 
 alter table public.monthly_financial_summaries drop constraint if exists monthly_financial_summaries_unique;
 alter table public.monthly_financial_summaries drop constraint if exists monthly_financial_summaries_ledger_unique;
+drop index if exists public.monthly_financial_summaries_ledger_unique;
 alter table public.monthly_financial_summaries add constraint monthly_financial_summaries_ledger_unique
   unique (ledger_id, user_id, summary_month);
 
 alter table public.net_worth_snapshots drop constraint if exists net_worth_snapshots_unique;
 alter table public.net_worth_snapshots drop constraint if exists net_worth_snapshots_ledger_unique;
+drop index if exists public.net_worth_snapshots_ledger_unique;
 alter table public.net_worth_snapshots add constraint net_worth_snapshots_ledger_unique
   unique (ledger_id, user_id, snapshot_date);
 
 alter table public.ai_financial_reports drop constraint if exists ai_financial_reports_unique;
 alter table public.ai_financial_reports drop constraint if exists ai_financial_reports_ledger_unique;
+drop index if exists public.ai_financial_reports_ledger_unique;
 alter table public.ai_financial_reports add constraint ai_financial_reports_ledger_unique
   unique (ledger_id, user_id, report_type, summary_hash);
 
