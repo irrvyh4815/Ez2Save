@@ -12,6 +12,8 @@ import {
   calculateLoan,
   calculateLoanProgress,
   calculateReserveCredit,
+  calculateReserveCreditDailyInterest,
+  getLoanPaymentDueCents,
   inferAnnualRateFromPayment,
   inferLoanTrackingMode,
   calculateMonthlyBalance,
@@ -190,9 +192,49 @@ describe("loan calculations", () => {
     });
 
     expect(result.availableCreditCents).toBe(380_000_00);
+    expect(result.dailyInterestCents).toBe(Math.round(120_000_00 * 0.06 / 365));
     expect(result.billingInterestCents).toBe(Math.round(120_000_00 * 0.06 * 30 / 365));
     expect(result.installmentPaymentCents).toBeGreaterThan(10_000_00);
     expect(result.schedule).toHaveLength(12);
+  });
+
+  it("uses daily interest for reserve credit installment schedules", () => {
+    const result = calculateReserveCredit({
+      creditLimitCents: 300_000_00,
+      utilizedBalanceCents: 100_000_00,
+      annualRate: 0.1,
+      billingDays: 31,
+      installmentMonths: 3
+    });
+
+    expect(calculateReserveCreditDailyInterest(100_000_00, 0.1)).toBe(Math.round(100_000_00 * 0.1 / 365));
+    expect(result.schedule[0].interestCents).toBe(Math.round(100_000_00 * 0.1 * 31 / 365));
+    expect(result.schedule).toHaveLength(3);
+    expect(result.schedule.at(-1)?.remainingPrincipalCents).toBe(0);
+  });
+
+  it("recalculates revolving reserve credit due from the current utilized balance", () => {
+    const reserveCredit: Loan = {
+      ...base,
+      id: "reserve-daily",
+      name: "日計息備用金",
+      type: "reserve_credit",
+      originalPrincipalCents: 80_000_00,
+      creditLimitCents: 300_000_00,
+      remainingPrincipalCents: 80_000_00,
+      annualRate: 0.075,
+      termMonths: 12,
+      paidPeriods: 0,
+      paidAmountCents: 0,
+      monthlyPaymentDay: 5,
+      startDate: "2026-08-01",
+      repaymentMethod: "manual",
+      paymentPerPeriodCents: 0,
+      metadata: { reserve_mode: "revolving", reserve_billing_days: 30 },
+      status: "active"
+    };
+
+    expect(getLoanPaymentDueCents(reserveCredit)).toBe(Math.round(80_000_00 * 0.075 * 30 / 365));
   });
 
   it("reduces reserve credit interest with immediate and monthly prepayments", () => {

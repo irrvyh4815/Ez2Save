@@ -56,6 +56,7 @@ import {
   inferLoanTrackingMode,
   calculateLoan,
   calculateReserveCredit,
+  getLoanPaymentDueCents,
   calculateSavingsRate,
   summarizeCreditCardLimit,
   summarizeCreditCardLimits,
@@ -2128,11 +2129,11 @@ export default function App() {
     const input = {
       dashboard,
       categoryBreakdown,
-      loans: loans.map(({ name, remainingPrincipalCents, annualRate, paymentPerPeriodCents }) => ({
-        name,
-        remainingPrincipalCents,
-        annualRate,
-        paymentPerPeriodCents
+      loans: loans.map((loan) => ({
+        name: loan.name,
+        remainingPrincipalCents: loan.remainingPrincipalCents,
+        annualRate: loan.annualRate,
+        paymentPerPeriodCents: getLoanPaymentDueCents(loan)
       })),
       creditCards: creditCards.map(({ name, creditLimitCents, unbilledAmountCents, currentStatementAmountCents }) => ({
         name,
@@ -3748,7 +3749,7 @@ function buildFinanceNotifications({
         title: loan.name + " 貸款還款",
         detail: (loan.institution || "貸款") + "，剩餘本金 " + formatMoney(progress.remainingPrincipalCents) + "，已繳 " + loan.paidPeriods + "/" + loan.termMonths + " 期，累計實付 " + formatMoney(progress.totalCashPaidCents),
         date,
-        amountCents: loan.paymentPerPeriodCents,
+        amountCents: getLoanPaymentDueCents(loan),
         source: "loan"
       });
     });
@@ -4782,7 +4783,7 @@ function LiabilityChart({ creditCards, installments, loans }: { creditCards: Cre
   const cardDebt = creditSummary.currentStatementCents + creditSummary.unbilledCents;
   const installmentDebt = creditSummary.installmentOccupancyCents;
   const loanDebt = loans.reduce((sum, loan) => sum + summarizeLoanProgress(loan).remainingPrincipalCents, 0);
-  const monthlyPressure = creditCards.reduce((sum, card) => sum + card.minimumPaymentCents, 0) + getInstallmentMonthlyDueCents(installments) + loans.reduce((sum, loan) => sum + loan.paymentPerPeriodCents, 0);
+  const monthlyPressure = creditCards.reduce((sum, card) => sum + card.minimumPaymentCents, 0) + getInstallmentMonthlyDueCents(installments) + loans.reduce((sum, loan) => sum + getLoanPaymentDueCents(loan), 0);
   return (
     <div>
       <MiniBars
@@ -6396,26 +6397,36 @@ function LoansPage({
   });
   const result = calculateLoan(calcInput);
   const reserveResult = calculateReserveCredit(reserveCalcInput);
-  const loansWithProgress = loans.map((loan) => ({
-    loan,
-    trackingMode: inferLoanTrackingMode(loan),
-    progress: calculateLoanProgress({
-      originalPrincipalCents: loan.originalPrincipalCents,
-      remainingPrincipalCents: loan.remainingPrincipalCents,
-      annualRate: loan.annualRate,
-      termMonths: loan.termMonths,
-      paidPeriods: loan.paidPeriods,
-      paymentPerPeriodCents: loan.paymentPerPeriodCents,
-      paidAmountCents: loan.paidAmountCents,
+  const loansWithProgress = loans.map((loan) => {
+    const billingDays = Number(loan.metadata?.reserve_billing_days ?? 30);
+    return {
+      loan,
       trackingMode: inferLoanTrackingMode(loan),
-      prepaidInterestCents: typeof loan.metadata?.prepaid_interest_cents === "number" ? loan.metadata.prepaid_interest_cents : 0,
-      autoCalculate: typeof loan.metadata?.auto_calculate_progress === "boolean" ? loan.metadata.auto_calculate_progress : true
-    })
-  }));
+      reserveSummary: loan.type === "reserve_credit" ? calculateReserveCredit({
+        creditLimitCents: Math.max(loan.creditLimitCents ?? 0, loan.remainingPrincipalCents),
+        utilizedBalanceCents: loan.remainingPrincipalCents,
+        annualRate: loan.annualRate,
+        billingDays,
+        installmentMonths: 0
+      }) : null,
+      progress: calculateLoanProgress({
+        originalPrincipalCents: loan.originalPrincipalCents,
+        remainingPrincipalCents: loan.remainingPrincipalCents,
+        annualRate: loan.annualRate,
+        termMonths: loan.termMonths,
+        paidPeriods: loan.paidPeriods,
+        paymentPerPeriodCents: loan.paymentPerPeriodCents,
+        paidAmountCents: loan.paidAmountCents,
+        trackingMode: inferLoanTrackingMode(loan),
+        prepaidInterestCents: typeof loan.metadata?.prepaid_interest_cents === "number" ? loan.metadata.prepaid_interest_cents : 0,
+        autoCalculate: typeof loan.metadata?.auto_calculate_progress === "boolean" ? loan.metadata.auto_calculate_progress : true
+      })
+    };
+  });
   const activeLoans = loansWithProgress.filter(({ loan }) => loan.status === "active");
   const loanPrincipalCents = activeLoans.reduce((sum, item) => sum + item.progress.remainingPrincipalCents, 0);
   const loanOriginalPrincipalCents = activeLoans.reduce((sum, item) => sum + item.loan.originalPrincipalCents, 0);
-  const loanMonthlyDueCents = activeLoans.reduce((sum, item) => sum + item.loan.paymentPerPeriodCents, 0);
+  const loanMonthlyDueCents = activeLoans.reduce((sum, item) => sum + getLoanPaymentDueCents(item.loan), 0);
   const loanPaidAmountCents = loansWithProgress.reduce((sum, item) => sum + item.progress.totalCashPaidCents, 0);
   const weightedLoanRate = loanPrincipalCents > 0
     ? activeLoans.reduce((sum, item) => sum + item.progress.remainingPrincipalCents * item.loan.annualRate, 0) / loanPrincipalCents
@@ -6582,7 +6593,7 @@ function LoansPage({
             <Field label="年利率 %"><input className="input" name="annualRate" inputMode="decimal" defaultValue="2.75" required /></Field>
             <Field label={newLoanType === "reserve_credit" && reserveMode === "installment" ? "分期期數（月）" : "貸款期數（月）"}><input className="input" name="termMonths" type="number" min={1} defaultValue={newLoanType === "reserve_credit" ? 12 : 60} onChange={(event) => updateLoanFormEstimate(event.currentTarget.form)} /></Field>
             <Field label={newLoanType === "reserve_credit" ? "預計每期還款" : "每期還款金額"}><input className="input" name="payment" inputMode="decimal" placeholder={newLoanType === "reserve_credit" ? "留空由系統估算" : "輸入後自動估算利率"} onChange={(event) => updateLoanFormEstimate(event.currentTarget.form)} /></Field>
-            <p data-loan-rate-hint className="helper-text">{newLoanType === "reserve_credit" ? "利率以實際動用餘額計算，不會由月付金反推。" : "留空時會依本金、年利率與期數計算每期金額。"}</p>
+            <p data-loan-rate-hint className="helper-text">{newLoanType === "reserve_credit" ? "每日利息＝累積已動用金額 × 年利率 ÷ 365，不會由月付金反推利率。" : "留空時會依本金、年利率與期數計算每期金額。"}</p>
             <div className="grid grid-cols-2 gap-3">
               <Field label="已繳期數"><input className="input" name="paidPeriods" type="number" min={0} defaultValue={0} onChange={(event) => updateLoanProgressEstimate(event.currentTarget.form)} /></Field>
               <Field label="目前已繳款金額"><input className="input" name="paidAmount" inputMode="decimal" defaultValue="0" /></Field>
@@ -6602,15 +6613,17 @@ function LoansPage({
           </form>
         </FormDisclosure>
         <section className="grid gap-3 md:grid-cols-2">
-          {loans.length === 0 ? <div className="md:col-span-2"><EmptyState label="尚未建立貸款，新增後可直接試算每月還款與總利息。" /></div> : loansWithProgress.map(({ loan, progress, trackingMode }) => (
+          {loans.length === 0 ? <div className="md:col-span-2"><EmptyState label="尚未建立貸款，新增後可直接試算每月還款與總利息。" /></div> : loansWithProgress.map(({ loan, progress, trackingMode, reserveSummary }) => (
             <div key={loan.id} className="panel">
               <div className="flex items-start justify-between gap-3"><p className="font-semibold">{loan.name}</p><div className="flex items-center gap-2"><Badge>{loan.status === "paid_off" ? "已結清" : loan.status === "active" ? "進行中" : "已暫停"}</Badge><button className="btn-danger h-8 w-8 px-0" onClick={() => void onDelete(loan)} title="刪除貸款" aria-label={`刪除 ${loan.name}`}><Trash2 size={15} /></button></div></div>
               <p className="text-sm text-slate-500 dark:text-slate-400">{loan.institution} · {loanTypeLabels[loan.type]} · 年利率 {formatPercent(loan.annualRate)} · {loan.type === "reserve_credit" ? (loan.metadata?.reserve_mode === "installment" ? "分期中" : "隨借隨還") : trackingMode === "prepaid_interest" ? "利息預付" : trackingMode === "manual" ? "手動追蹤" : "按月攤還"}</p>
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                 <Info label="剩餘本金" value={formatMoney(progress.remainingPrincipalCents)} />
-                <Info label="每期應繳" value={formatMoney(loan.paymentPerPeriodCents)} />
+                <Info label={loan.type === "reserve_credit" ? "本期預估應繳" : "每期應繳"} value={formatMoney(getLoanPaymentDueCents(loan))} />
                 {loan.type === "reserve_credit" && <Info label="核准額度" value={formatMoney(loan.creditLimitCents ?? 0)} />}
                 {loan.type === "reserve_credit" && <Info label="可用額度" value={formatMoney(Math.max(0, (loan.creditLimitCents ?? 0) - loan.remainingPrincipalCents))} />}
+                {reserveSummary && <Info label="每日利息" value={formatMoney(reserveSummary.dailyInterestCents)} />}
+                {reserveSummary && <Info label="本期預估利息" value={formatMoney(reserveSummary.billingInterestCents)} />}
                 <Info label="已清償本金" value={formatMoney(progress.principalPaidCents)} />
                 <Info label="累計實付" value={formatMoney(progress.totalCashPaidCents)} />
                 <Info label="已繳期數" value={`${loan.paidPeriods}/${loan.termMonths}`} />
@@ -6729,8 +6742,8 @@ function LoansPage({
                   <div className="grid grid-cols-2 gap-3"><Field label="剩餘本金"><input className="input" name="remaining" defaultValue={progress.remainingPrincipalCents / 100} inputMode="decimal" required /></Field><Field label="年利率 %"><input className="input" name="annualRate" defaultValue={loan.annualRate * 100} inputMode="decimal" required /></Field></div>
                   <div className="grid grid-cols-2 gap-3"><Field label="已繳期數"><input className="input" name="paidPeriods" type="number" min={0} max={loan.termMonths} defaultValue={loan.paidPeriods} onChange={(event) => updateLoanProgressEstimate(event.currentTarget.form)} /></Field><Field label="累計實付"><input className="input" name="paidAmount" defaultValue={progress.totalCashPaidCents / 100} inputMode="decimal" /></Field></div>
                   {loan.type !== "reserve_credit" && <Field label="預付利息（如有）"><input className="input" name="prepaidInterest" defaultValue={progress.prepaidInterestCents / 100} inputMode="decimal" onChange={(event) => updateLoanProgressEstimate(event.currentTarget.form)} /></Field>}
-                  <div className="grid grid-cols-2 gap-3"><Field label="每月還款日"><input className="input" name="paymentDay" type="number" min={1} max={31} defaultValue={loan.monthlyPaymentDay} /></Field><Field label="每期應繳"><input className="input" name="payment" defaultValue={loan.paymentPerPeriodCents / 100} inputMode="decimal" onChange={(event) => updateLoanFormEstimate(event.currentTarget.form)} required /></Field></div>
-                  <p data-loan-rate-hint className="helper-text">{trackingMode === "prepaid_interest" ? "合約利率會保留；每期款主要沖減本金，不用月付金反推利率。" : "調整每期金額後，系統會依原始本金與總期數估算年利率。"}</p>
+                  <div className="grid grid-cols-2 gap-3"><Field label="每月還款日"><input className="input" name="paymentDay" type="number" min={1} max={31} defaultValue={loan.monthlyPaymentDay} /></Field><Field label={loan.type === "reserve_credit" ? "本期預估應繳" : "每期應繳"}><input className="input" name="payment" defaultValue={getLoanPaymentDueCents(loan) / 100} inputMode="decimal" onChange={(event) => updateLoanFormEstimate(event.currentTarget.form)} required /></Field></div>
+                  <p data-loan-rate-hint className="helper-text">{loan.type === "reserve_credit" ? "依目前累積已動用金額、年利率與本期天數按日估算；實際帳單仍以金融機構結算為準。" : trackingMode === "prepaid_interest" ? "合約利率會保留；每期款主要沖減本金，不用月付金反推利率。" : "調整每期金額後，系統會依原始本金與總期數估算年利率。"}</p>
                   {loan.type !== "reserve_credit" && <label className="flex items-start gap-3 rounded-md border border-slate-200 p-3 text-sm dark:border-slate-700">
                     <input className="mt-0.5 h-4 w-4 accent-emerald-600" name="autoCalculateProgress" type="checkbox" defaultChecked={loan.metadata?.auto_calculate_progress !== false && trackingMode !== "manual"} onChange={(event) => updateLoanProgressEstimate(event.currentTarget.form)} />
                     <span>
@@ -6773,18 +6786,19 @@ function LoansPage({
       </section>
       <section className="panel">
         <div className="flex items-center gap-2"><WalletCards size={18} /><h2 className="text-lg font-semibold">備用金試算器</h2></div>
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">依實際動用餘額與計息天數估算利息，也可比較分期及提前還款效果。</p>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">每日利息＝累積已動用金額 × 年利率 ÷ 365；本金變動後，後續利息會立即跟著更新。</p>
         <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-7">
           <CalcInput label="核准額度" value={reserveCalcInput.creditLimitCents / 100} onChange={(value) => setReserveCalcInput((current) => ({ ...current, creditLimitCents: Math.max(0, Math.round(value * 100)) }))} />
-          <CalcInput label="已動用" value={reserveCalcInput.utilizedBalanceCents / 100} onChange={(value) => setReserveCalcInput((current) => ({ ...current, utilizedBalanceCents: Math.max(0, Math.round(value * 100)) }))} />
+          <CalcInput label="累積已動用" value={reserveCalcInput.utilizedBalanceCents / 100} onChange={(value) => setReserveCalcInput((current) => ({ ...current, utilizedBalanceCents: Math.max(0, Math.round(value * 100)) }))} />
           <CalcInput label="年利率 %" value={reserveCalcInput.annualRate * 100} onChange={(value) => setReserveCalcInput((current) => ({ ...current, annualRate: Math.max(0, value / 100) }))} />
           <CalcInput label="計息天數" value={reserveCalcInput.billingDays} onChange={(value) => setReserveCalcInput((current) => ({ ...current, billingDays: Math.min(366, Math.max(1, Math.round(value))) }))} />
           <CalcInput label="分期期數" value={reserveCalcInput.installmentMonths} onChange={(value) => setReserveCalcInput((current) => ({ ...current, installmentMonths: Math.max(0, Math.round(value)) }))} />
           <CalcInput label="立即提前還款" value={(reserveCalcInput.immediatePrepaymentCents ?? 0) / 100} onChange={(value) => setReserveCalcInput((current) => ({ ...current, immediatePrepaymentCents: Math.max(0, Math.round(value * 100)) }))} />
           <CalcInput label="每月額外還款" value={(reserveCalcInput.extraMonthlyPaymentCents ?? 0) / 100} onChange={(value) => setReserveCalcInput((current) => ({ ...current, extraMonthlyPaymentCents: Math.max(0, Math.round(value * 100)) }))} />
         </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
           <StatCard label="可用額度" value={formatMoney(reserveResult.availableCreditCents)} />
+          <StatCard label="每日預估利息" value={formatMoney(reserveResult.dailyInterestCents)} />
           <StatCard label="本期估算利息" value={formatMoney(reserveResult.billingInterestCents)} />
           <StatCard label="提前還款後本金" value={formatMoney(reserveResult.principalAfterPrepaymentCents)} />
           <StatCard label="分期每月應繳" value={formatMoney(reserveResult.installmentPaymentCents)} />
@@ -7272,9 +7286,9 @@ function FinancialPlansPage({
       }] : []),
     debtPayments: [
       ...loans
-        .filter((loan) => loan.status === "active" && loan.paymentPerPeriodCents > 0)
+        .filter((loan) => loan.status === "active" && getLoanPaymentDueCents(loan) > 0)
         .map((loan) => ({
-          amountCents: loan.paymentPerPeriodCents,
+          amountCents: getLoanPaymentDueCents(loan),
           frequency: "monthly" as const,
           startDate: today,
           endDate: addMonthsToIsoDate(today, Math.max(0, loan.termMonths - loan.paidPeriods - 1))

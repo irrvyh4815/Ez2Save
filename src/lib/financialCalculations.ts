@@ -54,6 +54,7 @@ export interface ReserveCreditCalculationInput {
 export interface ReserveCreditCalculationResult {
   utilizedBalanceCents: number;
   availableCreditCents: number;
+  dailyInterestCents: number;
   billingInterestCents: number;
   principalAfterPrepaymentCents: number;
   installmentPaymentCents: number;
@@ -638,38 +639,109 @@ export function calculateLoan(input: LoanCalculationInput): LoanCalculationResul
 export function calculateReserveCredit(input: ReserveCreditCalculationInput): ReserveCreditCalculationResult {
   const creditLimitCents = Math.max(0, cents(input.creditLimitCents));
   const utilizedBalanceCents = Math.min(creditLimitCents, Math.max(0, cents(input.utilizedBalanceCents)));
-  const billingDays = Math.min(366, Math.max(1, Math.round(input.billingDays)));
-  const annualRate = Math.max(0, input.annualRate);
+  const billingDaysValue = Number.isFinite(input.billingDays) ? input.billingDays : 30;
+  const billingDays = Math.min(366, Math.max(1, Math.round(billingDaysValue)));
+  const annualRate = Number.isFinite(input.annualRate) ? Math.max(0, input.annualRate) : 0;
   const immediatePrepaymentCents = Math.min(
     utilizedBalanceCents,
     Math.max(0, cents(input.immediatePrepaymentCents ?? 0))
   );
   const principalAfterPrepaymentCents = utilizedBalanceCents - immediatePrepaymentCents;
-  const billingInterestCents = cents(utilizedBalanceCents * annualRate * billingDays / 365);
+  const dailyInterestCents = calculateReserveCreditDailyInterest(principalAfterPrepaymentCents, annualRate);
+  const billingInterestCents = calculateReserveCreditPeriodInterest(principalAfterPrepaymentCents, annualRate, billingDays);
   const installmentMonths = Math.max(0, Math.round(input.installmentMonths));
   const base = installmentMonths > 0 && utilizedBalanceCents > 0
-    ? calculateLoan({ principalCents: utilizedBalanceCents, annualRate, termMonths: installmentMonths, method: "equal_payment" })
+    ? amortizeReserveCredit(utilizedBalanceCents, annualRate, installmentMonths, billingDays, 0)
     : null;
   const adjusted = installmentMonths > 0 && principalAfterPrepaymentCents > 0
-    ? calculateLoan({
-        principalCents: principalAfterPrepaymentCents,
+    ? amortizeReserveCredit(
+        principalAfterPrepaymentCents,
         annualRate,
-        termMonths: installmentMonths,
-        method: "equal_payment",
-        extraMonthlyPaymentCents: Math.max(0, cents(input.extraMonthlyPaymentCents ?? 0))
-      })
+        installmentMonths,
+        billingDays,
+        Math.max(0, cents(input.extraMonthlyPaymentCents ?? 0))
+      )
     : null;
 
   return {
     utilizedBalanceCents,
     availableCreditCents: Math.max(0, creditLimitCents - principalAfterPrepaymentCents),
+    dailyInterestCents,
     billingInterestCents,
     principalAfterPrepaymentCents,
-    installmentPaymentCents: adjusted?.monthlyPaymentCents ?? billingInterestCents,
+    installmentPaymentCents: adjusted?.schedule[0]?.paymentCents ?? billingInterestCents,
     totalInstallmentInterestCents: adjusted?.totalInterestCents ?? 0,
     interestSavedCents: Math.max(0, (base?.totalInterestCents ?? 0) - (adjusted?.totalInterestCents ?? 0)),
-    payoffMonths: adjusted?.payoffMonths ?? 0,
+    payoffMonths: adjusted?.schedule.length ?? 0,
     schedule: adjusted?.schedule ?? []
+  };
+}
+
+export function calculateReserveCreditDailyInterest(utilizedBalanceCents: number, annualRate: number): number {
+  const balance = Number.isFinite(utilizedBalanceCents) ? Math.max(0, utilizedBalanceCents) : 0;
+  const rate = Number.isFinite(annualRate) ? Math.max(0, annualRate) : 0;
+  return cents(balance * rate / 365);
+}
+
+export function calculateReserveCreditPeriodInterest(utilizedBalanceCents: number, annualRate: number, days: number): number {
+  const normalizedDays = Number.isFinite(days) ? Math.min(366, Math.max(1, Math.round(days))) : 30;
+  const balance = Number.isFinite(utilizedBalanceCents) ? Math.max(0, utilizedBalanceCents) : 0;
+  const rate = Number.isFinite(annualRate) ? Math.max(0, annualRate) : 0;
+  return cents(balance * rate * normalizedDays / 365);
+}
+
+export function getLoanPaymentDueCents(loan: Loan): number {
+  if (loan.type !== "reserve_credit") return Math.max(0, cents(loan.paymentPerPeriodCents));
+  const billingDaysValue = Number(loan.metadata?.reserve_billing_days ?? 30);
+  const billingDays = Number.isFinite(billingDaysValue) ? Math.min(366, Math.max(1, Math.round(billingDaysValue))) : 30;
+  const reserveMode = loan.metadata?.reserve_mode === "installment" ? "installment" : "revolving";
+  const remainingInstallments = reserveMode === "installment"
+    ? Math.max(1, Math.round(loan.termMonths) - Math.round(loan.paidPeriods))
+    : 0;
+  return calculateReserveCredit({
+    creditLimitCents: Math.max(loan.creditLimitCents ?? 0, loan.remainingPrincipalCents),
+    utilizedBalanceCents: loan.remainingPrincipalCents,
+    annualRate: loan.annualRate,
+    billingDays,
+    installmentMonths: remainingInstallments
+  }).installmentPaymentCents;
+}
+
+function amortizeReserveCredit(
+  principalCents: number,
+  annualRate: number,
+  periods: number,
+  billingDays: number,
+  extraPaymentCents: number
+): Pick<LoanCalculationResult, "schedule" | "totalInterestCents" | "totalPaymentCents"> {
+  const schedule: AmortizationRow[] = [];
+  let remaining = Math.max(0, cents(principalCents));
+  const periodicRate = Math.max(0, annualRate) * billingDays / 365;
+  const normalizedPeriods = Math.max(1, Math.round(periods));
+  const factor = periodicRate === 0
+    ? cents(remaining / normalizedPeriods)
+    : cents(remaining * periodicRate * (1 + periodicRate) ** normalizedPeriods / ((1 + periodicRate) ** normalizedPeriods - 1));
+
+  for (let period = 1; remaining > 0 && period <= normalizedPeriods; period += 1) {
+    const interestCents = calculateReserveCreditPeriodInterest(remaining, annualRate, billingDays);
+    const scheduledPrincipalCents = period === normalizedPeriods
+      ? remaining
+      : Math.min(remaining, Math.max(0, factor - interestCents));
+    const principalPaidCents = Math.min(remaining, scheduledPrincipalCents + extraPaymentCents);
+    remaining = Math.max(0, remaining - principalPaidCents);
+    schedule.push({
+      period,
+      paymentCents: principalPaidCents + interestCents,
+      principalCents: principalPaidCents,
+      interestCents,
+      remainingPrincipalCents: remaining
+    });
+  }
+
+  return {
+    schedule,
+    totalInterestCents: schedule.reduce((sum, row) => sum + row.interestCents, 0),
+    totalPaymentCents: schedule.reduce((sum, row) => sum + row.paymentCents, 0)
   };
 }
 
@@ -858,7 +930,7 @@ export function summarizeDashboard(args: {
   const monthlyCreditCardDueCents = activeCreditCards.reduce((sum, card) => sum + card.currentStatementAmountCents, 0);
   const monthlyLoanDueCents = args.loans
     .filter((loan) => loan.status === "active")
-    .reduce((sum, loan) => sum + loan.paymentPerPeriodCents, 0);
+    .reduce((sum, loan) => sum + getLoanPaymentDueCents(loan), 0);
   const loanLiabilities = args.loans.reduce((sum, loan) => sum + summarizeLoanProgress(loan).remainingPrincipalCents, 0);
   const cardLiabilities = summarizeCreditCardLimits(activeCreditCards, args.creditCardInstallments ?? []).usedCreditCents;
   const totalLiabilitiesCents = loanLiabilities + cardLiabilities;
