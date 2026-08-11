@@ -58,6 +58,9 @@ supabase db push
 - `supabase/migrations/202608030013_ledger_scoped_opening_imports.sql`
 - `supabase/migrations/202608030014_web_push_notifications.sql`
 - `supabase/migrations/202608040015_notification_repeat_defaults.sql`
+- `supabase/migrations/202608110016_atomic_financial_events.sql`
+
+最新的連動交易 migration 必須先於同版前端部署。它不會重算或修改既有交易，只會讓新建立的收入、支出、轉帳、卡費、貸款還款與投資買賣在單一資料庫交易中同步相關餘額。
 
 所有個人理財表都啟用 RLS。新版安全模型以 `ledger_id` + `ledger_members` 隔離資料；使用者必須是帳本成員才可讀取，且只有 `owner`、`admin`、`editor` 可寫入。
 

@@ -79,6 +79,7 @@ import { disableWebPush, enableWebPush, getWebPushState, sendTestWebPush, type W
 import { installPwa, isPwaInstallAvailable } from "./services/pwaInstall";
 import {
   checkSupabaseConnection,
+  type FinanceData,
   createLedgerBook,
   createLedgerInvitation,
   createBudget,
@@ -124,6 +125,7 @@ import {
   convertLedgerCurrency,
   updateBudget,
   updateCreditCard,
+  updateDeposit,
   updateFinancialAccount,
   updateFinancialPlan,
   updateRecurringIncome,
@@ -199,6 +201,7 @@ type DatePeriod = {
 
 type ToastType = "success" | "error";
 type Toast = { type: ToastType; message: string } | null;
+type TransactionPreset = { type: "credit_card_payment"; creditCardId: string } | { type: "loan_payment"; loanId: string };
 type ViewTransitionDocument = Document & {
   startViewTransition?: (update: () => void) => { finished: Promise<void> };
 };
@@ -484,7 +487,9 @@ const transactionTypeLabels: Record<Transaction["type"], string> = {
   credit_card_purchase: "信用卡消費",
   credit_card_payment: "信用卡繳款",
   loan_payment: "貸款還款",
-  deposit_transfer: "存款轉入"
+  deposit_transfer: "存款轉入",
+  investment_buy: "投資買入",
+  investment_sell: "投資賣出"
 };
 
 const investmentKindLabels: Record<InvestmentCategory["kind"], string> = {
@@ -661,6 +666,7 @@ export default function App() {
   const [ledgerHomeView, setLedgerHomeView] = useState<"ledgers" | "users">("ledgers");
   const [ledgerTransitioning, setLedgerTransitioning] = useState(false);
   const [page, setPage] = useState<Page>(getInitialPage);
+  const [transactionPreset, setTransactionPreset] = useState<TransactionPreset | null>(null);
   const [month, setMonth] = useState(currentTaipeiMonth());
   const [periodMode, setPeriodMode] = useState<PeriodMode>("all");
   const [periodYear, setPeriodYear] = useState(currentTaipeiMonth().slice(0, 4));
@@ -772,6 +778,34 @@ export default function App() {
     setNotificationPreferences(snapshot.notificationPreferences);
     setAiReport(null);
     setCsvPreview([]);
+  }
+
+  function createFinanceSnapshot(data: FinanceData): FinanceSnapshot {
+    return {
+      accounts: data.accounts,
+      transactions: data.transactions,
+      creditCards: data.creditCards,
+      creditCardInstallments: data.creditCardInstallments,
+      loans: data.loans,
+      deposits: data.deposits,
+      budgets: data.budgets,
+      reminders: data.reminders,
+      rememberedCategories: data.categories,
+      insurancePolicies: data.insurancePolicies,
+      investmentCategories: data.investmentCategories,
+      investmentAssets: data.investmentAssets,
+      financialPlans: data.financialPlans,
+      recurringIncomes: data.recurringIncomes,
+      notificationPreferences: data.notificationPreferences
+    };
+  }
+
+  async function reloadCurrentLedgerData() {
+    if (!activePersistedLedgerId) return;
+    const result = await loadFinanceData(activePersistedLedgerId);
+    const snapshot = createFinanceSnapshot(result.data);
+    applySnapshot(snapshot);
+    setLedgerSnapshots((current) => ({ ...current, [activePersistedLedgerId]: snapshot }));
   }
 
   async function refreshFinanceData() {
@@ -987,13 +1021,16 @@ export default function App() {
       summarizeDashboard({
         accounts,
         creditCards: creditCardsForSummary,
+        creditCardInstallments,
         loans,
+        deposits,
+        investmentAssets,
         transactions,
         month,
         dateRange: period,
         averageNecessaryExpenseCents: recentNecessaryAverage
       }),
-    [accounts, creditCardsForSummary, loans, month, period, recentNecessaryAverage, transactions]
+    [accounts, creditCardInstallments, creditCardsForSummary, deposits, investmentAssets, loans, month, period, recentNecessaryAverage, transactions]
   );
 
   const categoryBreakdown = useMemo(() => {
@@ -1358,6 +1395,10 @@ export default function App() {
   }
 
   async function removeAccount(account: FinancialAccount) {
+    if (account.balanceCents !== 0) {
+      notify("error", "請先將帳戶餘額轉出或調整為 0，再刪除帳戶");
+      return;
+    }
     if (!window.confirm(`確定刪除「${account.name}」？既有交易不會被刪除。`)) return;
     try {
       await deleteFinancialAccount(account.id);
@@ -1409,6 +1450,11 @@ export default function App() {
   }
 
   async function removeCard(card: CreditCard) {
+    const cardSummary = summarizeCreditCardLimit(card, creditCardInstallments);
+    if (cardSummary.usedCreditCents > 0 || cardSummary.installmentDebtCents > 0) {
+      notify("error", "請先繳清信用卡帳款與分期，再刪除信用卡");
+      return;
+    }
     if (!window.confirm(`確定刪除「${card.name}」？既有消費與分期記錄不會被刪除。`)) return;
     try {
       await deleteCreditCard(card.id);
@@ -1443,6 +1489,10 @@ export default function App() {
   }
 
   async function removeLoan(loan: Loan) {
+    if (loan.remainingPrincipalCents > 0) {
+      notify("error", "請先將剩餘本金結清，再刪除貸款");
+      return;
+    }
     if (!window.confirm(`確定刪除「${loan.name}」？既有還款記錄不會被刪除。`)) return;
     try {
       await deleteLoan(loan.id);
@@ -1469,6 +1519,44 @@ export default function App() {
     );
     if (payment.error) return notify("error", payment.error);
     const type = payment.type;
+    const transferAccountId = ["transfer", "deposit_transfer"].includes(type)
+      ? String(formData.get("transferAccountId") ?? "")
+      : undefined;
+    const investmentAssetId = ["investment_buy", "investment_sell"].includes(type)
+      ? String(formData.get("investmentAssetId") ?? "")
+      : undefined;
+    const investmentQuantity = ["investment_buy", "investment_sell"].includes(type)
+      ? Number(formData.get("investmentQuantity"))
+      : undefined;
+    const installmentIds = type === "credit_card_payment"
+      ? formData.getAll("installmentIds").map(String).filter(Boolean)
+      : [];
+    if (transferAccountId && transferAccountId === payment.accountId) return notify("error", "轉出與轉入帳戶不可相同");
+    if (["transfer", "deposit_transfer"].includes(type) && !transferAccountId) return notify("error", "請選擇轉入帳戶");
+    if (["investment_buy", "investment_sell"].includes(type) && !investmentAssetId) return notify("error", "請選擇投資持倉");
+    if (["investment_buy", "investment_sell"].includes(type) && (!Number.isFinite(investmentQuantity) || Number(investmentQuantity) <= 0)) {
+      return notify("error", "投資買賣數量必須大於 0");
+    }
+    if (type === "investment_sell") {
+      const asset = investmentAssets.find((candidate) => candidate.id === investmentAssetId);
+      if (!asset || Number(investmentQuantity) > asset.quantity) return notify("error", "賣出數量不可大於目前持有數量");
+    }
+    if (type === "credit_card_payment") {
+      const selectedInstallments = installmentIds.map((id) => creditCardInstallments.find((candidate) => candidate.id === id));
+      if (selectedInstallments.some((installment) => !installment || installment.creditCardId !== payment.creditCardId || installment.status !== "active")) {
+        return notify("error", "分期項目與所選信用卡不符，請重新選擇");
+      }
+      const installmentDueCents = selectedInstallments.reduce(
+        (sum, installment) => sum + Math.min(installment?.monthlyPaymentCents ?? 0, installment?.remainingAmountCents ?? 0),
+        0
+      );
+      if (installmentDueCents > amountCents) return notify("error", "勾選的分期應繳合計不可大於本次繳款金額");
+    }
+    if (["expense", "transfer", "deposit_transfer", "credit_card_payment", "loan_payment", "investment_buy"].includes(type)) {
+      const sourceAccount = accounts.find((candidate) => candidate.id === payment.accountId);
+      if (!sourceAccount) return notify("error", "找不到付款帳戶");
+      if (sourceAccount.balanceCents < amountCents) return notify("error", "付款帳戶餘額不足");
+    }
     const selectedLoan = payment.loanId ? loans.find((candidate) => candidate.id === payment.loanId) : undefined;
     const principalInput = String(formData.get("principalAmount") ?? "").trim();
     const explicitPrincipalCents = principalInput === "" ? undefined : parseMoneyToCents(principalInput);
@@ -1491,18 +1579,24 @@ export default function App() {
       category: normalizeCategoryName(String(formData.get("category") || "未分類")),
       subcategory: String(formData.get("subcategory") ?? ""),
       accountId: payment.accountId,
+      transferAccountId,
       creditCardId: payment.creditCardId,
       loanId: payment.loanId,
+      investmentAssetId,
       merchant: String(formData.get("merchant") ?? ""),
       note: String(formData.get("note") ?? ""),
       isNecessary: formData.get("necessary") === "on",
       isRecurring: formData.get("recurring") === "on",
       tags: String(formData.get("tags") ?? "").split(",").map((tag) => tag.trim()).filter(Boolean),
       source: "manual",
-      metadata: loanBreakdown ? {
-        loan_principal_cents: loanBreakdown.principalCents,
-        loan_interest_cents: loanBreakdown.interestCents
-      } : {},
+      metadata: {
+        ...(loanBreakdown ? {
+          loan_principal_cents: loanBreakdown.principalCents,
+          loan_interest_cents: loanBreakdown.interestCents
+        } : {}),
+        ...(investmentQuantity ? { investment_quantity: investmentQuantity } : {}),
+        ...(installmentIds.length ? { credit_card_installment_ids: installmentIds } : {})
+      },
       createdAt: now,
       updatedAt: now
     };
@@ -1511,12 +1605,46 @@ export default function App() {
       saved = await createTransactionWithCategory(transaction, activePersistedLedgerId);
       setTransactions((current) => [saved, ...current]);
       setRememberedCategories((current) => [...new Set([saved.category, ...current])].sort((a, b) => a.localeCompare(b, "zh-Hant")));
-      notify("success", isSupabaseConfigured ? "交易與分類記憶已儲存" : "交易已新增");
     } catch (error) {
       notify("error", error instanceof Error ? error.message : "交易儲存失敗");
       return;
     }
+    if (Number(saved.metadata?.ledger_effect_version) === 1) {
+      try {
+        await reloadCurrentLedgerData();
+        notify("success", "交易已同步更新帳戶與總帳");
+      } catch (error) {
+        notify("error", error instanceof Error ? error.message : "交易已儲存，但重新整理失敗");
+      }
+      return;
+    }
     try {
+      if (type === "income" && saved.accountId) {
+        const account = accounts.find((candidate) => candidate.id === saved.accountId);
+        if (account) {
+          const updatedAccount = await updateFinancialAccount({ ...account, balanceCents: account.balanceCents + amountCents });
+          setAccounts((current) => current.map((candidate) => candidate.id === updatedAccount.id ? updatedAccount : candidate));
+        }
+      }
+      if (type === "expense" && saved.accountId) {
+        const account = accounts.find((candidate) => candidate.id === saved.accountId);
+        if (account && account.balanceCents < amountCents) throw new Error("付款帳戶餘額不足");
+        if (account) {
+          const updatedAccount = await updateFinancialAccount({ ...account, balanceCents: account.balanceCents - amountCents });
+          setAccounts((current) => current.map((candidate) => candidate.id === updatedAccount.id ? updatedAccount : candidate));
+        }
+      }
+      if (["transfer", "deposit_transfer"].includes(type) && saved.accountId && saved.transferAccountId) {
+        const source = accounts.find((candidate) => candidate.id === saved.accountId);
+        const destination = accounts.find((candidate) => candidate.id === saved.transferAccountId);
+        if (!source || !destination) throw new Error("找不到轉帳帳戶");
+        if (source.balanceCents < amountCents) throw new Error("轉出帳戶餘額不足");
+        const [updatedSource, updatedDestination] = await Promise.all([
+          updateFinancialAccount({ ...source, balanceCents: source.balanceCents - amountCents }),
+          updateFinancialAccount({ ...destination, balanceCents: destination.balanceCents + amountCents })
+        ]);
+        setAccounts((current) => current.map((candidate) => candidate.id === updatedSource.id ? updatedSource : candidate.id === updatedDestination.id ? updatedDestination : candidate));
+      }
       if (type === "credit_card_purchase" && saved.creditCardId) {
         const card = creditCards.find((candidate) => candidate.id === saved.creditCardId);
         if (card) {
@@ -1569,6 +1697,7 @@ export default function App() {
         setLoans((current) => current.map((candidate) => candidate.id === updatedLoan.id ? updatedLoan : candidate));
         if (updatedAccount) setAccounts((current) => current.map((candidate) => candidate.id === updatedAccount.id ? updatedAccount : candidate));
       }
+      notify("success", isSupabaseConfigured ? "交易與分類記憶已儲存" : "交易已新增");
     } catch (error) {
       notify("error", error instanceof Error ? error.message : "還款連動資料儲存失敗");
     }
@@ -1581,6 +1710,16 @@ export default function App() {
       notify("success", "存款已儲存");
     } catch (error) {
       notify("error", error instanceof Error ? error.message : "存款儲存失敗");
+    }
+  }
+
+  async function saveDeposit(deposit: Deposit) {
+    try {
+      const saved = await updateDeposit(deposit);
+      setDeposits((current) => current.map((item) => item.id === saved.id ? saved : item));
+      notify("success", "存款資料已更新");
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "存款更新失敗");
     }
   }
 
@@ -1751,6 +1890,10 @@ export default function App() {
   }
 
   async function removeInvestmentAsset(asset: InvestmentAsset) {
+    if (asset.quantity > 0) {
+      notify("error", "請先賣出或調整持有數量為 0，再刪除持倉");
+      return;
+    }
     if (!window.confirm(`確定刪除「${asset.name}」持倉？`)) return;
     try {
       await deleteInvestmentAsset(asset.id);
@@ -1828,7 +1971,37 @@ export default function App() {
     const transaction = transactions.find((item) => item.id === id);
     try {
       await deleteTransaction(id);
+      if (Number(transaction?.metadata?.ledger_effect_version) === 1) {
+        await reloadCurrentLedgerData();
+        notify("success", "交易已刪除，相關餘額已同步還原");
+        return;
+      }
       setTransactions((current) => current.filter((transaction) => transaction.id !== id));
+      if (transaction?.type === "income" && transaction.accountId) {
+        const account = accounts.find((candidate) => candidate.id === transaction.accountId);
+        if (account) {
+          const updatedAccount = await updateFinancialAccount({ ...account, balanceCents: Math.max(0, account.balanceCents - transaction.amountCents) });
+          setAccounts((current) => current.map((candidate) => candidate.id === updatedAccount.id ? updatedAccount : candidate));
+        }
+      }
+      if (transaction?.type === "expense" && transaction.accountId) {
+        const account = accounts.find((candidate) => candidate.id === transaction.accountId);
+        if (account) {
+          const updatedAccount = await updateFinancialAccount({ ...account, balanceCents: account.balanceCents + transaction.amountCents });
+          setAccounts((current) => current.map((candidate) => candidate.id === updatedAccount.id ? updatedAccount : candidate));
+        }
+      }
+      if (["transfer", "deposit_transfer"].includes(transaction?.type ?? "") && transaction?.accountId && transaction.transferAccountId) {
+        const source = accounts.find((candidate) => candidate.id === transaction.accountId);
+        const destination = accounts.find((candidate) => candidate.id === transaction.transferAccountId);
+        if (source && destination && destination.balanceCents >= transaction.amountCents) {
+          const [updatedSource, updatedDestination] = await Promise.all([
+            updateFinancialAccount({ ...source, balanceCents: source.balanceCents + transaction.amountCents }),
+            updateFinancialAccount({ ...destination, balanceCents: destination.balanceCents - transaction.amountCents })
+          ]);
+          setAccounts((current) => current.map((candidate) => candidate.id === updatedSource.id ? updatedSource : candidate.id === updatedDestination.id ? updatedDestination : candidate));
+        }
+      }
       if (transaction?.type === "credit_card_purchase" && transaction.creditCardId) {
         const card = creditCards.find((candidate) => candidate.id === transaction.creditCardId);
         if (card) {
@@ -2096,9 +2269,13 @@ export default function App() {
               <TransactionsPage
                 accounts={accounts}
                 creditCards={creditCards}
+                installments={creditCardInstallments}
                 loans={loans}
+                investmentAssets={investmentAssets}
                 transactions={periodTransactions}
                 period={period}
+                preset={transactionPreset}
+                onPresetConsumed={() => setTransactionPreset(null)}
                 onAdd={addTransaction}
                 onDelete={softDeleteTransaction}
                 onCsvUpload={handleCsvUpload}
@@ -2117,11 +2294,18 @@ export default function App() {
                 onAddInstallment={addCardInstallment}
                 onUpdate={saveCard}
                 onDelete={removeCard}
+                onRecordPayment={(card) => {
+                  setTransactionPreset({ type: "credit_card_payment", creditCardId: card.id });
+                  navigateToPage("transactions");
+                }}
                 notify={notify}
               />
             )}
-            {page === "loans" && <LoansPage loans={loans} onAdd={addLoan} onUpdate={saveLoan} onDelete={removeLoan} notify={notify} />}
-            {page === "deposits" && <DepositsPage deposits={deposits} onAdd={addDeposit} onDelete={removeDeposit} notify={notify} />}
+            {page === "loans" && <LoansPage loans={loans} onAdd={addLoan} onUpdate={saveLoan} onDelete={removeLoan} onRecordPayment={(loan) => {
+              setTransactionPreset({ type: "loan_payment", loanId: loan.id });
+              navigateToPage("transactions");
+            }} notify={notify} />}
+            {page === "deposits" && <DepositsPage accounts={accounts} deposits={deposits} onAdd={addDeposit} onUpdate={saveDeposit} onDelete={removeDeposit} notify={notify} />}
             {page === "insurance" && <InsurancePage policies={insurancePolicies} onAdd={addInsurancePolicy} onDelete={removeInsurancePolicy} />}
             {page === "notification_settings" && <NotificationSettingsPage preferences={notificationPreferences} onSave={saveLedgerNotificationPreferences} notify={notify} />}
             {page === "financial_plan" && (
@@ -2360,7 +2544,10 @@ function LedgerHomePage({
     const dashboard = summarizeDashboard({
       accounts: snapshot.accounts,
       creditCards: snapshot.creditCards,
+      creditCardInstallments: snapshot.creditCardInstallments,
       loans: snapshot.loans,
+      deposits: snapshot.deposits,
+      investmentAssets: snapshot.investmentAssets,
       transactions: snapshot.transactions,
       month,
       averageNecessaryExpenseCents: 0
@@ -3759,6 +3946,9 @@ function DashboardPage({
   const periodCopy = getDashboardPeriodCopy(period);
   const stats = [
     ["目前總資產", dashboard.totalAssetsCents],
+    ["帳戶資產", dashboard.accountAssetsCents],
+    ["投資持倉市值", dashboard.investmentAssetsCents],
+    ["定期存款", dashboard.timeDepositTotalCents],
     ["目前總負債", dashboard.totalLiabilitiesCents],
     ["淨資產", dashboard.netWorthCents],
     [periodCopy.incomeLabel, dashboard.monthlyIncomeCents],
@@ -5152,9 +5342,13 @@ function DataImportPage({
 function TransactionsPage({
   accounts,
   creditCards,
+  installments,
   loans,
+  investmentAssets,
   transactions,
   period,
+  preset,
+  onPresetConsumed,
   onAdd,
   onDelete,
   onCsvUpload,
@@ -5164,9 +5358,13 @@ function TransactionsPage({
 }: {
   accounts: FinancialAccount[];
   creditCards: CreditCard[];
+  installments: CreditCardInstallment[];
   loans: Loan[];
+  investmentAssets: InvestmentAsset[];
   transactions: Transaction[];
   period: DatePeriod;
+  preset: TransactionPreset | null;
+  onPresetConsumed: () => void;
   onAdd: (formData: FormData) => void;
   onDelete: (id: string) => void;
   onCsvUpload: (file: File | null) => void;
@@ -5177,14 +5375,35 @@ function TransactionsPage({
   const [transactionType, setTransactionType] = useState<Transaction["type"]>("expense");
   const [expensePaymentMethod, setExpensePaymentMethod] = useState<ExpensePaymentMethod>("account");
   const [selectedLoanId, setSelectedLoanId] = useState("");
+  const [selectedCreditCardId, setSelectedCreditCardId] = useState("");
+
+  useEffect(() => {
+    if (!preset) return;
+    setTransactionType(preset.type);
+    if (preset.type === "credit_card_payment") setSelectedCreditCardId(preset.creditCardId);
+    if (preset.type === "loan_payment") setSelectedLoanId(preset.loanId);
+    onPresetConsumed();
+  }, [onPresetConsumed, preset]);
   const activeAccounts = accounts.filter((account) => account.isActive);
   const activeCreditCards = creditCards.filter((card) => card.isActive);
+  const selectableInstallments = installments.filter(
+    (installment) => installment.creditCardId === selectedCreditCardId && installment.status === "active" && installment.remainingAmountCents > 0
+  );
   const activeLoans = loans.filter((loan) => loan.status === "active" && loan.remainingPrincipalCents > 0);
+  const activeInvestmentAssets = investmentAssets.filter((asset) => asset.isActive && (transactionType === "investment_buy" || asset.quantity > 0));
   const selectedLoan = activeLoans.find((loan) => loan.id === selectedLoanId);
   const needsAccount = transactionType !== "expense" || expensePaymentMethod === "account";
   const needsCreditCard = (transactionType === "expense" && expensePaymentMethod === "credit_card") || transactionType === "credit_card_payment";
   const needsLoan = transactionType === "loan_payment";
-  const accountFieldLabel = transactionType === "income" ? "入帳帳戶" : ["credit_card_payment", "loan_payment"].includes(transactionType) ? "扣款帳戶" : "付款帳戶";
+  const needsTransferAccount = ["transfer", "deposit_transfer"].includes(transactionType);
+  const needsInvestmentAsset = ["investment_buy", "investment_sell"].includes(transactionType);
+  const accountFieldLabel = ["income", "investment_sell"].includes(transactionType)
+    ? "入帳帳戶"
+    : ["credit_card_payment", "loan_payment"].includes(transactionType)
+      ? "扣款帳戶"
+      : transactionType === "transfer" || transactionType === "deposit_transfer"
+        ? "轉出帳戶"
+        : "付款帳戶";
   const periodCopy = getDashboardPeriodCopy(period);
   const periodIncomeCents = transactions
     .filter((transaction) => transaction.type === "income")
@@ -5194,7 +5413,7 @@ function TransactionsPage({
     .reduce((sum, transaction) => sum + transaction.amountCents, 0);
   const periodBalanceCents = periodIncomeCents - periodExpenseCents;
   const periodTransferCents = transactions
-    .filter((transaction) => transaction.type === "transfer" || transaction.type === "credit_card_payment" || transaction.type === "loan_payment" || transaction.type === "deposit_transfer")
+    .filter((transaction) => ["transfer", "credit_card_payment", "loan_payment", "deposit_transfer", "investment_buy", "investment_sell"].includes(transaction.type))
     .reduce((sum, transaction) => sum + transaction.amountCents, 0);
   const transactionCategoryBreakdown = Object.entries(
     transactions
@@ -5220,6 +5439,11 @@ function TransactionsPage({
       const card = creditCards.find((candidate) => candidate.id === transaction.creditCardId);
       const cardName = card ? `${card.name}（${card.last4}）` : "信用卡";
       return transaction.type === "credit_card_payment" ? `${accountName || "帳戶"} → ${cardName}` : cardName;
+    }
+    if (transaction.investmentAssetId) {
+      const asset = investmentAssets.find((candidate) => candidate.id === transaction.investmentAssetId);
+      const assetName = asset ? `${asset.symbol} · ${asset.name}` : "投資持倉";
+      return transaction.type === "investment_sell" ? `${assetName} → ${accountName || "帳戶"}` : `${accountName || "帳戶"} → ${assetName}`;
     }
     if (accountName) return accountName;
     return "-";
@@ -5312,9 +5536,32 @@ function TransactionsPage({
           )}
           {needsCreditCard && (
             <Field label={transactionType === "credit_card_payment" ? "繳款信用卡" : "付款信用卡"}>
-              <select className="input" name="creditCardId" defaultValue="" required>
+              <select className="input" name="creditCardId" value={selectedCreditCardId} onChange={(event) => setSelectedCreditCardId(event.target.value)} required>
                 <option value="" disabled>{activeCreditCards.length ? "請選擇信用卡" : "尚無可用信用卡"}</option>
                 {activeCreditCards.map((card) => <option key={card.id} value={card.id}>{card.name}（{card.last4}）</option>)}
+              </select>
+            </Field>
+          )}
+          {transactionType === "credit_card_payment" && selectableInstallments.length > 0 && (
+            <fieldset className="space-y-2 rounded-md border border-slate-200 p-3 dark:border-slate-700">
+              <legend className="px-1 text-sm font-medium">本次包含的分期</legend>
+              {selectableInstallments.map((installment) => (
+                <label key={installment.id} className="flex items-start gap-3 text-sm">
+                  <input className="mt-0.5 h-4 w-4 accent-emerald-600" name="installmentIds" type="checkbox" value={installment.id} />
+                  <span>
+                    <span className="block font-medium">{installment.merchant || "信用卡分期"} · 本期 {formatMoney(Math.min(installment.monthlyPaymentCents, installment.remainingAmountCents))}</span>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">已繳 {installment.paidPeriods}/{installment.periods} 期，剩餘 {formatMoney(installment.remainingAmountCents)}</span>
+                  </span>
+                </label>
+              ))}
+              <p className="helper-text">勾選後會同步更新分期進度；沒有包含在本次帳單的項目請勿勾選。</p>
+            </fieldset>
+          )}
+          {needsTransferAccount && (
+            <Field label="轉入帳戶">
+              <select className="input" name="transferAccountId" defaultValue="" required>
+                <option value="" disabled>{activeAccounts.length > 1 ? "請選擇轉入帳戶" : "請先建立另一個帳戶"}</option>
+                {activeAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
               </select>
             </Field>
           )}
@@ -5325,6 +5572,19 @@ function TransactionsPage({
                 {activeLoans.map((loan) => <option key={loan.id} value={loan.id}>{loan.name} · 剩餘 {formatMoney(loan.remainingPrincipalCents)}</option>)}
               </select>
             </Field>
+          )}
+          {needsInvestmentAsset && (
+            <>
+              <Field label="投資持倉">
+                <select className="input" name="investmentAssetId" defaultValue="" required>
+                  <option value="" disabled>{activeInvestmentAssets.length ? "請選擇持倉" : "請先到投資頁建立持倉"}</option>
+                  {activeInvestmentAssets.map((asset) => <option key={asset.id} value={asset.id}>{asset.symbol} · {asset.name}（{asset.quantity.toLocaleString("zh-TW")}）</option>)}
+                </select>
+              </Field>
+              <Field label={transactionType === "investment_buy" ? "買入數量" : "賣出數量"}>
+                <input className="input" name="investmentQuantity" type="number" min="0.0000000001" step="0.0000000001" required />
+              </Field>
+            </>
           )}
           {needsLoan && (
             <Field label="其中本金">
@@ -5594,6 +5854,7 @@ function CardsPage({
   onAddInstallment,
   onUpdate,
   onDelete,
+  onRecordPayment,
   notify
 }: {
   cards: CreditCard[];
@@ -5603,6 +5864,7 @@ function CardsPage({
   onAddInstallment: (installment: CreditCardInstallment) => Promise<void>;
   onUpdate: (card: CreditCard) => Promise<void>;
   onDelete: (card: CreditCard) => Promise<void>;
+  onRecordPayment: (card: CreditCard) => void;
   notify: (type: ToastType, message: string) => void;
 }) {
   function addCard(formData: FormData) {
@@ -5825,7 +6087,7 @@ function CardsPage({
               {utilization > card.recommendedUtilizationRate && (
                 <p className="mt-3 rounded-md bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-100">已超過建議額度使用率 {formatPercent(card.recommendedUtilizationRate)}。</p>
               )}
-              {card.currentStatementAmountCents > 0 && <button className="btn-primary mt-4 w-full" onClick={() => { if (window.confirm(`確認 ${card.name} 本期帳單已繳清？`)) void onUpdate({ ...card, currentStatementAmountCents: 0, minimumPaymentCents: 0 }); }}>標示本期已繳清</button>}
+              {card.currentStatementAmountCents > 0 && <button className="btn-primary mt-4 w-full" onClick={() => onRecordPayment(card)}>前往記錄繳款</button>}
               <details className="group mt-4 border-t border-slate-200 pt-3 dark:border-slate-800">
                 <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-brand-700 dark:text-brand-100"><Pencil size={15} />編輯信用卡</summary>
                 <form className="mt-3 space-y-3" onSubmit={handleFormSubmit((formData) => {
@@ -6036,12 +6298,14 @@ function LoansPage({
   onAdd,
   onUpdate,
   onDelete,
+  onRecordPayment,
   notify
 }: {
   loans: Loan[];
   onAdd: (loan: Loan) => Promise<void>;
   onUpdate: (loan: Loan) => Promise<void>;
   onDelete: (loan: Loan) => Promise<void>;
+  onRecordPayment: (loan: Loan) => void;
   notify: (type: ToastType, message: string) => void;
 }) {
   const [calcInput, setCalcInput] = useState<LoanCalculationInput>({
@@ -6235,22 +6499,27 @@ function LoansPage({
                 <Info label="還款日" value={`每月 ${loan.monthlyPaymentDay} 日`} />
                 {progress.prepaidInterestCents > 0 && <Info label="預付利息" value={formatMoney(progress.prepaidInterestCents)} />}
               </div>
-              {loan.status === "active" && <button className="btn-primary mt-4 w-full" onClick={() => {
-                if (!window.confirm(`確認 ${loan.name} 已結清？結清後不再顯示繳款提醒。`)) return;
-                const finalProgress = calculateLoanProgress({
-                  originalPrincipalCents: loan.originalPrincipalCents,
-                  remainingPrincipalCents: 0,
-                  annualRate: loan.annualRate,
-                  termMonths: loan.termMonths,
-                  paidPeriods: loan.termMonths,
-                  paymentPerPeriodCents: loan.paymentPerPeriodCents,
-                  paidAmountCents: loan.paidAmountCents,
-                  trackingMode,
-                  prepaidInterestCents: progress.prepaidInterestCents,
-                  autoCalculate: true
-                });
-                void onUpdate({ ...loan, remainingPrincipalCents: 0, paidAmountCents: finalProgress.totalCashPaidCents, paidPeriods: loan.termMonths, status: "paid_off" });
-              }}>標示已結清</button>}
+              {loan.status === "active" && (
+                <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                  <button className="btn-primary w-full" onClick={() => onRecordPayment(loan)}>記錄本期還款</button>
+                  <button className="btn-secondary w-full" onClick={() => {
+                    if (!window.confirm(`只在貸款已於其他地方結清時使用。確認將 ${loan.name} 手動設為已結清？`)) return;
+                    const finalProgress = calculateLoanProgress({
+                      originalPrincipalCents: loan.originalPrincipalCents,
+                      remainingPrincipalCents: 0,
+                      annualRate: loan.annualRate,
+                      termMonths: loan.termMonths,
+                      paidPeriods: loan.termMonths,
+                      paymentPerPeriodCents: loan.paymentPerPeriodCents,
+                      paidAmountCents: loan.paidAmountCents,
+                      trackingMode,
+                      prepaidInterestCents: progress.prepaidInterestCents,
+                      autoCalculate: true
+                    });
+                    void onUpdate({ ...loan, remainingPrincipalCents: 0, paidAmountCents: finalProgress.totalCashPaidCents, paidPeriods: loan.termMonths, status: "paid_off" });
+                  }}>手動設為已結清</button>
+                </div>
+              )}
               <details className="group mt-4 border-t border-slate-200 pt-3 dark:border-slate-800">
                 <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-brand-700 dark:text-brand-100"><Pencil size={15} />編輯貸款</summary>
                 <form className="mt-3 space-y-3" onSubmit={handleFormSubmit((formData) => {
@@ -6364,13 +6633,17 @@ function LoansPage({
 }
 
 function DepositsPage({
+  accounts,
   deposits,
   onAdd,
+  onUpdate,
   onDelete,
   notify
 }: {
+  accounts: FinancialAccount[];
   deposits: Deposit[];
   onAdd: (deposit: Deposit) => Promise<void>;
+  onUpdate: (deposit: Deposit) => Promise<void>;
   onDelete: (deposit: Deposit) => Promise<void>;
   notify: (type: ToastType, message: string) => void;
 }) {
@@ -6384,6 +6657,11 @@ function DepositsPage({
   });
   const result = calculateDeposit(calcInput);
   const activeDeposits = deposits.filter((deposit) => deposit.isActive);
+  const depositAccounts = accounts.filter(
+    (account) => account.isActive && (account.type === "time_deposit" || account.type === "savings")
+  );
+  const linkedDepositAccountIds = new Set(activeDeposits.map((deposit) => deposit.accountId).filter(Boolean));
+  const availableDepositAccounts = depositAccounts.filter((account) => !linkedDepositAccountIds.has(account.id));
   const depositPrincipalCents = activeDeposits.reduce((sum, deposit) => sum + deposit.principalCents, 0);
   const depositInterestCents = activeDeposits.reduce((sum, deposit) => sum + deposit.estimatedInterestCents, 0);
   const depositMaturityAmountCents = activeDeposits.reduce((sum, deposit) => sum + deposit.estimatedMaturityAmountCents, 0);
@@ -6427,6 +6705,7 @@ function DepositsPage({
     void onAdd({
       id: crypto.randomUUID(),
       userId: localUserId,
+      accountId: String(formData.get("accountId") || "") || undefined,
       name: String(formData.get("name")),
       institution: String(formData.get("institution") ?? ""),
       principalCents: principal,
@@ -6514,6 +6793,12 @@ function DepositsPage({
           <form className="space-y-3" onSubmit={handleFormSubmit(addDeposit)}>
             <Field label="存款名稱"><input className="input" name="name" required /></Field>
             <Field label="金融機構"><input className="input" name="institution" /></Field>
+            <Field label="對應帳戶">
+              <select className="input" name="accountId" defaultValue="">
+                <option value="">不連結帳戶</option>
+                {availableDepositAccounts.map((account) => <option key={account.id} value={account.id}>{account.name} · {formatMoney(account.balanceCents)}</option>)}
+              </select>
+            </Field>
             <Field label="本金"><input className="input" name="principal" inputMode="decimal" required /></Field>
             <Field label="年利率 %"><input className="input" name="annualRate" inputMode="decimal" defaultValue="1.6" /></Field>
             <Field label="期間（月）"><input className="input" name="termMonths" type="number" min={1} defaultValue={12} /></Field>
@@ -6534,6 +6819,24 @@ function DepositsPage({
                 <Info label="到期金額" value={formatMoney(deposit.estimatedMaturityAmountCents)} />
                 <Info label="到期日" value={formatDate(deposit.maturityDate)} />
               </div>
+              <details className="mt-4 border-t border-slate-200 pt-3 dark:border-slate-700">
+                <summary className="cursor-pointer text-sm font-semibold text-emerald-700 dark:text-emerald-300">編輯存款</summary>
+                <form className="mt-3 space-y-3" onSubmit={handleFormSubmit((formData) => {
+                  const accountId = String(formData.get("accountId") || "") || undefined;
+                  void onUpdate({ ...deposit, accountId });
+                })}>
+                  <Field label="對應帳戶">
+                    <select className="input" name="accountId" defaultValue={deposit.accountId ?? ""}>
+                      <option value="">不連結帳戶</option>
+                      {depositAccounts
+                        .filter((account) => account.id === deposit.accountId || !linkedDepositAccountIds.has(account.id))
+                        .map((account) => <option key={account.id} value={account.id}>{account.name} · {formatMoney(account.balanceCents)}</option>)}
+                    </select>
+                  </Field>
+                  <p className="helper-text">連結後，總資產會採用帳戶餘額，避免同一筆定存重複計算。</p>
+                  <button className="btn-primary w-full" type="submit">儲存連結</button>
+                </form>
+              </details>
             </div>
           ))}
         </section>
@@ -7296,16 +7599,17 @@ type InvestmentSection = "stocks" | "etfs" | "funds" | "bonds" | "forex" | "cryp
 
 const investmentSectionConfig: Record<InvestmentSection, {
   label: string;
+  assetType: InvestmentAsset["assetType"];
   kinds: InvestmentCategory["kind"][];
   defaultKind: InvestmentCategory["kind"];
   defaultMarket: InvestmentCategory["market"];
 }> = {
-  stocks: { label: "股票", kinds: ["tw_stock", "us_stock"], defaultKind: "tw_stock", defaultMarket: "TW" },
-  etfs: { label: "ETF", kinds: ["etf"], defaultKind: "etf", defaultMarket: "TW" },
-  funds: { label: "基金", kinds: ["mutual_fund", "money_market"], defaultKind: "mutual_fund", defaultMarket: "GLOBAL" },
-  bonds: { label: "債券", kinds: ["bond_fund"], defaultKind: "bond_fund", defaultMarket: "GLOBAL" },
-  forex: { label: "外匯", kinds: ["forex"], defaultKind: "forex", defaultMarket: "FX" },
-  crypto: { label: "加密貨幣", kinds: ["crypto"], defaultKind: "crypto", defaultMarket: "CRYPTO" }
+  stocks: { label: "股票", assetType: "stock", kinds: ["tw_stock", "us_stock"], defaultKind: "tw_stock", defaultMarket: "TW" },
+  etfs: { label: "ETF", assetType: "etf", kinds: ["etf"], defaultKind: "etf", defaultMarket: "TW" },
+  funds: { label: "基金", assetType: "fund", kinds: ["mutual_fund", "money_market"], defaultKind: "mutual_fund", defaultMarket: "GLOBAL" },
+  bonds: { label: "債券", assetType: "bond", kinds: ["bond_fund"], defaultKind: "bond_fund", defaultMarket: "GLOBAL" },
+  forex: { label: "外匯", assetType: "forex", kinds: ["forex"], defaultKind: "forex", defaultMarket: "FX" },
+  crypto: { label: "加密貨幣", assetType: "crypto", kinds: ["crypto"], defaultKind: "crypto", defaultMarket: "CRYPTO" }
 };
 
 function InvestmentsPage({
@@ -7332,8 +7636,8 @@ function InvestmentsPage({
   notify: (type: ToastType, message: string) => void;
 }) {
   const config = investmentSectionConfig[section];
-  const supportsHoldings = section === "forex" || section === "crypto";
-  const selectedAssetType: InvestmentAsset["assetType"] = section === "crypto" ? "crypto" : "forex";
+  const supportsHoldings = true;
+  const selectedAssetType = config.assetType;
   const [assetType, setAssetType] = useState<InvestmentAsset["assetType"]>(selectedAssetType);
   const [quoteCurrency, setQuoteCurrency] = useState<InvestmentAsset["quoteCurrency"]>(ledgerCurrency);
   const [editingAsset, setEditingAsset] = useState<InvestmentAsset | null>(null);
@@ -7365,12 +7669,10 @@ function InvestmentsPage({
   const totalValueCents = valuations.reduce((sum, row) => sum + row.valuation.currentValueCents, 0);
   const totalProfitLossCents = totalValueCents - totalCostCents;
   const totalReturnRate = totalCostCents > 0 ? totalProfitLossCents / totalCostCents : 0;
-  const forexValueCents = valuations.filter((row) => row.asset.assetType === "forex").reduce((sum, row) => sum + row.valuation.currentValueCents, 0);
-  const cryptoValueCents = valuations.filter((row) => row.asset.assetType === "crypto").reduce((sum, row) => sum + row.valuation.currentValueCents, 0);
-  const assetDistributionRows = [
-    { category: "外匯", amountCents: forexValueCents },
-    { category: "加密貨幣", amountCents: cryptoValueCents }
-  ].filter((row) => row.amountCents > 0);
+  const assetDistributionRows = valuations
+    .map(({ asset, valuation }) => ({ category: asset.symbol, amountCents: valuation.currentValueCents }))
+    .filter((row) => row.amountCents > 0)
+    .sort((a, b) => b.amountCents - a.amountCents);
 
   function addCategory(formData: FormData) {
     const name = String(formData.get("name") ?? "").trim();
@@ -7490,15 +7792,15 @@ function InvestmentsPage({
               <p className="text-xs font-semibold text-sky-600 dark:text-sky-300">{editingAsset ? "編輯持倉" : "新增持倉"}</p>
               <h2 className="mt-1 text-lg font-semibold">{config.label}</h2>
             </div>
-            {assetType === "forex" ? <ArrowRightLeft className="text-sky-600 dark:text-sky-300" size={22} /> : <Bitcoin className="text-amber-600 dark:text-amber-300" size={22} />}
+            {assetType === "forex" ? <ArrowRightLeft className="text-sky-600 dark:text-sky-300" size={22} /> : assetType === "crypto" ? <Bitcoin className="text-amber-600 dark:text-amber-300" size={22} /> : <TrendingUp className="text-emerald-600 dark:text-emerald-300" size={22} />}
           </div>
           <form key={`${editingAsset?.id ?? "new"}-${assetType}-${assetFormVersion}`} className="mt-4 space-y-3" onSubmit={handleFormSubmit(saveAsset)}>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="資產代碼"><input className="input uppercase" name="symbol" defaultValue={editingAsset?.symbol} placeholder={assetType === "forex" ? "USD" : "BTC"} maxLength={20} required /></Field>
-              <Field label="資產名稱"><input className="input" name="name" defaultValue={editingAsset?.name} placeholder={assetType === "forex" ? "美元" : "Bitcoin"} maxLength={100} required /></Field>
+              <Field label="資產代碼"><input className="input uppercase" name="symbol" defaultValue={editingAsset?.symbol} placeholder={assetType === "forex" ? "USD" : assetType === "crypto" ? "BTC" : "例如 2330"} maxLength={20} required /></Field>
+              <Field label="資產名稱"><input className="input" name="name" defaultValue={editingAsset?.name} placeholder={assetType === "forex" ? "美元" : assetType === "crypto" ? "Bitcoin" : config.label + "名稱"} maxLength={100} required /></Field>
             </div>
             <Field label="持有數量"><input className="input" name="quantity" type="number" min="0.0000000001" step="0.0000000001" defaultValue={editingAsset?.quantity ?? ""} required /></Field>
-            {assetType === "crypto" && (
+            {assetType !== "forex" && (
               <Field label="報價幣別">
                 <select className="input" name="quoteCurrency" value={quoteCurrency} onChange={(event) => setQuoteCurrency(event.target.value as InvestmentAsset["quoteCurrency"])}>
                   {[...Object.keys(currencyLabels), "USDT"].map((currency) => <option key={currency} value={currency}>{currency}</option>)}
@@ -7513,7 +7815,7 @@ function InvestmentsPage({
                 <input className="input" name="currentUnitPrice" type="number" min="0" step="0.00000001" defaultValue={editingAsset?.currentUnitPrice ?? ""} required />
               </Field>
             </div>
-            {assetType === "crypto" && quoteCurrency !== ledgerCurrency && (
+            {assetType !== "forex" && quoteCurrency !== ledgerCurrency && (
               <Field label={`1 ${quoteCurrency} 可換多少 ${ledgerCurrency}`}>
                 <input className="input" name="exchangeRateToLedger" type="number" min="0.0000000001" max="1000000" step="0.0000000001" defaultValue={editingAsset?.exchangeRateToLedger ?? 1} required />
               </Field>
@@ -7525,7 +7827,7 @@ function InvestmentsPage({
               </select>
             </Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label={assetType === "forex" ? "持有機構" : "交易平台"}><input className="input" name="platform" defaultValue={editingAsset?.platform} placeholder={assetType === "forex" ? "銀行或外幣帳戶" : "交易所或冷錢包"} maxLength={100} /></Field>
+              <Field label={assetType === "forex" ? "持有機構" : "券商或平台"}><input className="input" name="platform" defaultValue={editingAsset?.platform} placeholder={assetType === "forex" ? "銀行或外幣帳戶" : assetType === "crypto" ? "交易所或冷錢包" : "券商、銀行或基金平台"} maxLength={100} /></Field>
               <Field label="首次買入日期"><input className="input" name="acquiredDate" type="date" defaultValue={editingAsset?.acquiredDate} /></Field>
             </div>
             <Field label="備註"><input className="input" name="note" defaultValue={editingAsset?.note} maxLength={500} placeholder="策略、用途或觀察重點" /></Field>
@@ -7554,7 +7856,7 @@ function InvestmentsPage({
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex min-w-0 items-center gap-3">
                       <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${asset.assetType === "forex" ? "bg-sky-50 text-sky-700 dark:bg-sky-950 dark:text-sky-200" : "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-200"}`}>
-                        {asset.assetType === "forex" ? <ArrowRightLeft size={18} /> : <Bitcoin size={18} />}
+                        {asset.assetType === "forex" ? <ArrowRightLeft size={18} /> : asset.assetType === "crypto" ? <Bitcoin size={18} /> : <TrendingUp size={18} />}
                       </span>
                       <div className="min-w-0">
                         <p className="truncate font-semibold">{asset.symbol} · {asset.name}</p>

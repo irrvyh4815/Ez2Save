@@ -97,6 +97,25 @@ Apply `supabase/migrations/202607140003_auth_profiles_admin.sql` to enable:
 - 非必要不開啟 Realtime。
 - 敏感財務資料不存入 localStorage。
 
+## Atomic Financial Events
+
+Apply `supabase/migrations/202608110016_atomic_financial_events.sql` before deploying the matching application version. New posted transactions are the single source of truth for linked balance changes:
+
+- income and expense update the selected cash account
+- transfers decrease the source account and increase the destination account
+- credit card purchases increase unbilled card debt without decreasing cash
+- credit card payments decrease cash and the selected card balance, and create a payment record
+- loan payments decrease cash and principal, advance payment progress, and create a payment record
+- investment buys and sells update both cash and holding quantity
+
+All linked changes run in one PostgreSQL transaction. If one validation or update fails, nothing is posted. Soft-deleting a posted transaction reverses its linked effects. Existing transactions are not replayed or rewritten by the migration.
+
+When a card payment includes selected installment items, the same event advances their paid periods, paid amount, remaining balance, next due date, and status. Reversing that payment restores the exact prior installment state. Accounts, cards, loans, and investment holdings with non-zero balances cannot be removed until they are settled or transferred, preventing assets or liabilities from disappearing from the ledger.
+
+`deposits.account_id` can link a deposit detail to one savings or time-deposit account in the same ledger. A linked deposit uses the account balance in total assets, so the principal is not counted twice.
+
+Account names, remembered categories, card identities, import fingerprints, budgets, snapshots, summaries, and AI report caches are unique within a ledger instead of across the whole user account. The same user can therefore use the same familiar names in separate personal, family, or investment ledgers without the records affecting one another.
+
 ## Credit Card Installment Debt
 
 `credit_card_installments` stores each installment plan as a debt item, including:

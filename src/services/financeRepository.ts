@@ -283,7 +283,7 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
       .order("created_at", { ascending: false }),
     scoped(supabase
       .from("transactions")
-      .select("id,user_id,transaction_date,transaction_type,amount_cents,category_name,subcategory_name,account_id,transfer_account_id,credit_card_id,loan_id,merchant,note,is_necessary,is_recurring,tags,source,metadata,created_at,updated_at"))
+      .select("id,user_id,transaction_date,transaction_type,amount_cents,category_name,subcategory_name,account_id,transfer_account_id,credit_card_id,loan_id,investment_asset_id,merchant,note,is_necessary,is_recurring,tags,source,metadata,created_at,updated_at"))
       .is("deleted_at", null)
       .order("transaction_date", { ascending: false })
       .limit(500),
@@ -304,7 +304,7 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
       .order("created_at", { ascending: false }),
     scoped(supabase
       .from("deposits")
-      .select("id,user_id,name,institution,principal_cents,annual_rate,start_date,maturity_date,term_months,interest_type,interest_payout,auto_renew,maturity_instruction,estimated_interest_cents,estimated_maturity_amount_cents,include_in_available_cash,note,is_active,created_at,updated_at"))
+      .select("id,user_id,account_id,name,institution,principal_cents,annual_rate,start_date,maturity_date,term_months,interest_type,interest_payout,auto_renew,maturity_instruction,estimated_interest_cents,estimated_maturity_amount_cents,include_in_available_cash,note,is_active,created_at,updated_at"))
       .is("deleted_at", null)
       .order("maturity_date", { ascending: true }),
     scoped(supabase
@@ -769,6 +769,7 @@ export async function createDeposit(deposit: Deposit, ledgerId?: string): Promis
     .insert({
       user_id: sessionData.session.user.id,
       ...(ledgerId ? { ledger_id: ledgerId } : {}),
+      account_id: deposit.accountId || null,
       name: deposit.name,
       institution: deposit.institution || null,
       principal_cents: deposit.principalCents,
@@ -786,9 +787,39 @@ export async function createDeposit(deposit: Deposit, ledgerId?: string): Promis
       note: deposit.note || null,
       is_active: deposit.isActive
     })
-    .select("id,user_id,name,institution,principal_cents,annual_rate,start_date,maturity_date,term_months,interest_type,interest_payout,auto_renew,maturity_instruction,estimated_interest_cents,estimated_maturity_amount_cents,include_in_available_cash,note,is_active,created_at,updated_at")
+    .select("id,user_id,account_id,name,institution,principal_cents,annual_rate,start_date,maturity_date,term_months,interest_type,interest_payout,auto_renew,maturity_instruction,estimated_interest_cents,estimated_maturity_amount_cents,include_in_available_cash,note,is_active,created_at,updated_at")
     .single();
   if (error) throw new Error("存款儲存失敗");
+  return mapDeposit(data);
+}
+
+export async function updateDeposit(deposit: Deposit): Promise<Deposit> {
+  if (!supabase) return { ...deposit, updatedAt: new Date().toISOString() };
+  const { data, error } = await supabase
+    .from("deposits")
+    .update({
+      account_id: deposit.accountId || null,
+      name: deposit.name,
+      institution: deposit.institution || null,
+      principal_cents: deposit.principalCents,
+      annual_rate: deposit.annualRate,
+      start_date: deposit.startDate,
+      maturity_date: deposit.maturityDate,
+      term_months: deposit.termMonths,
+      interest_type: deposit.interestType,
+      interest_payout: deposit.interestPayout,
+      auto_renew: deposit.autoRenew,
+      maturity_instruction: deposit.maturityInstruction,
+      estimated_interest_cents: deposit.estimatedInterestCents,
+      estimated_maturity_amount_cents: deposit.estimatedMaturityAmountCents,
+      include_in_available_cash: deposit.includeInAvailableCash,
+      note: deposit.note || null,
+      is_active: deposit.isActive
+    })
+    .eq("id", deposit.id)
+    .select("id,user_id,account_id,name,institution,principal_cents,annual_rate,start_date,maturity_date,term_months,interest_type,interest_payout,auto_renew,maturity_instruction,estimated_interest_cents,estimated_maturity_amount_cents,include_in_available_cash,note,is_active,created_at,updated_at")
+    .single();
+  if (error) throw new Error("存款更新失敗");
   return mapDeposit(data);
 }
 
@@ -1168,7 +1199,7 @@ export async function createTransactionWithCategory(transaction: Transaction, le
         is_necessary_default: transaction.isNecessary,
         is_active: true
       },
-      { onConflict: "user_id,name,transaction_type" }
+      { onConflict: "ledger_id,user_id,name,transaction_type" }
     )
     .select("id")
     .single();
@@ -1189,6 +1220,7 @@ export async function createTransactionWithCategory(transaction: Transaction, le
       transfer_account_id: transaction.transferAccountId || null,
       credit_card_id: transaction.creditCardId || null,
       loan_id: transaction.loanId || null,
+      investment_asset_id: transaction.investmentAssetId || null,
       merchant: transaction.merchant || null,
       note: transaction.note || null,
       is_necessary: transaction.isNecessary,
@@ -1197,7 +1229,7 @@ export async function createTransactionWithCategory(transaction: Transaction, le
       source: transaction.source,
       metadata: transaction.metadata ?? {}
     })
-    .select("id,user_id,transaction_date,transaction_type,amount_cents,category_name,subcategory_name,account_id,transfer_account_id,credit_card_id,loan_id,merchant,note,is_necessary,is_recurring,tags,source,metadata,created_at,updated_at")
+    .select("id,user_id,transaction_date,transaction_type,amount_cents,category_name,subcategory_name,account_id,transfer_account_id,credit_card_id,loan_id,investment_asset_id,merchant,note,is_necessary,is_recurring,tags,source,metadata,created_at,updated_at")
     .single();
   if (error) throw new Error("交易儲存失敗");
   return mapTransaction(data);
@@ -1339,6 +1371,7 @@ function mapTransaction(row: Record<string, unknown>): Transaction {
     transferAccountId: nullableString(row.transfer_account_id),
     creditCardId: nullableString(row.credit_card_id),
     loanId: nullableString(row.loan_id),
+    investmentAssetId: nullableString(row.investment_asset_id),
     merchant: nullableString(row.merchant),
     note: nullableString(row.note),
     isNecessary: Boolean(row.is_necessary),
@@ -1438,6 +1471,7 @@ function mapDeposit(row: Record<string, unknown>): Deposit {
   return {
     id: String(row.id),
     userId: String(row.user_id),
+    accountId: nullableString(row.account_id),
     name: String(row.name),
     institution: nullableString(row.institution),
     principalCents: toNumber(row.principal_cents),

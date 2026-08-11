@@ -4,6 +4,9 @@ import { exportReportToPdf } from "./reportExport";
 
 const emptyDashboard: DashboardSummary = {
   totalAssetsCents: 0,
+  accountAssetsCents: 0,
+  depositAssetsCents: 0,
+  investmentAssetsCents: 0,
   totalLiabilitiesCents: 0,
   netWorthCents: 0,
   monthlyIncomeCents: 0,

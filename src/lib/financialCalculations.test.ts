@@ -23,7 +23,7 @@ import {
   summarizeExpenseNature,
   summarizeDashboard
 } from "./financialCalculations";
-import type { CreditCard, CreditCardInstallment, FinancialAccount, Loan, Transaction } from "../types/finance";
+import type { CreditCard, CreditCardInstallment, Deposit, FinancialAccount, InvestmentAsset, Loan, Transaction } from "../types/finance";
 
 const base = {
   userId: "user-1",
@@ -437,10 +437,12 @@ describe("summary calculations", () => {
   it("does not count transfers and credit-card payments as income or expense", () => {
     const transfer = transaction("tx-transfer", "transfer", 10_000_00);
     const cardPayment = transaction("tx-card-payment", "credit_card_payment", 10_000_00);
+    const investmentBuy = transaction("tx-investment-buy", "investment_buy", 10_000_00);
     const expense = transaction("tx-expense", "expense", 10_000_00);
 
     expect(isIncomeExpenseTransaction(transfer)).toBe(false);
     expect(isIncomeExpenseTransaction(cardPayment)).toBe(false);
+    expect(isIncomeExpenseTransaction(investmentBuy)).toBe(false);
     expect(isIncomeExpenseTransaction(expense)).toBe(true);
   });
 
@@ -517,6 +519,149 @@ describe("summary calculations", () => {
     expect(summary.monthlyBalanceCents).toBe(55_000_00);
     expect(Number.isFinite(summary.debtRatio)).toBe(true);
     expect(summary.emergencyFundMonths).toBe(3);
+  });
+
+  it("includes deposits, investment holdings, and installment debt in the balanced ledger", () => {
+    const account: FinancialAccount = {
+      ...base,
+      id: "account-assets",
+      name: "活存",
+      type: "checking",
+      balanceCents: 120_000_00,
+      includeInAvailableCash: true,
+      includeInEmergencyFund: true,
+      isActive: true
+    };
+    const deposit: Deposit = {
+      ...base,
+      id: "deposit-assets",
+      name: "一年期定存",
+      principalCents: 30_000_00,
+      annualRate: 0.02,
+      startDate: "2026-01-01",
+      maturityDate: "2027-01-01",
+      termMonths: 12,
+      interestType: "simple",
+      interestPayout: "maturity",
+      autoRenew: false,
+      maturityInstruction: "transfer_out",
+      estimatedInterestCents: 600_00,
+      estimatedMaturityAmountCents: 30_600_00,
+      includeInAvailableCash: false,
+      isActive: true
+    };
+    const investment: InvestmentAsset = {
+      ...base,
+      id: "stock-assets",
+      assetType: "stock",
+      symbol: "2330",
+      name: "台積電",
+      quantity: 100,
+      quoteCurrency: "TWD",
+      averageUnitCost: 400,
+      currentUnitPrice: 500,
+      exchangeRateToLedger: 1,
+      isActive: true
+    };
+    const installment: CreditCardInstallment = {
+      ...base,
+      id: "installment-liability",
+      creditCardId: "card-assets",
+      installmentType: "single_purchase",
+      includedInCardBalance: false,
+      totalAmountCents: 40_000_00,
+      annualRate: 0,
+      periods: 4,
+      paidPeriods: 1,
+      monthlyPaymentCents: 10_000_00,
+      paidAmountCents: 10_000_00,
+      remainingAmountCents: 30_000_00,
+      startedOn: "2026-06-01",
+      status: "active"
+    };
+    const card: CreditCard = {
+      ...base,
+      id: "card-assets",
+      name: "日常卡",
+      issuer: "銀行",
+      last4: "5678",
+      creditLimitCents: 200_000_00,
+      statementDay: 20,
+      paymentDueDay: 5,
+      unbilledAmountCents: 8_000_00,
+      currentStatementAmountCents: 12_000_00,
+      minimumPaymentCents: 1_000_00,
+      installmentBalanceCents: 0,
+      annualFeeCents: 0,
+      isActive: true,
+      recommendedUtilizationRate: 0.3
+    };
+
+    const summary = summarizeDashboard({
+      accounts: [account],
+      creditCards: [card],
+      creditCardInstallments: [installment],
+      loans: [],
+      deposits: [deposit],
+      investmentAssets: [investment],
+      transactions: [],
+      month: "2026-07",
+      averageNecessaryExpenseCents: 0
+    });
+
+    expect(summary.accountAssetsCents).toBe(120_000_00);
+    expect(summary.depositAssetsCents).toBe(30_000_00);
+    expect(summary.investmentAssetsCents).toBe(50_000_00);
+    expect(summary.totalAssetsCents).toBe(200_000_00);
+    expect(summary.totalLiabilitiesCents).toBe(50_000_00);
+    expect(summary.netWorthCents).toBe(150_000_00);
+  });
+
+  it("does not count a deposit twice when it is linked to an active account", () => {
+    const account: FinancialAccount = {
+      ...base,
+      id: "time-deposit-account",
+      name: "定存帳戶",
+      type: "time_deposit",
+      balanceCents: 50_000_00,
+      includeInAvailableCash: false,
+      includeInEmergencyFund: false,
+      isActive: true
+    };
+    const deposit: Deposit = {
+      ...base,
+      id: "linked-deposit",
+      accountId: account.id,
+      name: "一年期定存",
+      principalCents: 50_000_00,
+      annualRate: 0.018,
+      startDate: "2026-01-01",
+      maturityDate: "2027-01-01",
+      termMonths: 12,
+      interestType: "simple",
+      interestPayout: "maturity",
+      autoRenew: false,
+      maturityInstruction: "transfer_out",
+      estimatedInterestCents: 900_00,
+      estimatedMaturityAmountCents: 50_900_00,
+      includeInAvailableCash: false,
+      isActive: true
+    };
+
+    const summary = summarizeDashboard({
+      accounts: [account],
+      creditCards: [],
+      loans: [],
+      deposits: [deposit],
+      transactions: [],
+      month: "2026-07",
+      averageNecessaryExpenseCents: 0
+    });
+
+    expect(summary.accountAssetsCents).toBe(50_000_00);
+    expect(summary.depositAssetsCents).toBe(0);
+    expect(summary.totalAssetsCents).toBe(50_000_00);
+    expect(summary.timeDepositTotalCents).toBe(50_000_00);
   });
 });
 

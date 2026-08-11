@@ -2,6 +2,7 @@ import type {
   CreditCard,
   CreditCardInstallment,
   DashboardSummary,
+  Deposit,
   DepositInterestType,
   FinancialPlanRiskProfile,
   FinancialAccount,
@@ -756,26 +757,46 @@ export function isIncomeExpenseTransaction(transaction: Transaction): boolean {
 export function summarizeDashboard(args: {
   accounts: FinancialAccount[];
   creditCards: CreditCard[];
+  creditCardInstallments?: CreditCardInstallment[];
   loans: Loan[];
+  deposits?: Deposit[];
+  investmentAssets?: InvestmentAsset[];
   transactions: Transaction[];
   month: string;
   dateRange?: { startDate: string; endDate: string };
   averageNecessaryExpenseCents: number;
 }): DashboardSummary {
   const activeAccounts = args.accounts.filter((account) => account.isActive);
-  const totalAssetsCents = activeAccounts.reduce((sum, account) => sum + Math.max(0, account.balanceCents), 0);
+  const activeDeposits = (args.deposits ?? []).filter((deposit) => deposit.isActive);
+  const activeInvestmentAssets = (args.investmentAssets ?? []).filter((asset) => asset.isActive);
+  const activeAccountIds = new Set(activeAccounts.map((account) => account.id));
+  const standaloneDeposits = activeDeposits.filter(
+    (deposit) => !deposit.accountId || !activeAccountIds.has(deposit.accountId)
+  );
+  const accountAssetsCents = activeAccounts.reduce((sum, account) => sum + Math.max(0, account.balanceCents), 0);
+  const depositAssetsCents = standaloneDeposits.reduce((sum, deposit) => sum + Math.max(0, deposit.principalCents), 0);
+  const investmentAssetsCents = activeInvestmentAssets.reduce(
+    (sum, asset) => sum + Math.max(0, calculateInvestmentAssetValuation(asset).currentValueCents),
+    0
+  );
+  const totalAssetsCents = accountAssetsCents + depositAssetsCents + investmentAssetsCents;
   const availableCashCents = activeAccounts
     .filter((account) => account.includeInAvailableCash)
-    .reduce((sum, account) => sum + Math.max(0, account.balanceCents), 0);
-  const timeDepositTotalCents = activeAccounts
+    .reduce((sum, account) => sum + Math.max(0, account.balanceCents), 0)
+    + standaloneDeposits
+      .filter((deposit) => deposit.includeInAvailableCash)
+      .reduce((sum, deposit) => sum + Math.max(0, deposit.principalCents), 0);
+  const timeDepositAccountTotalCents = activeAccounts
     .filter((account) => account.type === "time_deposit")
     .reduce((sum, account) => sum + Math.max(0, account.balanceCents), 0);
-  const monthlyCreditCardDueCents = args.creditCards.reduce((sum, card) => sum + card.currentStatementAmountCents, 0);
+  const timeDepositTotalCents = timeDepositAccountTotalCents + depositAssetsCents;
+  const activeCreditCards = args.creditCards.filter((card) => card.isActive);
+  const monthlyCreditCardDueCents = activeCreditCards.reduce((sum, card) => sum + card.currentStatementAmountCents, 0);
   const monthlyLoanDueCents = args.loans
     .filter((loan) => loan.status === "active")
     .reduce((sum, loan) => sum + loan.paymentPerPeriodCents, 0);
   const loanLiabilities = args.loans.reduce((sum, loan) => sum + summarizeLoanProgress(loan).remainingPrincipalCents, 0);
-  const cardLiabilities = args.creditCards.reduce((sum, card) => sum + card.unbilledAmountCents + card.currentStatementAmountCents, 0);
+  const cardLiabilities = summarizeCreditCardLimits(activeCreditCards, args.creditCardInstallments ?? []).usedCreditCents;
   const totalLiabilitiesCents = loanLiabilities + cardLiabilities;
   const monthlyTransactions = args.dateRange
     ? args.transactions.filter((transaction) => transaction.date >= args.dateRange!.startDate && transaction.date <= args.dateRange!.endDate)
@@ -789,6 +810,9 @@ export function summarizeDashboard(args: {
 
   return {
     totalAssetsCents,
+    accountAssetsCents,
+    depositAssetsCents,
+    investmentAssetsCents,
     totalLiabilitiesCents,
     netWorthCents: calculateNetWorth(totalAssetsCents, totalLiabilitiesCents),
     monthlyIncomeCents,

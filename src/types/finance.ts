@@ -17,7 +17,9 @@ export type TransactionType =
   | "credit_card_purchase"
   | "credit_card_payment"
   | "loan_payment"
-  | "deposit_transfer";
+  | "deposit_transfer"
+  | "investment_buy"
+  | "investment_sell";
 
 export type LoanType =
   | "personal"
@@ -77,6 +79,7 @@ export interface Transaction extends BaseEntity {
   transferAccountId?: string;
   creditCardId?: string;
   loanId?: string;
+  investmentAssetId?: string;
   merchant?: string;
   note?: string;
   isNecessary: boolean;
@@ -166,6 +169,7 @@ export interface Loan extends BaseEntity {
 }
 
 export interface Deposit extends BaseEntity {
+  accountId?: string;
   name: string;
   institution?: string;
   principalCents: number;
@@ -266,7 +270,7 @@ export interface InvestmentCategory extends BaseEntity {
 
 export interface InvestmentAsset extends BaseEntity {
   categoryId?: string;
-  assetType: "forex" | "crypto";
+  assetType: "stock" | "etf" | "fund" | "bond" | "forex" | "crypto";
   symbol: string;
   name: string;
   quantity: number;
@@ -311,6 +315,9 @@ export interface FinancialPlan extends BaseEntity {
 
 export interface DashboardSummary {
   totalAssetsCents: number;
+  accountAssetsCents: number;
+  depositAssetsCents: number;
+  investmentAssetsCents: number;
   totalLiabilitiesCents: number;
   netWorthCents: number;
   monthlyIncomeCents: number;
