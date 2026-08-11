@@ -261,11 +261,11 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
 
   const [
     accounts,
-    transactions,
+    initialTransactions,
     creditCards,
     creditCardInstallments,
     loans,
-    deposits,
+    initialDeposits,
     budgets,
     reminders,
     categories,
@@ -358,6 +358,32 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
       .order("notification_type", { ascending: true })
   ]);
 
+  let transactions = initialTransactions;
+  let deposits = initialDeposits;
+
+  if (isMissingColumnError(transactions.error, "investment_asset_id")) {
+    const fallbackTransactions = await scoped(supabase
+      .from("transactions")
+      .select("id,user_id,transaction_date,transaction_type,amount_cents,category_name,subcategory_name,account_id,transfer_account_id,credit_card_id,loan_id,merchant,note,is_necessary,is_recurring,tags,source,metadata,created_at,updated_at"))
+      .is("deleted_at", null)
+      .order("transaction_date", { ascending: false })
+      .limit(500);
+    transactions = (fallbackTransactions.error
+      ? fallbackTransactions
+      : { ...fallbackTransactions, data: (fallbackTransactions.data ?? []).map((row) => ({ ...row, investment_asset_id: null })) }) as typeof transactions;
+  }
+
+  if (isMissingColumnError(deposits.error, "account_id")) {
+    const fallbackDeposits = await scoped(supabase
+      .from("deposits")
+      .select("id,user_id,name,institution,principal_cents,annual_rate,start_date,maturity_date,term_months,interest_type,interest_payout,auto_renew,maturity_instruction,estimated_interest_cents,estimated_maturity_amount_cents,include_in_available_cash,note,is_active,created_at,updated_at"))
+      .is("deleted_at", null)
+      .order("maturity_date", { ascending: true });
+    deposits = (fallbackDeposits.error
+      ? fallbackDeposits
+      : { ...fallbackDeposits, data: (fallbackDeposits.data ?? []).map((row) => ({ ...row, account_id: null })) }) as typeof deposits;
+  }
+
   const responses = [accounts, transactions, creditCards, creditCardInstallments, loans, deposits, budgets, reminders, categories];
   const failed = responses.find((response) => response.error);
   if (failed?.error) throw new Error("Supabase 資料讀取失敗，請確認 migration 與 RLS 設定");
@@ -394,6 +420,11 @@ export async function loadFinanceData(ledgerId?: string): Promise<LoadFinanceRes
       categories: [...new Set((categories.data ?? []).map((row) => String(row.name)).filter(Boolean))]
     }
   };
+}
+
+function isMissingColumnError(error: { code?: string; message?: string } | null, column: string): boolean {
+  if (!error || !["42703", "PGRST204"].includes(error.code ?? "")) return false;
+  return (error.message ?? "").includes(column);
 }
 
 export async function loadLedgerBooks(): Promise<LedgerBook[]> {
